@@ -105,7 +105,7 @@ it is disabled.")
       doc
     ;; Compose a new doc string.
     (with-temp-buffer
-      (let ((lines (if doc
+      (let ((lines (if (and doc (not (string= doc "")))
                        (string-lines doc)
                      (list (format "Toggle %s on or off." mode-pretty-name)))))
         ;; Insert the first line from the doc string.
