@@ -322,17 +322,17 @@ ifeq ($(ANCIENT),yes)
 # which uses it to avoid displaying certain messages which might be
 # irritating/misleading during a bootstrap.
 .el.elc:
-	$(AM_V_ELC)$(emacs) $(BYTE_COMPILE_FLAGS) \
+	-$(AM_V_ELC)$(emacs) $(BYTE_COMPILE_FLAGS) \
 	-l comp -f batch-byte-compile $<
 	TZ=UTC0 touch -t 197001010000 $@
 else
 .el.elc:
-	$(AM_V_ELC)$(emacs) $(BYTE_COMPILE_FLAGS) \
+	-$(AM_V_ELC)$(emacs) $(BYTE_COMPILE_FLAGS) \
 	-l comp -f batch-byte+native-compile $<
 endif
 else
 .el.elc:
-	$(AM_V_ELC)$(emacs) $(BYTE_COMPILE_FLAGS) -f batch-byte-compile $<
+	-$(AM_V_ELC)$(emacs) $(BYTE_COMPILE_FLAGS) -f batch-byte-compile $<
 endif
 
 .PHONY: compile-first compile-main compile compile-always
