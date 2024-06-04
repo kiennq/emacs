@@ -583,17 +583,17 @@ See the command `outline-mode' for more information on this mode."
         (add-hook 'revert-buffer-restore-functions
                   #'outline-revert-buffer-restore-visibility nil t)
         (add-hook 'revert-buffer-restore-functions
-                  (lambda ()
-                    (when (and outline-minor-mode outline-minor-mode-highlight
-                               (not (and global-font-lock-mode
-                                         (font-lock-specified-p major-mode))))
-                      (lambda ()
-                        (outline-minor-mode-highlight-buffer))))
-                  nil t)
+                  #'outline-revert-buffer-rehighlight nil t)
         (setq-local line-move-ignore-invisible t)
 	;; Cause use of ellipses for invisible text.
 	(add-to-invisibility-spec '(outline . t))
 	(outline-apply-default-state))
+    (remove-hook 'after-change-functions
+                 #'outline--fix-buttons-after-change t)
+    (remove-hook 'revert-buffer-restore-functions
+                 #'outline-revert-buffer-restore-visibility t)
+    (remove-hook 'revert-buffer-restore-functions
+                 #'outline-revert-buffer-rehighlight t)
     (setq line-move-ignore-invisible nil)
     ;; Cause use of ellipses for invisible text.
     (remove-from-invisibility-spec '(outline . t))
@@ -1716,11 +1716,24 @@ for example, after reverting the buffer."
                  (nreverse headings) "\\|"))))
 
 (defun outline-revert-buffer-restore-visibility ()
-  "Preserve visibility of outlines in `outline-minor-mode' for `revert-buffer'."
+  "Preserve visibility when reverting buffer under `outline-minor-mode'.
+This function restores the visibility of outlines after the buffer
+under `outline-minor-mode' is reverted by `revert-buffer'."
   (let ((regexp (outline-hidden-headings-regexp)))
     (when regexp
       (lambda ()
         (outline-hide-by-heading-regexp regexp)))))
+
+(defun outline-revert-buffer-rehighlight ()
+  "Rehighlight outlines when reverting buffer under `outline-minor-mode'.
+This function rehighlightes outlines after the buffer under
+`outline-minor-mode' is reverted by `revert-buffer' when font-lock
+can't update highlighting for `outline-minor-mode-highlight'."
+  (when (and outline-minor-mode-highlight
+             (not (and global-font-lock-mode
+                       (font-lock-specified-p major-mode))))
+    (lambda ()
+      (outline-minor-mode-highlight-buffer))))
 
 
 ;;; Visibility cycling
