@@ -484,6 +484,13 @@ When visiting a script that invokes 'env -S INTERPRETER ARGS...' in
 its shebang line, Emacs will now skip over 'env -S' and deduce the
 major mode based on the interpreter after 'env -S'.
 
++++
+** New function 'sqlite-execute-batch'.
+This function lets the user execute multiple SQL statements in one go.
+It is useful, for example, when a Lisp program needs to evaluate an
+entire SQL file.
+
++++
 
 * Editing Changes in Emacs 30.1
 
