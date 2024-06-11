@@ -6362,6 +6362,8 @@ read_and_insert_process_output (struct Lisp_Process *p, char *buf,
 				     &opoint_byte);
 
   /* Adapted from call_process.  */
+  prepare_to_modify_buffer (PT, PT, NULL);
+
   if (NILP (BVAR (XBUFFER (p->buffer), enable_multibyte_characters))
 	   && ! CODING_MAY_REQUIRE_DECODING (process_coding))
     {
@@ -8879,7 +8881,7 @@ On GNU/Linux systems, the value should not exceed
 /proc/sys/fs/pipe-max-size.  See pipe(7) manpage for details.  */);
   read_process_output_max = 65536;
 
-  DEFVAR_BOOL ("read-process-output-fast", fast_read_process_output,
+  DEFVAR_BOOL ("fast-read-process-output", fast_read_process_output,
 	       doc: /* Non-nil to optimize the insertion of process output.
 We skip calling `internal-default-process-filter' and don't allocate
 the Lisp string that would be used as its argument.  Only affects the
