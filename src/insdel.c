@@ -1094,7 +1094,7 @@ insert_from_string_1 (Lisp_Object string, ptrdiff_t pos, ptrdiff_t pos_byte,
    GPT_ADDR (if not text_at_gap_tail).
    Contrary to insert_from_gap, this does not invalidate any cache,
    nor update any markers, nor record any buffer modification information
-   of any sort.  */
+   of any sort, with the single exception of notifying tree-sitter.  */
 void
 insert_from_gap_1 (ptrdiff_t nchars, ptrdiff_t nbytes, bool text_at_gap_tail)
 {
@@ -1131,9 +1131,8 @@ insert_from_gap_1 (ptrdiff_t nchars, ptrdiff_t nbytes, bool text_at_gap_tail)
    starting at GAP_END_ADDR - NBYTES (if text_at_gap_tail) and at
    GPT_ADDR (if not text_at_gap_tail).
 
-  If BEFORE_MARKERS is true, insert before markers.  At the moment the
-  only high-level callers of this functionality is
-  read_and_insert_process_output in process.c.  */
+  If BEFORE_MARKERS is true, insert before markers.  At the moment only
+  read_and_insert_process_output in process.c sets this to true.  */
 
 void
 insert_from_gap (ptrdiff_t nchars, ptrdiff_t nbytes, bool text_at_gap_tail,
