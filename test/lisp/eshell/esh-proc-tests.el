@@ -23,6 +23,7 @@
 (require 'ert)
 (require 'esh-mode)
 (require 'eshell)
+(require 'em-prompt)                    ; For `eshell-previous-prompt'
 
 (require 'eshell-tests-helpers
          (expand-file-name "eshell-tests-helpers"
@@ -290,17 +291,24 @@ prompt.  See bug#54136."
   ;; fine elsewhere.
   (skip-when (getenv "EMACS_EMBA_CI"))
   (with-temp-eshell
-   (eshell-insert-command
-    (concat "sh -c 'while true; do echo y; sleep 1; done' | "
-            "sh -c 'while true; do read NAME; done'"))
-   (let ((output-start (eshell-beginning-of-output)))
-     (eshell-kill-process)
-     (eshell-wait-for-subprocess t)
-     (should (string-match-p
-              ;; "interrupt\n" is for MS-Windows.
-              (rx (or "interrupt\n" "killed\n" "killed: 9\n" ""))
-              (buffer-substring-no-properties
-               output-start (eshell-end-of-output)))))))
+    (ert-info (#'eshell-get-debug-logs :prefix "Command logs: ")
+      (eshell-insert-command
+       (concat "sh -c 'while true; do echo y; sleep 1; done' | "
+               "sh -c 'while true; do read NAME; done'"))
+      (let ((output-start (eshell-beginning-of-output)))
+        (eshell-kill-process)
+        (eshell-wait-for-subprocess t)
+        ;; We expect at most one exit message here (from the tail
+        ;; process).  If the tail process has time to exit normally
+        ;; after we kill the head, then we'll see no exit message.
+        (should (string-match-p
+                 (rx bos (? (or "interrupt" (seq "killed" (* nonl))) "\n") eos)
+                 (buffer-substring-no-properties
+                  output-start (eshell-end-of-output))))
+        ;; Make sure Eshell only emitted one prompt by going back one
+        ;; prompt and checking the command input.
+        (eshell-previous-prompt)
+        (should (string-prefix-p "sh -c" (field-string)))))))
 
 (ert-deftest esh-proc-test/kill-pipeline-head ()
   "Test that killing the first process in a pipeline doesn't
@@ -309,15 +317,16 @@ write the exit status to the pipe.  See bug#54136."
                     (executable-find "echo")
                     (executable-find "sleep")))
   (with-temp-eshell
-   (eshell-insert-command
-    (concat "sh -c 'while true; do sleep 1; done' | "
-            "sh -c 'while read NAME; do echo =${NAME}=; done'"))
-   (let ((output-start (eshell-beginning-of-output)))
-     (kill-process (eshell-head-process))
-     (eshell-wait-for-subprocess t)
-     (should (equal (buffer-substring-no-properties
-                     output-start (eshell-end-of-output))
-                    "")))))
+    (ert-info (#'eshell-get-debug-logs :prefix "Command logs: ")
+      (eshell-insert-command
+       (concat "sh -c 'while true; do sleep 1; done' | "
+               "sh -c 'while read NAME; do echo =${NAME}=; done'"))
+      (let ((output-start (eshell-beginning-of-output)))
+        (kill-process (eshell-head-process))
+        (eshell-wait-for-subprocess t)
+        (should (equal (buffer-substring-no-properties
+                        output-start (eshell-end-of-output))
+                       ""))))))
 
 
 ;; Remote processes
