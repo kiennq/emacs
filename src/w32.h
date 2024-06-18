@@ -29,7 +29,8 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 /* File descriptor set emulation.  */
 
 /* MSVC runtime library has limit of 64 descriptors by default */
-#define FD_SETSIZE  64
+#undef FD_SETSIZE
+#define FD_SETSIZE  4096
 typedef struct {
   unsigned int bits[FD_SETSIZE / 32];
 } fd_set;
