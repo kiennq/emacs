@@ -111,9 +111,9 @@ DWORD WINAPI WaitForThreadProc(LPVOID lpParam) {
 }
 
 DWORD WaitForMultipleObjectsCustom(DWORD nCount, CONST HANDLE *lpHandles, BOOL bWaitAll, DWORD dwMilliseconds) {
-  // emacs sys_select always set bWaitAll to FALSE
-  bWaitAll = FALSE;
-  if (nCount <= 64)
+    // emacs sys_select always set bWaitAll to FALSE
+    bWaitAll = FALSE;
+    if (nCount <= 64)
     {
       DWORD result = WaitForMultipleObjects (nCount, lpHandles, bWaitAll,
 				  dwMilliseconds);
@@ -237,6 +237,27 @@ DWORD WINAPI MsgWaitThreadFunction(LPVOID param) {
 DWORD MsgWaitForMultipleObjectsCustom(DWORD nCount, HANDLE* lpHandles, BOOL bWaitAll, DWORD dwMilliseconds, DWORD dwWakeMask) {
   // emacs sys_select always set bWaitAll to FALSE
   bWaitAll = FALSE;
+  if (nCount <= 63)
+    {
+      DWORD result = MsgWaitForMultipleObjects (nCount, lpHandles, bWaitAll, dwMilliseconds, dwWakeMask);
+      if (result >= WAIT_OBJECT_0 && result <= WAIT_OBJECT_0 + nCount)
+      {
+        return result - WAIT_OBJECT_0;
+      }
+      else if (WAIT_TIMEOUT == result)
+      {
+        return MY_WAIT_TIMEOUT;
+      }
+      else if (result >= WAIT_ABANDONED_0
+            && result < WAIT_ABANDONED_0 + nCount)
+      {
+        return result - WAIT_ABANDONED_0 + MY_WAIT_ABANDONED_0;
+      }
+      else
+      {
+        return MY_WAIT_FAILED;
+      }
+    }
   HANDLE completionEvent = CreateEvent (NULL, FALSE, FALSE, NULL);
   if (completionEvent == NULL)
     {
