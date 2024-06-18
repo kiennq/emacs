@@ -62,7 +62,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "syssignal.h"
 #include "w32term.h"
 #include "coding.h"
-#include <windows.h>
 
 /* The following is a multi-threaded simulation of
    WaitForMultipleObjects and MsgWaitForMultipleObjects to break
@@ -2718,10 +2717,9 @@ count_children:
 
   /* Wait for input or child death to be signaled.  If user input is
      allowed, then also accept window messages.  */
-  if (FD_ISSET (0, &orfds)){
+  if (FD_ISSET (0, &orfds))
     active = MsgWaitForMultipleObjectsCustom (nh + nc, wait_hnd, FALSE, timeout_ms,
               QS_ALLINPUT);
-  }
     
   else
     active = WaitForMultipleObjectsCustom (nh + nc, wait_hnd, FALSE, timeout_ms);
