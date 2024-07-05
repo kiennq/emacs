@@ -217,7 +217,7 @@ extern struct tm * sys_localtime (const time_t *);
 /* The following is needed for recovery from C stack overflows.  */
 #include <setjmp.h>
 typedef jmp_buf sigjmp_buf;
-#ifdef MINGW_W64
+#if defined(MINGW_W64) && !defined(_M_ARM64)
 /* Evidently, MinGW64's longjmp crashes when invoked from an exception
    handler, see https://sourceforge.net/p/mingw-w64/mailman/message/32421953/.
    This seems to be an unsolved problem in the MinGW64 runtime.  So we
