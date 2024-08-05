@@ -2378,9 +2378,38 @@ typedef sigjmp_buf sys_jmp_buf;
 #else
 /* A platform that uses neither _longjmp nor siglongjmp; assume
    longjmp does not affect the sigmask.  */
+#ifndef __WIN64
 typedef jmp_buf sys_jmp_buf;
 # define sys_setjmp(j) setjmp (j)
 # define sys_longjmp(j, v) longjmp (j, v)
+#else
+typedef struct
+{
+  jmp_buf raw;
+  uint64_t padding;
+} sys_jmp_buf[1];
+
+# define sys_setjmp(j) ({				\
+      char *target = (char *)j->raw;			\
+      bool bad = (unsigned long long)target & 8;	\
+      if (bad) {					\
+	target += 8;					\
+      }							\
+      int ret = setjmp ((void *)target);		\
+      memmove (j->raw, target, sizeof (j->raw));	\
+      ret;						\
+    })
+
+# define sys_longjmp(j, v) ({				\
+      char *target = (char *)j->raw;			\
+      bool bad = (unsigned long long)target & 8;	\
+      if (bad) {					\
+	target += 8;					\
+      }							\
+      memmove (target, j->raw, sizeof (j->raw));	\
+      longjmp ((void *)target, v);			\
+    })
+#endif
 #endif
 
 #include "thread.h"

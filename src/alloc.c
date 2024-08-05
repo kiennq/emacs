@@ -721,9 +721,12 @@ buffer_memory_full (ptrdiff_t nbytes)
    and that contain Lisp objects.  On typical hosts malloc already
    aligns sufficiently, but extra work is needed on oddball hosts
    where Emacs would crash if malloc returned a non-GCALIGNED pointer.  */
-enum { LISP_ALIGNMENT = alignof (union { union emacs_align_type x;
-					 GCALIGNED_UNION_MEMBER }) };
+enum { LISP_ALIGNMENT = alignof (union { GCALIGNED_UNION_MEMBER }) };
 verify (LISP_ALIGNMENT % GCALIGNMENT == 0);
+
+#ifdef HAVE_MPS
+verify (LISP_ALIGNMENT == GCALIGNMENT);
+#endif
 
 /* True if malloc (N) is known to return storage suitably aligned for
    Lisp objects whenever N is a multiple of LISP_ALIGNMENT.  In
@@ -3107,7 +3110,7 @@ DEFUN ("make-list", Fmake_list, Smake_list, 2, 2, 0,
 			   Vector Allocation
  ***********************************************************************/
 /* Vector size requests are a multiple of this.  */
-enum { roundup_size = COMMON_MULTIPLE (LISP_ALIGNMENT, word_size) };
+enum { roundup_size = COMMON_MULTIPLE (word_size, word_size) };
 
 /* Round up X to nearest mult-of-ROUNDUP_SIZE --- use at compile time.  */
 #define vroundup_ct(x) ROUNDUP (x, roundup_size)
