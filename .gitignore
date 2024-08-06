@@ -27,6 +27,7 @@
 !.gitignore
 !.gitlab-ci.yml
 !.mailmap
+!.github/
 
 # Built by 'autogen.sh'.
 /aclocal.m4
