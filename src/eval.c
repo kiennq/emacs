@@ -23,6 +23,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <limits.h>
 #include <stdlib.h>
 #include "lisp.h"
+#include "igc.h"
 #include "blockinput.h"
 #include "commands.h"
 #include "keyboard.h"
@@ -30,6 +31,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "buffer.h"
 #include "pdumper.h"
 #include "atimer.h"
+#include "igc.h"
 
 /* CACHEABLE is ordinarily nothing, except it is 'volatile' if
    necessary to cajole GCC into not warning incorrectly that a
@@ -110,12 +112,14 @@ specpdl_kboard (union specbinding *pdl)
   return pdl->let.where.kbd;
 }
 
+#ifndef HAVE_MPS
 static Lisp_Object
 specpdl_arg (union specbinding *pdl)
 {
   eassert (pdl->kind == SPECPDL_UNWIND);
   return pdl->unwind.arg;
 }
+#endif
 
 Lisp_Object
 backtrace_function (union specbinding *pdl)
@@ -224,6 +228,11 @@ init_eval_once_for_pdumper (void)
   union specbinding *pdlvec = malloc ((size + 1) * sizeof *specpdl);
   specpdl = specpdl_ptr = pdlvec + 1;
   specpdl_end = specpdl + size;
+#ifdef HAVE_MPS
+  for (int i = 0; i < size; ++i)
+    specpdl[i].kind = SPECPDL_FREE;
+  igc_on_alloc_main_thread_specpdl ();
+#endif
 }
 
 void
@@ -233,7 +242,11 @@ init_eval (void)
   { /* Put a dummy catcher at top-level so that handlerlist is never NULL.
        This is important since handlerlist->nextfree holds the freelist
        which would otherwise leak every time we unwind back to top-level.   */
+#ifdef HAVE_MPS
+    handlerlist_sentinel = igc_alloc_handler ();
+#else
     handlerlist_sentinel = xzalloc (sizeof (struct handler));
+#endif
     handlerlist = handlerlist_sentinel->nextfree = handlerlist_sentinel;
     struct handler *c = push_handler (Qunbound, CATCHER);
     eassert (c == handlerlist_sentinel);
@@ -1272,7 +1285,14 @@ usage: (catch TAG BODY...)  */)
 void
 pop_handler (void)
 {
-  handlerlist = handlerlist->next;
+  struct handler *old = handlerlist;
+  struct handler *new = old->next;
+  handlerlist = new;
+#ifdef HAVE_MPS
+  eassert (new->nextfree == old);
+  old->val = Qnil;
+  old->tag_or_ch = Qnil;
+#endif
 }
 
 /* Set up a catch, then call C function FUNC on argument ARG.
@@ -1743,11 +1763,15 @@ push_handler_nosignal (Lisp_Object tag_ch_val, enum handlertype handlertype)
   struct handler *CACHEABLE c = handlerlist->nextfree;
   if (!c)
     {
+#ifdef HAVE_MPS
+      c = igc_alloc_handler ();
+#else
       c = malloc (sizeof *c);
       if (!c)
 	return c;
       if (profiler_memory_running)
 	malloc_probe (sizeof *c);
+#endif
       c->nextfree = NULL;
       handlerlist->nextfree = c;
     }
@@ -2469,6 +2493,11 @@ grow_specpdl_allocation (void)
   specpdl = pdlvec + 1;
   specpdl_end = specpdl + pdlvecsize - 1;
   specpdl_ptr = specpdl_ref_to_ptr (count);
+#ifdef HAVE_MPS
+  for (int i = size; i < pdlvecsize - 1; ++i)
+    specpdl[i].kind = SPECPDL_FREE;
+  igc_on_grow_specpdl ();
+#endif
 }
 
 /* Eval a sub-expression of the current expression (i.e. in the same
@@ -3680,12 +3709,16 @@ do_one_unbind (union specbinding *this_binding, bool unwinding,
   eassert (unwinding || this_binding->kind >= SPECPDL_LET);
   switch (this_binding->kind)
     {
+#ifdef HAVE_MPS
+    case SPECPDL_FREE:
+      emacs_abort ();
+#endif
     case SPECPDL_UNWIND:
       lisp_eval_depth = this_binding->unwind.eval_depth;
       this_binding->unwind.func (this_binding->unwind.arg);
       break;
     case SPECPDL_UNWIND_ARRAY:
-      xfree (this_binding->unwind_array.array);
+      SAFE_ALLOCA_XFREE (this_binding->unwind_array.array);
       break;
     case SPECPDL_UNWIND_PTR:
       this_binding->unwind_ptr.func (this_binding->unwind_ptr.arg);
@@ -3822,7 +3855,9 @@ unbind_to (specpdl_ref count, Lisp_Object value)
 
       union specbinding this_binding;
       this_binding = *--specpdl_ptr;
-
+#ifdef HAVE_MPS
+      specpdl_ptr->kind = SPECPDL_FREE;
+#endif
       do_one_unbind (&this_binding, true, SET_INTERNAL_UNBIND);
     }
 
@@ -4198,10 +4233,12 @@ NFRAMES and BASE specify the activation frame to use, as in `backtrace-frame'.  
   return result;
 }
 
-
+
+#ifndef HAVE_MPS
 void
 mark_specpdl (union specbinding *first, union specbinding *ptr)
 {
+  eassert_not_mps ();
   union specbinding *pdl;
   for (pdl = first; pdl != ptr; pdl++)
     {
@@ -4266,6 +4303,8 @@ mark_specpdl (union specbinding *first, union specbinding *ptr)
 	}
     }
 }
+#endif // not HAVE_MPS
+
 
 /* Fill ARRAY of size SIZE with backtrace entries, most recent call first.
    Truncate the backtrace if longer than SIZE; pad with nil if shorter.  */

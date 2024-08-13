@@ -56,6 +56,7 @@ class Lisp_Object:
         "PVEC_BOOL_VECTOR": "struct Lisp_Bool_Vector",
         "PVEC_BUFFER": "struct buffer",
         "PVEC_HASH_TABLE": "struct Lisp_Hash_Table",
+        "PVEC_WEAK_HASH_TABLE": "struct Lisp_Weak_Hash_Table",
         "PVEC_OBARRAY": "struct Lisp_Obarray",
         "PVEC_TERMINAL": "struct terminal",
         "PVEC_WINDOW_CONFIGURATION": "struct save_window_data",
@@ -69,7 +70,7 @@ class Lisp_Object:
         "PVEC_MODULE_FUNCTION": "struct Lisp_Module_Function",
         "PVEC_NATIVE_COMP_UNIT": "struct Lisp_Native_Comp_Unit",
         "PVEC_SQLITE": "struct Lisp_Sqlite",
-        "PVEC_COMPILED": "struct Lisp_Vector",
+        "PVEC_CLOSURE": "struct Lisp_Vector",
         "PVEC_CHAR_TABLE": "struct Lisp_Vector",
         "PVEC_SUB_CHAR_TABLE": "void",
         "PVEC_RECORD": "struct Lisp_Vector",
@@ -185,6 +186,10 @@ class Lisp_Object:
 #                           LLDB Commands
 ########################################################################
 
+def xpostmortem(debugger, command, ctx, result, internal_dict):
+    """Call igc_postmortem to set MPS arena to postmortem state"""
+    debugger.HandleCommand(f"expr igc_postmortem()")
+
 def xbacktrace(debugger, command, ctx, result, internal_dict):
     """Print Emacs Lisp backtrace"""
     frame = ctx.GetFrame()
@@ -240,8 +245,8 @@ class Lisp_Object_Provider:
                 self.children["cdr"] = cdr
             else:
                 self.children["untagged"] = lisp_obj.untagged
-        except:
-            print(f"*** exception in child provider update for {lisp_type}")
+        except Exception as ex:
+            print(f"*** exception {ex} in Lisp_Object_Provider::update for {lisp_type}")
             pass
 
     def num_children(self):
@@ -309,10 +314,11 @@ def enable_type_category(debugger, category):
 
 # This function is called by LLDB to initialize the module.
 def __lldb_init_module(debugger, internal_dict):
+    define_command(debugger, xpostmortem)
     define_command(debugger, xbacktrace)
     define_command(debugger, xdebug_print)
     define_type_summary(debugger, "Lisp_Object", type_summary_Lisp_Object)
-    define_type_synthetic(debugger, "Lisp_Object", Lisp_Object_Provider)
+    #define_type_synthetic(debugger, "Lisp_Object", Lisp_Object_Provider)
     enable_type_category(debugger, "Emacs")
     print('Emacs debugging support has been installed.')
 

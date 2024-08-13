@@ -41,7 +41,7 @@ enum { PROCESS_OPEN_FDS = 6 };
 
 struct Lisp_Process
   {
-    union vectorlike_header header;
+    struct vectorlike_header header;
 
     /* Name of subprocess terminal.  */
     Lisp_Object tty_name;
@@ -307,5 +307,7 @@ extern void dissociate_controlling_tty (void);
 extern int open_channel_for_module (Lisp_Object);
 
 INLINE_HEADER_END
+
+extern void process_sigchld_async (int sig);
 
 #endif /* EMACS_PROCESS_H */

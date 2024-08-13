@@ -23,6 +23,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <sys/stat.h>
 
 #include "lisp.h"
+#include "igc.h"
 #include "coding.h"
 #include "termchar.h"
 #include "termopts.h"
@@ -373,6 +374,15 @@ static Lisp_Object virtual_core_keyboard_name;
    menu bar.  */
 static Lisp_Object menu_bar_touch_id;
 
+#define ASYNC_WORK_QUEUE_CAPACITY 64
+
+struct async_work_queue {
+  uint8_t start, end;
+  struct async_work_item items[ASYNC_WORK_QUEUE_CAPACITY];
+};
+
+static struct async_work_queue async_work_queue;
+
 
 /* Global variable declarations.  */
 
@@ -414,6 +424,7 @@ static void deliver_user_signal (int);
 static char *find_user_signal_name (int);
 static void store_user_signal_events (void);
 static bool is_ignored_event (union buffered_input_event *);
+static void do_async_work (void);
 
 /* Advance or retreat a buffered input event pointer.  */
 
@@ -4690,6 +4701,10 @@ timer_check_2 (Lisp_Object timers, Lisp_Object idle_timers)
   if (! (CONSP (timers) || CONSP (idle_timers)))
     return invalid_timespec ();
 
+#ifdef HAVE_MPS
+  igc_on_idle ();
+#endif
+
   struct timespec
     now = current_timespec (),
     idleness_now = (timespec_valid_p (timer_idleness_start_time)
@@ -8164,6 +8179,7 @@ process_pending_signals (void)
   pending_signals = false;
   handle_async_input ();
   do_pending_atimers ();
+  do_async_work ();
 }
 
 /* Undo any number of BLOCK_INPUT calls down to level LEVEL,
@@ -12595,7 +12611,11 @@ init_kboard (KBOARD *kb, Lisp_Object type)
 KBOARD *
 allocate_kboard (Lisp_Object type)
 {
+#ifdef HAVE_MPS
+  KBOARD *kb = igc_xzalloc_ambig (sizeof *kb);
+#else
   KBOARD *kb = xmalloc (sizeof *kb);
+#endif
 
   init_kboard (kb, type);
   kb->next_kboard = all_kboards;
@@ -12611,7 +12631,11 @@ allocate_kboard (Lisp_Object type)
 static void
 wipe_kboard (KBOARD *kb)
 {
+#ifdef HAVE_MPS
+  igc_xfree (kb->kbd_macro_buffer);
+#else
   xfree (kb->kbd_macro_buffer);
+#endif
 }
 
 /* Free KB and memory referenced from it.  */
@@ -12654,12 +12678,20 @@ delete_kboard (KBOARD *kb)
     }
 
   wipe_kboard (kb);
+#ifdef HAVE_MPS
+  igc_xfree (kb);
+#else
   xfree (kb);
+#endif
 }
 
 void
 init_keyboard (void)
 {
+#ifdef HAVE_MPS
+  igc_root_create_ambig (kbd_buffer, kbd_buffer + ARRAYELTS (kbd_buffer),
+			 "kdb-buffer");
+#endif
   /* This is correct before outermost invocation of the editor loop.  */
   command_loop_level = -1;
   quit_char = Ctl ('g');
@@ -12815,6 +12847,58 @@ is_ignored_event (union buffered_input_event *event)
     }
 
   return !NILP (Fmemq (ignore_event, Vwhile_no_input_ignore_events));
+}
+
+static uint8_t
+async_work_queue_len (struct async_work_queue *q)
+{
+  uint8_t cap = ASYNC_WORK_QUEUE_CAPACITY;
+  return (q->start <= q->end
+	  ? q->end - q->start
+	  : cap - q->start + q->end);
+}
+
+static struct async_work_item
+async_work_queue_pop_front (struct async_work_queue *q)
+{
+  if (async_work_queue_len (q) == 0)
+    emacs_abort ();
+  struct async_work_item item = q->items[q->start];
+  uint8_t cap = ASYNC_WORK_QUEUE_CAPACITY;
+  q->start = (q->start + 1) % cap;
+  return item;
+}
+
+void
+enqueue_async_work (struct async_work_item item)
+{
+  struct async_work_queue *q = &async_work_queue;
+  uint8_t cap = ASYNC_WORK_QUEUE_CAPACITY;
+  if (async_work_queue_len (q) == cap)
+    emacs_abort ();
+  q->items[q->end] = item;
+  q->end = (q->end + 1) % cap;
+  pending_signals = 1;
+}
+
+static void
+do_async_work_1 (struct async_work_item item)
+{
+  switch (item.type)
+    {
+    case ASYNCWORK_SIGCHLD:
+      process_sigchld_async (item.u.sigchld);
+      return;
+    }
+  emacs_abort ();
+}
+
+static void
+do_async_work (void)
+{
+  struct async_work_queue *q = &async_work_queue;
+  while (async_work_queue_len (q) > 0)
+    do_async_work_1 (async_work_queue_pop_front (q));
 }
 
 static void syms_of_keyboard_for_pdumper (void);
@@ -14004,6 +14088,7 @@ keys_of_keyboard (void)
 			    "handle-move-frame");
 }
 
+#ifndef HAVE_MPS
 /* Mark the pointers in the kboard objects.
    Called by Fgarbage_collect.  */
 void
@@ -14057,3 +14142,4 @@ mark_kboards (void)
 	}
     }
 }
+#endif // not HAVE_MPS

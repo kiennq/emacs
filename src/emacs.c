@@ -32,6 +32,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #define MAIN_PROGRAM
 #include "lisp.h"
+#include "igc.h"
 #include "sysstdio.h"
 
 #ifdef HAVE_ANDROID
@@ -1417,6 +1418,19 @@ main (int argc, char **argv)
   ns_init_pool ();
 #endif
 
+  init_signals ();
+
+#ifdef HAVE_MPS
+  init_igc ();
+#endif
+
+  /* This is needed early because load_pdump can call 'float-time' (via
+     igc_on_pdump_loaded -> mirror_dump), and that might need bignums.
+     So we must make sure GMP uses our memory-allocation routines, which
+     is especially important in the MS-Windows build, where malloc and
+     friends are replaced by w32heap.c.  */
+  init_bignum ();
+
 #ifdef HAVE_PDUMPER
   if (attempt_load_pdump)
     initial_emacs_executable = load_pdump (argc, argv, dump_file);
@@ -1936,8 +1950,6 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
     malloc_enable_thread ();
 #endif
 
-  init_signals ();
-
   noninteractive1 = noninteractive;
 
   /* Perform basic initializations (not merely interning symbols).  */
@@ -1975,6 +1987,9 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
       syms_of_data ();
       syms_of_fns ();  /* Before syms_of_charset which uses hash tables.  */
       syms_of_fileio ();
+#ifdef HAVE_MPS
+      syms_of_igc ();
+#endif
       /* Before syms_of_coding to initialize Vgc_cons_threshold.  */
       syms_of_alloc ();
       /* May call Ffuncall and so GC, thus the latter should be initialized.  */
@@ -2001,7 +2016,6 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
     }
 
   init_alloc ();
-  init_bignum ();
   init_threads ();
   init_eval ();
   running_asynch_code = 0;
@@ -2619,6 +2633,14 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 		      list1 (Qandroid_enumerate_fonts));
 #endif
 
+#ifdef HAVE_MPS
+  /* Various sym_of_xy functions contain staticpros, and nothing makes
+     sure that these staticpros have run when things are assigned to the
+     staticpro'd variables. So, let's begin collecting only when we know
+     that it's safe. */
+  igc_on_staticpros_complete ();
+#endif
+
   /* Enter editor command loop.  This never returns.  */
   set_initial_minibuffer_mode ();
   Frecursive_edit ();
@@ -3171,7 +3193,9 @@ You must run Emacs in batch mode in order to dump it.  */)
   Lisp_Object symbol;
   specpdl_ref count = SPECPDL_INDEX ();
 
+#ifndef HAVE_MPS
   check_pure_size ();
+# endif
 
   if (! noninteractive)
     error ("Dumping Emacs works only in batch mode");

@@ -40,6 +40,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "buffer.h"
 #include "sysstdio.h"
 #include "pdumper.h"
+#include "igc.h"
 
 /*** GENERAL NOTES on CODED CHARACTER SETS (CHARSETS) ***
 
@@ -1130,9 +1131,14 @@ usage: (define-charset-internal ...)  */)
 	  int old_size = charset_table_size;
 	  ptrdiff_t new_size = old_size;
 	  struct charset *new_table =
-	    xpalloc (0, &new_size, 1,
-		     min (INT_MAX, MOST_POSITIVE_FIXNUM),
-                     sizeof *charset_table);
+#ifdef HAVE_MPS
+	    igc_xpalloc_ambig
+#else
+	    xpalloc
+#endif
+	    (0, &new_size, 1,
+	     min (INT_MAX, MOST_POSITIVE_FIXNUM),
+	     sizeof *charset_table);
           memcpy (new_table, charset_table, old_size * sizeof *new_table);
           charset_table = new_table;
 	  charset_table_size = new_size;
@@ -2270,6 +2276,7 @@ See also `charset-priority-list' and `set-charset-priority'.  */)
   return charsets;
 }
 
+#ifndef HAVE_MPS
 /* Not strictly necessary, because all charset attributes are also
    reachable from `Vcharset_hash_table`.  */
 void
@@ -2278,6 +2285,7 @@ mark_charset (void)
   for (int i = 0; i < charset_table_used; i++)
     mark_object (charset_table[i].attributes);
 }
+#endif
 
 
 void
@@ -2348,7 +2356,7 @@ init_charset_once (void)
    during an initial bootstrap wreak havoc after dumping; see the
    M_MMAP_THRESHOLD value in alloc.c, plus there is an extra overhead
    internal to glibc malloc and perhaps to Emacs malloc debugging.  */
-static struct charset charset_table_init[180];
+struct charset charset_table_init[180];
 
 void
 syms_of_charset (void)
@@ -2365,6 +2373,11 @@ syms_of_charset (void)
 
   staticpro (&Vcharset_ordered_list);
   Vcharset_ordered_list = Qnil;
+
+#ifdef HAVE_MPS
+  staticpro (&Vcharset_non_preferred_head);
+  Vcharset_non_preferred_head = Qnil;
+#endif
 
   staticpro (&Viso_2022_charset_list);
   Viso_2022_charset_list = Qnil;
