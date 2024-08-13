@@ -11254,8 +11254,12 @@ stack_overflow_handler (void)
   if (gc_in_progress)
     terminate_due_to_signal (SIGSEGV, 40);
 #ifdef _WIN64
+# ifdef _M_ARM64
+  longjmp(return_to_command_loop, 1);
+# else
   /* See ms-w32.h: MinGW64's longjmp crashes if invoked in this context.  */
   __builtin_longjmp (return_to_command_loop, 1);
+# endif
 #else
   sys_longjmp (return_to_command_loop, 1);
 #endif
@@ -11282,7 +11286,11 @@ my_exception_handler (EXCEPTION_POINTERS * exception_data)
     {
       /* Call stack_overflow_handler ().  */
 #ifdef _WIN64
+# ifdef _M_ARM64
+      exception_data->ContextRecord->Pc = (DWORD_PTR) &stack_overflow_handler;
+# else
       exception_data->ContextRecord->Rip = (DWORD_PTR) &stack_overflow_handler;
+# endif
 #else
       exception_data->ContextRecord->Eip = (DWORD_PTR) &stack_overflow_handler;
 #endif

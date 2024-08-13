@@ -760,7 +760,7 @@ install-arch-indep: lisp install-info install-man ${INSTALL_ARCH_INDEP_EXTRA}
 	[ -z "${GZIP_PROG}" ] || { \
 	  echo "Compressing *.el etc. ..." && \
 	  cd "$(DESTDIR)${lispdir}" && \
-	  for f in `find . -name "*.elc" -print | sed 's/.elc$$/.el/'`; do \
+	  for f in `find . -name "*.elc" ! -name "*loaddefs.elc" -print | sed 's/.elc$$/.el/'`; do \
 	    ${GZIP_PROG} -9n "$$f"; \
 	  done; \
 	  ${GZIP_PROG} -9n "../etc/publicsuffix.txt"; \

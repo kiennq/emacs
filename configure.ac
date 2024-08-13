@@ -1539,7 +1539,7 @@ case "${canonical}" in
   ;;
 
   # MinGW64
-  x86_64-*-* )
+  x86_64-*-* | aarch64-*-* )
     case "${canonical}" in
       *-mingw* )
 		opsys=mingw32
@@ -2403,6 +2403,7 @@ test "$opsys" = "aix4.2" && test "x$GCC" != "xyes" && \
 if test "$opsys" = "mingw32"; then
   case "$canonical" in
     x86_64-*-mingw*) C_SWITCH_SYSTEM="-mtune=generic" ;;
+    aarch64-*-mingw*) C_SWITCH_SYSTEM="-mtune=cortex-a53" ;;
     *) C_SWITCH_SYSTEM="-mtune=pentium4" ;;
   esac
 fi
@@ -3177,6 +3178,7 @@ if test "${HAVE_W32}" = "yes"; then
   EMACSRES="emacs.res"
   case "$canonical" in
     x86_64-*-*) EMACS_MANIFEST="emacs-x64.manifest" ;;
+    aarch64-*-*) EMACS_MANIFEST="emacs-ARM64.manifest" ;;
     *) EMACS_MANIFEST="emacs-x86.manifest" ;;
   esac
   dnl Construct something of the form "24,4,0,0" with 4 components.
@@ -7607,13 +7609,13 @@ case "$opsys" in
    ## If the values of -image-base are modified, the corresponding
    ## values of DEFAULT_IMAGE_BASE in w32fns.c should be kept in sync.
    case "$canonical" in
-     x86_64-*-*) LD_SWITCH_SYSTEM_TEMACS="-Wl,-stack,0x00800000 -Wl,-heap,0x00100000 -Wl,-image-base,0x400000000 -Wl,-entry,__start -Wl,-Map,./temacs.map" ;;
+     x86_64-*-* | aarch64-*-*) LD_SWITCH_SYSTEM_TEMACS="-Wl,-stack,0x00800000 -Wl,-heap,0x00100000 -Wl,-image-base,0x400000000 -Wl,-entry,__start -Wl,-Map,./temacs.map" ;;
      *) LD_SWITCH_SYSTEM_TEMACS="-Wl,-stack,0x00800000 -Wl,-heap,0x00100000 -Wl,-image-base,0x01000000 -Wl,-entry,__start -Wl,-Map,./temacs.map" ;;
    esac
    ## If they want unexec, disable Windows ASLR for the Emacs binary
    if test "$with_dumping" = "unexec"; then
       case "$canonical" in
-        x86_64-*-*) LD_SWITCH_SYSTEM_TEMACS="$LD_SWITCH_SYSTEM_TEMACS -Wl,-disable-dynamicbase -Wl,-disable-high-entropy-va -Wl,-default-image-base-low" ;;
+        x86_64-*-* | aarch64-*-*) LD_SWITCH_SYSTEM_TEMACS="$LD_SWITCH_SYSTEM_TEMACS -Wl,-disable-dynamicbase -Wl,-disable-high-entropy-va -Wl,-default-image-base-low" ;;
         *) LD_SWITCH_SYSTEM_TEMACS="$LD_SWITCH_SYSTEM_TEMACS -Wl,-disable-dynamicbase" ;;
       esac
    fi
