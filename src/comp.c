@@ -537,6 +537,25 @@ load_gccjit_if_necessary (bool mandatory)
 #endif
 #define SETJMP_NAME SETJMP
 
+#if defined(WINDOWSNT)
+void *setjmp_real_buffer (sys_jmp_buf j)
+{
+  char *target = (char *)j->raw;
+  bool bad = (unsigned long long)target & 8;
+  if (bad) {
+    target += 8;
+  }
+  return target;
+}
+
+int setjmp_fixup (sys_jmp_buf j, int ret)
+{
+  memmove (j->raw, setjmp_real_buffer (j), sizeof (j->raw));
+
+  return ret;
+}
+#endif
+
 /* Max number function importable by native compiled code.  */
 #define F_RELOC_MAX_SIZE 1600
 
@@ -720,7 +739,12 @@ helper_sanitizer_assert (Lisp_Object, Lisp_Object);
 /* Note: helper_link_table must match the list created by
    `declare_runtime_imported_funcs'.  */
 static void *helper_link_table[] =
-  { wrong_type_argument,
+  {
+#ifdef WINDOWSNT
+    setjmp_fixup,
+    setjmp_real_buffer,
+#endif
+    wrong_type_argument,
     helper_PSEUDOVECTOR_TYPEP_XUNTAG,
     pure_write_error,
     push_handler,
@@ -2232,33 +2256,88 @@ emit_setjmp (gcc_jit_rvalue *buf)
 
   return gcc_jit_context_new_call (comp.ctxt, NULL, f, 1, args);
 #else
-  /* _setjmp (buf, __builtin_frame_address (0)) */
-  gcc_jit_param *params[] =
+  /* setjmp_fixup (buf, _setjmp (setjmp_real_buffer (buf),
+                                 __builtin_frame_address (0))) */
+  gcc_jit_rvalue *frame_address;
+  gcc_jit_rvalue *real_buffer;
+  gcc_jit_rvalue *setjmp_result;
+
   {
-    gcc_jit_context_new_param (comp.ctxt, NULL, comp.void_ptr_type, "buf"),
-    gcc_jit_context_new_param (comp.ctxt, NULL, comp.void_ptr_type, "frame"),
-  };
-  gcc_jit_rvalue *args[2];
+    gcc_jit_rvalue *args[] =
+    {
+      gcc_jit_context_new_rvalue_from_int (comp.ctxt, comp.unsigned_type, 0),
+    };
+    frame_address =
+      gcc_jit_context_new_call (comp.ctxt,
+				NULL,
+				gcc_jit_context_get_builtin_function (comp.ctxt,
+								      "__builtin_frame_address"),
+				ARRAYELTS (args), args);
+  }
 
-  args[0] =
-    gcc_jit_context_new_rvalue_from_int (comp.ctxt, comp.unsigned_type, 0);
+  {
+    gcc_jit_rvalue *args[] =
+    {
+      buf,
+    };
+    gcc_jit_param *params[] =
+    {
+      gcc_jit_context_new_param (comp.ctxt, NULL, comp.void_ptr_type, "buf"),
+    };
+    gcc_jit_function *f =
+      gcc_jit_context_new_function (comp.ctxt, NULL,
+				    GCC_JIT_FUNCTION_IMPORTED,
+				    comp.void_ptr_type, "setjmp_real_buffer",
+				    ARRAYELTS (params), params,
+				    false);
+    real_buffer =
+      emit_call (intern_c_string ("setjmp_real_buffer"), comp.void_ptr_type,
+		 ARRAYELTS (args), args, false);
+  }
 
-  args[1] =
-    gcc_jit_context_new_call (
-      comp.ctxt,
-      NULL,
-      gcc_jit_context_get_builtin_function (comp.ctxt,
-					    "__builtin_frame_address"),
-      1, args);
-  args[0] = buf;
-  gcc_jit_function *f =
-    gcc_jit_context_new_function (comp.ctxt, NULL,
-				  GCC_JIT_FUNCTION_IMPORTED,
-				  comp.int_type, STR (SETJMP_NAME),
-				  ARRAYELTS (params), params,
-				  false);
+  {
+    gcc_jit_param *params[] =
+    {
+      gcc_jit_context_new_param (comp.ctxt, NULL, comp.void_ptr_type, "buf"),
+      gcc_jit_context_new_param (comp.ctxt, NULL, comp.void_ptr_type, "frame"),
+    };
+    gcc_jit_rvalue *args[] =
+    {
+      real_buffer,
+      frame_address,
+    };
+    gcc_jit_function *f =
+      gcc_jit_context_new_function (comp.ctxt, NULL,
+				    GCC_JIT_FUNCTION_IMPORTED,
+				    comp.int_type, STR (SETJMP_NAME),
+				    ARRAYELTS (params), params,
+				    false);
+    setjmp_result =
+      gcc_jit_context_new_call (comp.ctxt,
+				NULL,
+				f,
+				ARRAYELTS (args), args);
+  }
 
-  return gcc_jit_context_new_call (comp.ctxt, NULL, f, 2, args);
+  {
+    gcc_jit_param *params[] =
+    {
+      gcc_jit_context_new_param (comp.ctxt, NULL, comp.void_ptr_type, "buf"),
+      gcc_jit_context_new_param (comp.ctxt, NULL, comp.int_type, "ret"),
+    };
+    gcc_jit_rvalue *args[] =
+    {
+      buf,
+      setjmp_result,
+    };
+    gcc_jit_function *f =
+      gcc_jit_context_new_function (comp.ctxt ,NULL,
+				    GCC_JIT_FUNCTION_IMPORTED,
+				    comp.int_type, "setjmp_fixup",
+				    ARRAYELTS (params), params, false);
+    return emit_call (intern_c_string ("setjmp_fixup"), comp.int_type,
+		      ARRAYELTS (args), args, false);
+  }
 #endif
 }
 
@@ -2969,6 +3048,15 @@ declare_runtime_imported_funcs (void)
   } while (0)
 
   gcc_jit_type *args[4];
+
+#ifdef WINDOWSNT
+  args[0] = comp.void_ptr_type;
+  args[1] = comp.int_type;
+  ADD_IMPORTED (setjmp_fixup, comp.int_type, 2, args);
+
+  args[0] = comp.void_ptr_type;
+  ADD_IMPORTED (setjmp_real_buffer, comp.void_ptr_type, 1, args);
+#endif
 
   ADD_IMPORTED (wrong_type_argument, comp.void_type, 2, NULL);
 
@@ -5265,21 +5353,28 @@ maybe_defer_native_compilation (Lisp_Object function_name,
       || !NILP (Fgethash (Vload_true_file_name, V_comp_no_native_file_h, Qnil)))
     return;
 
-  Lisp_Object src =
-    concat2 (CALL1I (file-name-sans-extension, Vload_true_file_name),
-	     build_pure_c_string (".el"));
-  if (NILP (Ffile_exists_p (src)))
+  if (Ffboundp (intern_c_string ("file-name-sans-extension")))
     {
-      src = concat2 (src, build_pure_c_string (".gz"));
+      Lisp_Object src =
+	concat2 (CALL1I (file-name-sans-extension, Vload_true_file_name),
+		 build_pure_c_string (".el"));
       if (NILP (Ffile_exists_p (src)))
-	return;
+	{
+	  src = concat2 (src, build_pure_c_string (".gz"));
+	  if (NILP (Ffile_exists_p (src)))
+	    return;
+	}
+      Fputhash (function_name, definition, Vcomp_deferred_pending_h);
+
+      pending_funcalls
+	= Fcons (list (Qnative__compile_async, src, Qnil, Qlate),
+		 pending_funcalls);
+    }
+  else
+    {
+      return;
     }
 
-  Fputhash (function_name, definition, Vcomp_deferred_pending_h);
-
-  pending_funcalls
-    = Fcons (list (Qnative__compile_async, src, Qnil, Qlate),
-             pending_funcalls);
 }
 
 
