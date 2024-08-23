@@ -1981,13 +1981,6 @@ if test "${enableval}" != "no"; then
 	 # command, so plugin name is appended to ARFLAGS.
 	 ARFLAGS="cru --plugin $GOLD_PLUGIN"
 	 RANLIB="$RANLIB --plugin $GOLD_PLUGIN"
-      else
-        dnl The following is needed for GCC 4.9.0.  The GCC 4.9.0 release notes
-        dnl suggest that instead of -ffat-lto-objects we should use gcc-ar and
-        dnl gcc-ranlib in place of ar and ranlib, but gcc-ar makes /usr/bin/ar
-        dnl dump core on Fedora 20, so play it safe for now.
-        gl_COMPILER_OPTION_IF([-ffat-lto-objects],
-          [CFLAGS="$CFLAGS -ffat-lto-objects"])
       fi
    fi
 fi)
