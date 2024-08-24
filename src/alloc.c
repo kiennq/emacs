@@ -44,6 +44,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "frame.h"
 #include "blockinput.h"
 #include "pdumper.h"
+#include "process.h"
 #include "termhooks.h"		/* For struct terminal.  */
 #include "itree.h"
 #ifdef HAVE_WINDOW_SYSTEM
@@ -3572,12 +3573,17 @@ cleanup_vector (struct Lisp_Vector *vector)
 	hash_table_allocated_bytes -= bytes;
       }
       break;
+    case PVEC_PROCESS:
+      {
+	struct Lisp_Process *p = PSEUDOVEC_STRUCT (vector, Lisp_Process);
+	xfree (p->gnutls_pproc);
+      }
+      break;
     /* Keep the switch exhaustive.  */
     case PVEC_NORMAL_VECTOR:
     case PVEC_FREE:
     case PVEC_SYMBOL_WITH_POS:
     case PVEC_MISC_PTR:
-    case PVEC_PROCESS:
     case PVEC_FRAME:
     case PVEC_WINDOW:
     case PVEC_BOOL_VECTOR:
@@ -8633,6 +8639,12 @@ enum defined_HAVE_PGTK { defined_HAVE_PGTK = true };
 enum defined_HAVE_PGTK { defined_HAVE_PGTK = false };
 #endif
 
+#ifdef HAVE_MPS
+enum defined_HAVE_MPS { defined_HAVE_MPS = true };
+#else
+enum defined_HAVE_MPS { defined_HAVE_MPS = false };
+#endif
+
 /* When compiled with GCC, GDB might say "No enum type named
    pvec_type" if we don't have at least one symbol with that type, and
    then xbacktrace could fail.  Similarly for the other enums and
@@ -8653,6 +8665,7 @@ extern union enums_for_gdb
   enum pvec_type pvec_type;
   enum defined_HAVE_X_WINDOWS defined_HAVE_X_WINDOWS;
   enum defined_HAVE_PGTK defined_HAVE_PGTK;
+  enum defined_HAVE_MPS defined_HAVE_MPS;
 } const gdb_make_enums_visible;
 union enums_for_gdb const EXTERNALLY_VISIBLE gdb_make_enums_visible = {0};
 #endif	/* __GNUC__ */
