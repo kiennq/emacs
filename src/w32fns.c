@@ -3105,6 +3105,10 @@ setup_w32_kbdhook (HWND hwnd)
 void
 remove_w32_kbdhook (void)
 {
+  /* Avoid over release */
+  if (kbdhook.hook_count <= 0)
+    return;
+
   kbdhook.hook_count--;
   if (kbdhook.hook_count == 0 && w32_kbdhook_active)
     {
@@ -11559,6 +11563,10 @@ emacs_abort (void)
 {
   if (w32_disable_abort_dialog)
     abort ();
+
+  /* force release low-level keyboard hook for easier to debug */
+  kbdhook.hook_count = 1;
+  remove_w32_kbdhook ();
 
   int button;
 
