@@ -2061,7 +2061,7 @@ fix_frame (mps_ss_t ss, struct frame *f)
     if (f->terminal)
       IGC_FIX12_PVEC (ss, &f->terminal);
 
-    if (!FRAME_INITIAL_P (f))
+    if (!FRAME_INITIAL_P (f) && FRAME_LIVE_P (f))
       {
 	/* This is typically stored in the display_info, e.g.
 	   ns_display_info.  Check for being NULL anyway.  */
