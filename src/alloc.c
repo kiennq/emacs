@@ -8627,6 +8627,9 @@ N should be nonnegative.  */);
 # pragma GCC diagnostic pop
 #endif
 
+/* The below is for being able to do platform-specific stuff in .gdbinit
+   without risking error messages from GDB about missing types and
+   variables on other platforms.  */
 #ifdef HAVE_X_WINDOWS
 enum defined_HAVE_X_WINDOWS { defined_HAVE_X_WINDOWS = true };
 #else
@@ -8637,6 +8640,12 @@ enum defined_HAVE_X_WINDOWS { defined_HAVE_X_WINDOWS = false };
 enum defined_HAVE_PGTK { defined_HAVE_PGTK = true };
 #else
 enum defined_HAVE_PGTK { defined_HAVE_PGTK = false };
+#endif
+
+#ifdef WINDOWSNT
+enum defined_WINDOWSNT { defined_WINDOWSNT = true };
+#else
+enum defined_WINDOWSNT { defined_WINDOWSNT = false };
 #endif
 
 #ifdef HAVE_MPS
@@ -8665,6 +8674,7 @@ extern union enums_for_gdb
   enum pvec_type pvec_type;
   enum defined_HAVE_X_WINDOWS defined_HAVE_X_WINDOWS;
   enum defined_HAVE_PGTK defined_HAVE_PGTK;
+  enum defined_WINDOWSNT defined_WINDOWSNT;
   enum defined_HAVE_MPS defined_HAVE_MPS;
 } const gdb_make_enums_visible;
 union enums_for_gdb const EXTERNALLY_VISIBLE gdb_make_enums_visible = {0};

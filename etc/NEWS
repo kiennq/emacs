@@ -110,8 +110,9 @@ This hook allows you to control which tab-bar tabs are auto-resized.
 
 ** Project
 
-New command `project-find-file-in-root` which is equivalent to running
-‘project-any-command’ with ‘find-file’.
+---
+*** New command `project-find-file-in-root`.
+It is equivalent to running ‘project-any-command’ with ‘find-file’.
 
 
 * Editing Changes in Emacs 31.1
@@ -278,6 +279,16 @@ This command copies to the 'kill-ring' a region of text modified
 according to diffs in the current buffer, but without applying the diffs
 to the original text.  If the selected range extends a hunk, the
 command attempts to look up and copy the text in-between the hunks.
+
+** php-ts-mode
+
+---
+*** 'php-ts-mode-run-php-webserver' can now accept a custom php.ini file.
+You can use the new optional argument CONFIG when calling
+'php-ts-mode-run-php-webserver' to pass an alternative php.ini file to
+the built-in Web server.  Interactively, when invoked with a prefix
+argument, 'php-ts-mode-run-php-webserver' prompts for the config file as
+well as for other connection parameters.
 
 
 * New Modes and Packages in Emacs 31.1
