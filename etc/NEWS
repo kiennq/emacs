@@ -138,6 +138,15 @@ Unix-words are words separated by whitespace regardless of the buffer's
 syntax table.  In a Unix terminal or shell, C-w kills by Unix-word.
 The new commands 'unix-word-rubout' and 'unix-filename-rubout' allow
 you to bind keys to operate more similarly to the terminal.
+
+---
+** New user option 'kill-word-dwim'.
+This option, if non-nil, modifies the fall-back behavior of
+'kill-region' if no region is active, and will kill the last word
+instead of raising an error.  Note that if you have disabled Transient
+Mark mode you might prefer to use 'unix-word-rubout', as this feature
+relies on there being an active region.
+
 
 * Changes in Specialized Modes and Packages in Emacs 31.1
 
@@ -200,8 +209,6 @@ Advanced" node in the EWW manual.
 *** You can now customize the image zoom levels to cycle through.
 By customizing 'shr-image-zoom-levels', you can change the list of zoom
 levels that SHR cycles through when calling 'shr-zoom-image'.
-
-** SHR
 
 ---
 *** New user option 'shr-fill-text'.
@@ -343,6 +350,15 @@ the 'grep' results editable.  The edits will be reflected in the buffer
 visiting the originating file.  Typing 'C-c C-c' will leave the Grep
 Edit mode.
 
+** TeX modes
+
++++
+*** New xref backend for TeX modes.
+The new backend ('tex-etags') is on by default, and improves the
+functionality of the standard 'xref' commands in TeX buffers.  You can
+restore the standard 'etags' backend with the 'M-x xref-etags-mode'
+toggle.
+
 
 * New Modes and Packages in Emacs 31.1
 
@@ -455,7 +471,8 @@ send user data to Apple’s speech recognition servers.
 ---
 ** Emacs on MS-Windows now supports GUI dialogs and message boxes better.
 In particular, it is now possible to show text with embedded newlines in
-a dialog popped by 'message-box'.
+a dialog popped by 'message-box'.  This is supported on Windows Vista
+and later versions.
 
 
 ----------------------------------------------------------------------
