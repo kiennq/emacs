@@ -365,9 +365,6 @@ toggle.
 
 * Incompatible Lisp Changes in Emacs 31.1
 
-** The obsolete calling convention of 'error' has been removed.
-That convention was: '(error &rest ARGS)'.
-
 ** The 'rx' category name 'chinese-two-byte' must now be spelled correctly.
 An old alternative name (without the first 'e') has been removed.
 
@@ -412,6 +409,13 @@ language A will be applied to language B instead.
 This is useful for reusing font-lock rules and indentation rules of
 language A for language B, when language B is a strict superset of
 language A.
+
++++
+*** New accessor functions for each setting in 'treesit-font-lock-settings'.
+Now users can access a setting's query, feature, enable flag, and
+override flag by 'treesit-font-lock-setting-query',
+'treesit-font-lock-setting-feature', 'treesit-font-lock-setting-enable',
+and 'treesit-font-lock-setting-override'.
 
 +++
 ** New optional BUFFER argument for 'string-pixel-width'.
