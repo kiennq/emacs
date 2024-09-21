@@ -420,6 +420,11 @@ To customize the Python interpreter for interactive use, modify
          :help "Sort the import statements at the top of this buffer"]
         ["Fix imports" python-fix-imports
          :help "Add missing imports and remove unused ones from the current buffer"]
+        "-----"
+        ("Toggle..."
+         ["Subword Mode" subword-mode
+          :style toggle :selected subword-mode
+          :help "Toggle subword movement and editing mode"])
         ))
     map)
   "Keymap for `python-mode'.")
@@ -784,11 +789,12 @@ sign in chained assignment."
            ;; Python 3:
            "BlockingIOError" "BrokenPipeError" "ChildProcessError"
            "ConnectionAbortedError" "ConnectionError" "ConnectionRefusedError"
-           "ConnectionResetError" "FileExistsError" "FileNotFoundError"
-           "InterruptedError" "IsADirectoryError" "NotADirectoryError"
-           "PermissionError" "ProcessLookupError" "RecursionError"
+           "ConnectionResetError" "EncodingWarning" "FileExistsError"
+           "FileNotFoundError" "InterruptedError" "IsADirectoryError"
+           "NotADirectoryError" "ModuleNotFoundError" "PermissionError"
+           "ProcessLookupError" "PythonFinalizationError" "RecursionError"
            "ResourceWarning" "StopAsyncIteration" "TimeoutError"
-           "ExceptionGroup"
+           "BaseExceptionGroup" "ExceptionGroup"
            ;; OS specific
            "VMSError" "WindowsError"
            )
@@ -1058,11 +1064,12 @@ It makes underscores and dots word constituent chars.")
     ;; Python 3:
     "BlockingIOError" "BrokenPipeError" "ChildProcessError"
     "ConnectionAbortedError" "ConnectionError" "ConnectionRefusedError"
-    "ConnectionResetError" "FileExistsError" "FileNotFoundError"
-    "InterruptedError" "IsADirectoryError" "NotADirectoryError"
-    "PermissionError" "ProcessLookupError" "RecursionError"
+    "ConnectionResetError" "EncodingWarning" "FileExistsError"
+    "FileNotFoundError" "InterruptedError" "IsADirectoryError"
+    "NotADirectoryError" "ModuleNotFoundError" "PermissionError"
+    "ProcessLookupError" "PythonFinalizationError" "RecursionError"
     "ResourceWarning" "StopAsyncIteration" "TimeoutError"
-    "ExceptionGroup"
+    "BaseExceptionGroup" "ExceptionGroup"
     ;; OS specific
     "VMSError" "WindowsError"
     ))
@@ -7071,6 +7078,11 @@ implementations: `python-mode' and `python-ts-mode'."
   (setq-local electric-indent-inhibit t)
   (setq-local electric-indent-chars
               (cons ?: electric-indent-chars))
+  (setq-local electric-layout-rules
+              `((?: . ,(lambda ()
+                         (and (zerop (car (syntax-ppss)))
+                              (python-info-statement-starts-block-p)
+                              'after)))))
 
   ;; Add """ ... """ pairing to electric-pair-mode.
   (add-hook 'post-self-insert-hook
