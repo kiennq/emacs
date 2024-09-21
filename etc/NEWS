@@ -248,6 +248,24 @@ package of the current buffer.  It is bound to 'C-c C-t p' in 'go-ts-mode'.
 The 'go-ts-mode-build-tags' user option is available to set a list of
 build tags for the test commands.
 
+** C-ts mode
+
++++
+*** New user option 'c-ts-mode-enable-doxygen'.
+By default, this is nil, and the Doxygen comment blocks in C/C++ source
+are highlighted like other comments.  When non-nil, Doxygen comment
+blocks are syntax-highlighted if the Doxygen grammar library is
+available.
+
+** Java-ts mode
+
++++
+*** New user option 'java-ts-mode-enable-doxygen'.
+By default, this is nil, and the Doxygen comment blocks in Java source
+are highlighted like other comments.  When non-nil, Doxygen comment
+blocks are syntax-highlighted if the Doxygen grammar library is
+available.
+
 ** Emacs Lisp mode
 
 ---
