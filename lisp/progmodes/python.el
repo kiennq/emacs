@@ -720,7 +720,7 @@ class declarations.")
            "reload" "unichr" "unicode" "xrange" "apply" "buffer" "coerce"
            "intern"
            ;; Python 3:
-           "ascii" "breakpoint" "bytearray" "bytes" "exec"
+           "aiter" "anext" "ascii" "breakpoint" "bytearray" "bytes" "exec"
            ;; Special attributes:
            ;; https://docs.python.org/3/reference/datamodel.html
            "__annotations__" "__closure__" "__code__"
@@ -1018,7 +1018,7 @@ It makes underscores and dots word constituent chars.")
 
 (defvar python--treesit-builtins
   (append python--treesit-builtin-types
-          '("abs" "all" "any" "ascii" "bin" "breakpoint"
+          '("abs" "aiter" "all" "anext" "any" "ascii" "bin" "breakpoint"
             "callable" "chr" "classmethod" "compile"
             "delattr" "dir" "divmod" "enumerate" "eval" "exec"
             "filter" "format" "getattr" "globals"
@@ -7050,7 +7050,6 @@ Add import for undefined name `%s' (empty to skip): "
              (eq (char-after) last-command-event))
     (save-excursion (insert (make-string 2 last-command-event)))))
 
-(defvar electric-indent-inhibit)
 (defvar prettify-symbols-alist)
 (defvar python--installed-grep-hook nil)
 
