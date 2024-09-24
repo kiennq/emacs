@@ -4639,7 +4639,7 @@ find FILE."
       (let ((info-dirs
              (mapcar #'package--quickstart-rel (butlast Info-directory-list))))
         (when info-dirs
-          (pp `(progn (require 'info)
+          (pp `(with-eval-after-load 'info
                       (info-initialize)
                       (setq Info-directory-list
                             (append (list . ,info-dirs) Info-directory-list)))
