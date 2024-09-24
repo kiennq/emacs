@@ -4640,10 +4640,10 @@ activations need to be changed, such as when `package-load-list' is modified."
           (current-buffer))
       (let ((info-dirs (butlast Info-directory-list)))
         (when info-dirs
-          (pp `(progn (require 'info)
-                      (info-initialize)
-                      (setq Info-directory-list
-                            (append ',info-dirs Info-directory-list)))
+          (pp `(with-eval-after-load 'info
+                 (info-initialize)
+                 (setq Info-directory-list
+                       (append ',info-dirs Info-directory-list)))
               (current-buffer))))
       ;; Use `\s' instead of a space character, so this code chunk is not
       ;; mistaken for an actual file-local section of package.el.
