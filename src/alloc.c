@@ -2941,7 +2941,7 @@ DEFUN ("make-list", Fmake_list, Smake_list, 2, 2, 0,
 			   Vector Allocation
  ***********************************************************************/
 /* Vector size requests are a multiple of this.  */
-enum { roundup_size = COMMON_MULTIPLE (LISP_ALIGNMENT, word_size) };
+enum { roundup_size = COMMON_MULTIPLE (word_size, word_size) };
 
 /* Round up X to nearest mult-of-ROUNDUP_SIZE --- use at compile time.  */
 #define vroundup_ct(x) ROUNDUP (x, roundup_size)
