@@ -56,6 +56,7 @@ class Lisp_Object:
         "PVEC_BOOL_VECTOR": "struct Lisp_Bool_Vector",
         "PVEC_BUFFER": "struct buffer",
         "PVEC_HASH_TABLE": "struct Lisp_Hash_Table",
+        "PVEC_WEAK_HASH_TABLE": "struct Lisp_Weak_Hash_Table",
         "PVEC_OBARRAY": "struct Lisp_Obarray",
         "PVEC_TERMINAL": "struct terminal",
         "PVEC_WINDOW_CONFIGURATION": "struct save_window_data",
@@ -94,7 +95,7 @@ class Lisp_Object:
     def init_unsigned(self):
         if self.tagged.GetType().GetTypeClass() == lldb.eTypeClassStruct:
             # Lisp_Object is actually a struct.
-            lisp_word = self.tagged.GetValueForExpressionPath(".i")
+            lisp_word = self.tagged.GetChildMemberWithName("i")
             self.unsigned = lisp_word.GetValueAsUnsigned()
         else:
             self.unsigned = self.tagged.GetValueAsUnsigned()
@@ -109,8 +110,9 @@ class Lisp_Object:
                                        & ((1 << GCTYPEBITS) - 1))
         if self.lisp_type == "Lisp_Vectorlike":
             self.pvec_type = "PVEC_NORMAL_VECTOR"
-            vector = self.get_lisp_pointer("struct Lisp_Vector")
-            size = vector.GetValueForExpressionPath("->header.size")
+            vector = self.get_lisp_pointer("struct Lisp_Vector", False)
+            header = vector.GetChildMemberWithName("header");
+            size = header.GetChildMemberWithName("size");
             size = size.GetValueAsUnsigned()
             PSEUDOVECTOR_FLAG = self.unsigned_const('PSEUDOVECTOR_FLAG')
             if size & PSEUDOVECTOR_FLAG:
@@ -206,14 +208,19 @@ class Lisp_Object:
     # Return None otherwise.
     def get_string_data(self):
         if self.lisp_type == "Lisp_String":
-            return self.untagged.GetValueForExpressionPath("->u.s.data")
+            u = self.untagged.GetChildMemberWithName("u")
+            s = u.GetChildMemberWithName("s")
+            data = s.GetChildMemberWithName("data")
+            return data
         return None
 
     # if this is a Lisp_Symbol, return an SBBalue for its name.
     # Return None otherwise.
     def get_symbol_name(self):
         if self.lisp_type == "Lisp_Symbol":
-            name = self.untagged.GetValueForExpressionPath("->u.s.name")
+            u = self.untagged.GetChildMemberWithName("u")
+            s = u.GetChildMemberWithName("s");
+            name = s.GetChildMemberWithName("name");
             return Lisp_Object(name).get_string_data()
         return None
 
@@ -226,6 +233,10 @@ class Lisp_Object:
 #                           LLDB Commands
 ########################################################################
 
+def xpostmortem(debugger, command, ctx, result, internal_dict):
+    """Call igc_postmortem to set MPS arena to postmortem state"""
+    debugger.HandleCommand(f"expr igc_postmortem()")
+
 def xbacktrace(debugger, command, ctx, result, internal_dict):
     """Print Emacs Lisp backtrace"""
     frame = ctx.GetFrame()
@@ -235,7 +246,8 @@ def xbacktrace(debugger, command, ctx, result, internal_dict):
         s = frame.EvaluateExpression(f"current_thread->m_specpdl[{i}]")
         kind = enumerator_name(s.GetChildMemberWithName("kind"))
         if kind == "SPECPDL_BACKTRACE":
-            function = Lisp_Object(s.GetValueForExpressionPath(".bt.function"))
+            bt = s.GetChildMemberWithName("bt")
+            function = Lisp_Object(bt.GetChildMemberWithName("function"))
             if function.lisp_type == "Lisp_Symbol":
                 sym_name = function.get_symbol_name()
                 result.AppendMessage(str(sym_name))
@@ -275,14 +287,17 @@ class Lisp_Object_Provider:
                 child = lisp_obj.get_string_data()
                 self.children["data"] = child
             elif lisp_type == "Lisp_Cons":
-                car = lisp_obj.untagged.GetValueForExpressionPath("->u.s.car")
-                cdr = lisp_obj.untagged.GetValueForExpressionPath("->u.s.u.cdr")
+                u = lisp_obj.untagged.GetChildMemberWithName("u")
+                s = u.GetChildMemberWithName("s")
+                car = s.GetChildMemberWithName("car")
+                su = s.GetChildMemberWithName("u")
+                cdr = su.GetChildMemberWithName("cdr")
                 self.children["car"] = car
                 self.children["cdr"] = cdr
             else:
                 self.children["untagged"] = lisp_obj.untagged
-        except:
-            print(f"*** exception in child provider update for {lisp_type}")
+        except Exception as ex:
+            print(f"*** exception {ex} in Lisp_Object_Provider::update for {lisp_type}")
             pass
 
     def num_children(self):
@@ -350,6 +365,7 @@ def enable_type_category(debugger, category):
 
 # This function is called by LLDB to initialize the module.
 def __lldb_init_module(debugger, internal_dict):
+    define_command(debugger, xpostmortem)
     define_command(debugger, xbacktrace)
     define_command(debugger, xdebug_print)
     define_type_summary(debugger, "Lisp_Object", type_summary_Lisp_Object)

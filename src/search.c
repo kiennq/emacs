@@ -37,6 +37,11 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include "regex-emacs.h"
 
+#if defined ENABLE_CHECKING && defined HAVE_OPEN_MEMSTREAM
+# include <stdlib.h>
+#endif
+
+
 #define REGEXP_CACHE_SIZE 20
 
 /* If the regexp is non-nil, then the buffer contains the compiled form
@@ -2885,7 +2890,7 @@ Return value is undefined if the last search failed.  */)
   prev = Qnil;
 
   USE_SAFE_ALLOCA;
-  SAFE_NALLOCA (data, 1, 2 * search_regs.num_regs + 1);
+  SAFE_ALLOCA_LISP (data, 2 * search_regs.num_regs + 1);
 
   len = 0;
   for (i = 0; i < search_regs.num_regs; i++)

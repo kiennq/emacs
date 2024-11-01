@@ -836,6 +836,10 @@ struct glyph_matrix
   /* Values of BEGV and ZV as of last redisplay.  Set in
      mark_window_display_accurate_1.  */
   ptrdiff_t begv, zv;
+
+# ifdef HAVE_MPS
+  void *igc_info;
+# endif
 };
 
 
@@ -1717,6 +1721,7 @@ enum face_underline_type
 
 struct face
 {
+  GC_HEADER
   /* The Lisp face attributes this face realizes.  All attributes
      in this vector are non-nil.  */
   Lisp_Object lface[LFACE_VECTOR_SIZE];
@@ -1917,6 +1922,7 @@ enum face_id
 
 struct face_cache
 {
+  GC_HEADER
   /* Hash table of cached realized faces.  */
   struct face **buckets;
 
@@ -1934,6 +1940,11 @@ struct face_cache
      changed.  */
   bool_bf menu_face_changed_p : 1;
 };
+
+/* Size of hash table of realized faces in face caches (should be a
+   prime number).  */
+
+#define FACE_CACHE_BUCKETS_SIZE 1009
 
 #define FACE_EXTENSIBLE_P(F)			\
   (!NILP (F->lface[LFACE_EXTEND_INDEX]))
@@ -3137,6 +3148,7 @@ struct redisplay_interface
 
 struct image
 {
+  GC_HEADER
   /* The time in seconds at which the image was last displayed.  Set
      in prepare_image_for_display.  */
   struct timespec timestamp;
@@ -3283,6 +3295,7 @@ struct image
 
 struct image_cache
 {
+  GC_HEADER
   /* Hash table of images.  */
   struct image **buckets;
 

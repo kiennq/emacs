@@ -17,7 +17,7 @@ You should have received a copy of the GNU General Public License
 along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifndef EMACS_PURESIZE_H
-#define EMACS_PURESIZE_H
+# define EMACS_PURESIZE_H
 
 #include "lisp.h"
 
@@ -77,6 +77,8 @@ INLINE_HEADER_BEGIN
 #define PURESIZE  (BASE_PURESIZE * PURESIZE_RATIO * PURESIZE_CHECKING_RATIO)
 #endif
 
+#define pure_dim ((PURESIZE + sizeof (EMACS_INT) - 1) / sizeof (EMACS_INT))
+
 extern AVOID pure_write_error (Lisp_Object);
 
 extern EMACS_INT pure[];
@@ -111,5 +113,4 @@ CHECK_IMPURE (Lisp_Object obj, void *ptr)
 #endif
 
 INLINE_HEADER_END
-
 #endif /* EMACS_PURESIZE_H */

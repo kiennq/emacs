@@ -22,6 +22,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "syssignal.h"
 #include "systime.h"
 #include "pdumper.h"
+#include "igc.h"
 
 /* Return A + B, but return the maximum fixnum if the result would overflow.
    Assume A and B are nonnegative and in fixnum range.  */
@@ -51,6 +52,7 @@ typedef struct {
   int next_free;		/* next free entry, -1 if all taken */
 } log_t;
 
+#ifndef HAVE_MPS
 static void
 mark_log (log_t *log)
 {
@@ -62,6 +64,7 @@ mark_log (log_t *log)
     if (log->counts[i] > 0)	/* Only mark valid keys.  */
       mark_objects (log->keys + i * depth, depth);
 }
+#endif // not HAVE_MPS
 
 static log_t *
 make_log (int size, int depth)
@@ -75,7 +78,11 @@ make_log (int size, int depth)
   int index_size = size * 2 + 1;
   log->index_size = index_size;
 
+#ifdef HAVE_MPS
+  log->trace = igc_xzalloc_ambig (depth * sizeof *log->trace);
+#else
   log->trace = xmalloc (depth * sizeof *log->trace);
+#endif
 
   log->index = xmalloc (index_size * sizeof *log->index);
   for (int i = 0; i < index_size; i++)
@@ -88,7 +95,11 @@ make_log (int size, int depth)
   log->next_free = 0;
 
   log->hash = xmalloc (size * sizeof *log->hash);
+#ifdef HAVE_MPS
+  log->keys = igc_xzalloc_ambig (size * depth * sizeof *log->keys);
+#else
   log->keys = xzalloc (size * depth * sizeof *log->keys);
+#endif
   log->counts = xzalloc (size * sizeof *log->counts);
 
   return log;
@@ -97,11 +108,16 @@ make_log (int size, int depth)
 static void
 free_log (log_t *log)
 {
+#ifdef HAVE_MPS
+  igc_xfree (log->trace);
+  igc_xfree (log->keys);
+#else
   xfree (log->trace);
+  xfree (log->keys);
+#endif
   xfree (log->index);
   xfree (log->next);
   xfree (log->hash);
-  xfree (log->keys);
   xfree (log->counts);
   xfree (log);
 }
@@ -325,7 +341,11 @@ record_backtrace (struct profiler_log *plog, EMACS_INT count)
 static void
 add_sample (struct profiler_log *plog, EMACS_INT count)
 {
+#ifdef HAVE_MPS
+  if (igc_busy_p ())
+#else
   if (EQ (backtrace_top_function (), QAutomatic_GC)) /* bug#60237 */
+#endif
     /* Special case the time-count inside GC because the hash-table
        code is not prepared to be used while the GC is running.
        More specifically it uses ASIZE at many places where it does
@@ -680,6 +700,7 @@ the same lambda expression, or are really unrelated function.  */)
   return res ? Qt : Qnil;
 }
 
+#ifndef HAVE_MPS
 void
 mark_profiler (void)
 {
@@ -688,6 +709,7 @@ mark_profiler (void)
 #endif
   mark_log (memory.log);
 }
+#endif // not HAVE_MPS
 
 void
 syms_of_profiler (void)

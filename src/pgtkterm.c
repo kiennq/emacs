@@ -66,6 +66,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <gdk/gdkwayland.h>
 #endif
 
+#ifdef HAVE_MPS
+#include "igc.h"
+#endif
+
 #define FRAME_CR_CONTEXT(f)		((f)->output_data.pgtk->cr_context)
 #define FRAME_CR_ACTIVE_CONTEXT(f)	((f)->output_data.pgtk->cr_active)
 #define FRAME_CR_SURFACE(f)		(cairo_get_target (FRAME_CR_CONTEXT (f)))
@@ -336,6 +340,7 @@ evq_flush (struct input_event *hold_quit)
   return n;
 }
 
+#ifndef HAVE_MPS
 void
 mark_pgtkterm (void)
 {
@@ -369,6 +374,7 @@ mark_pgtkterm (void)
 	mark_object (device->name);
     }
 }
+#endif
 
 char *
 get_keysym_name (int keysym)
@@ -3938,7 +3944,12 @@ xg_scroll_callback (GtkRange * range,
 		    GtkScrollType scroll, gdouble value, gpointer user_data)
 {
   int whole = 0, portion = 0;
+#ifdef HAVE_MPS
+  struct scroll_bar **bar_cell = user_data;
+  struct scroll_bar *bar = *bar_cell;
+#else
   struct scroll_bar *bar = user_data;
+#endif
   enum scroll_bar_part part = scroll_bar_nowhere;
   GtkAdjustment *adj = GTK_ADJUSTMENT (gtk_range_get_adjustment (range));
 
@@ -4004,7 +4015,12 @@ static gboolean
 xg_end_scroll_callback (GtkWidget *widget,
 			GdkEventButton *event, gpointer user_data)
 {
+#ifdef HAVE_MPS
+  struct scroll_bar **bar_cell = user_data;
+  struct scroll_bar *bar = *bar_cell;
+#else
   struct scroll_bar *bar = user_data;
+#endif
   bar->dragging = -1;
   if (WINDOWP (window_being_scrolled))
     {
@@ -7100,7 +7116,13 @@ pgtk_term_init (Lisp_Object display_name, char *resource_name)
      that isn't supported.  */
   pgtk_display_x_warning (dpy);
 
+#ifdef HAVE_MPS
+  // FIXME/igc: use exact references
+  dpyinfo = igc_xzalloc_ambig (sizeof *dpyinfo);
+#else
   dpyinfo = xzalloc (sizeof *dpyinfo);
+#endif
+
   pgtk_initialize_display_info (dpyinfo);
   terminal = pgtk_create_terminal (dpyinfo);
 
