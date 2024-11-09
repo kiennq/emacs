@@ -732,6 +732,11 @@ restore the old behavior, you can set 'eshell-pwd-convert-function' to
 This function natively-compiles all Lisp files in a directory and in its
 sub-directories, recursively, which were not already natively-compiled.
 
+---
+** New function 'color-blend'.
+This function takes two RGB lists and optional ALPHA and returns an RGB
+list whose elements are blended in linear space proportional to ALPHA.
+
 +++
 ** The 'defcustom' ':local' keyword can now be 'permanent-only'.
 This means that the variable's 'permanent-local' property is set to t,
@@ -820,6 +825,16 @@ This lets a Lisp program access the core functionality of the
 'dired-do-open' command.  It opens a file or files using an external
 program, choosing the program according to the operating system's
 conventions.
+
++++
+** 'make-vtable' can create an empty vtable.
+It is now possible to create a vtable without data, by leaving the
+':objects' list empty, or by providing a ':objects-function' that
+(initially) produces no data.  In such a case, it is necessary to
+provide a ':columns' spec, so that the number of columns and their
+widths can be determined.  Columns widths can be set explicitly, or they
+will be calculated based on the window width.
+
 
 
 * Changes in Emacs 31.1 on Non-Free Operating Systems
