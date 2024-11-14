@@ -86,6 +86,14 @@ different values for completion-affecting variables like
 applies for the styles configuration in 'completion-category-overrides'
 and 'completion-category-defaults'.
 
+---
+*** Selected completion candidate is preserved across *Completions* updates.
+When point is on a completion candidate in the *Completions* buffer
+(because of 'minibuffer-next-completion' or for any other reason), point
+will still be on that candidate after *Completions* is updated with a
+new list of completions.  The candidate is automatically deselected when
+the *Completions* buffer is hidden.
+
 ** Windows
 
 +++
@@ -659,10 +667,19 @@ a desktop notification when the song changes, using
 customized using the new user options 'mpc-notifications-title' and
 'mpc-notifications-body'.
 
+---
 *** New user option 'mpc-crossfade-time'.
 When non-nil, MPC will crossfade between songs for the specified number
 of seconds.  Crossfading can be toggled using the command
 'mpc-toggle-crossfade' or from the MPC menu.
+
+---
+*** New command 'mpc-describe-song'.
+This command displays information about the currently playing song or
+song at point in the MPC-Songs buffer.  The list of tags to display can
+be customized using the new user option 'mpc-song-viewer-tags' and the
+appearance of the list with the new faces 'mpc-song-viewer-tag',
+'mpc-song-viewer-value', and 'mpc-song-viewer-empty'.
 
 ** VC
 
