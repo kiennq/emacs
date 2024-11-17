@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       upstream_repo: emacs-mirror/emacs
-      upstream_branch: master scratch/igc
+      upstream_branch: master scratch/igc scratch/tty-child-frames
     steps:
       - name: Clone
         run: |
