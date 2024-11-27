@@ -5630,6 +5630,8 @@ if test "${with_mps}" != "no"; then
     else
       LIBMPS=-lmps
     fi
+  else
+    AC_MSG_ERROR([The MPS library libmps is missing]):
   fi
 fi
 
