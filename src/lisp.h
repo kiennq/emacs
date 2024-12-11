@@ -270,7 +270,11 @@ DEFINE_GDB_SYMBOL_END (INTTYPEBITS)
     b. slower, because it typically requires extra masking.
    So, USE_LSB_TAG is true only on hosts where it might be useful.  */
 DEFINE_GDB_SYMBOL_BEGIN (bool, USE_LSB_TAG)
+#ifndef HAVE_MPS
 #define USE_LSB_TAG (VAL_MAX / 2 < INTPTR_MAX)
+#else
+#define USE_LSB_TAG 1
+#endif
 DEFINE_GDB_SYMBOL_END (USE_LSB_TAG)
 
 /* Mask for the value (as opposed to the type bits) of a Lisp object.  */
@@ -2694,7 +2698,7 @@ typedef int32_t hash_idx_t;
 /* The reason for this unusual structure is an MPS peculiarity on 32-bit x86 systems. */
 struct Lisp_Weak_Hash_Table_Entry
 {
-  intptr_t intptr; /* must be an MPS base pointer */
+  EMACS_UINT intptr; /* must be an MPS base pointer */
   Lisp_Object fixnum; /* a fixnum indicating the tag, or just a fixnum */
 };
 
