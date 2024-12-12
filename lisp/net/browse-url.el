@@ -237,7 +237,7 @@ be used instead."
 (defcustom browse-url-button-regexp
   (concat
    "\\b\\(\\(www\\.\\|\\(s?https?\\|ftps?\\|file\\|gophers?\\|gemini\\|"
-   "nntp\\|news\\|telnet\\|wais\\|mailto\\|info\\):\\)"
+   "nntps?\\|s?news\\|telnet\\|wais\\|mailto\\|info\\):\\)"
    "\\(//[-a-z0-9_.]+:[0-9]*\\)?"
    (let ((chars "-a-z0-9_=#$@~%&*+\\/[:word:]")
 	 (punct "!?:;.,"))
@@ -252,7 +252,7 @@ be used instead."
       "\\)"))
    "\\)")
   "Regular expression that matches URLs."
-  :version "27.1"
+  :version "31.1"
   :type 'regexp)
 
 (defcustom browse-url-browser-display nil
@@ -674,13 +674,9 @@ regarding its parameter treatment."
 (defcustom browse-url-default-scheme "http"
   "URL scheme that `browse-url' (and related commands) will use by default.
 
-For example, when point is on an URL fragment like
-\"www.example.org\", `browse-url' will assume that this is an
-\"http\" URL by default (i.e. \"http://www.example.org\").
-
-Note that if you set this to \"https\", websites that do not yet
-support HTTPS may not load correctly in your web browser.  Such
-websites are increasingly rare, but they do still exist."
+For example, when point is on an URL fragment like \"www.example.org\",
+`browse-url' will assume that this is an \"http\" URL by default (for
+example, \"http://www.example.org\")."
   :type '(choice (const :tag "HTTP" "http")
                  (const :tag "HTTPS" "https")
                  (string :tag "Something else" "https"))
