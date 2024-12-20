@@ -838,14 +838,18 @@ adjust_frame_size (struct frame *f, int new_text_width, int new_text_height,
   block_input ();
 
 #ifdef MSDOS
-  /* We only can set screen dimensions to certain values supported by
-     our video hardware.  Try to find the smallest size greater or
-     equal to the requested dimensions, while accounting for the fact
-     that the menu-bar lines are not counted in the frame height.  */
-  int dos_new_text_lines = new_text_lines + FRAME_TOP_MARGIN (f);
+  if (!FRAME_PARENT_FRAME (f))
+    {
+      /* We only can set screen dimensions to certain values supported
+	 by our video hardware.  Try to find the smallest size greater
+	 or equal to the requested dimensions, while accounting for the
+	 fact that the menu-bar lines are not counted in the frame
+	 height.  */
+      int dos_new_text_lines = new_text_lines + FRAME_TOP_MARGIN (f);
 
-  dos_set_window_size (&dos_new_text_lines, &new_text_cols);
-  new_text_lines = dos_new_text_lines - FRAME_TOP_MARGIN (f);
+      dos_set_window_size (&dos_new_text_lines, &new_text_cols);
+      new_text_lines = dos_new_text_lines - FRAME_TOP_MARGIN (f);
+    }
 #endif
 
   if (new_inner_width != old_inner_width)
@@ -1391,7 +1395,7 @@ get_future_frame_param (Lisp_Object parameter,
 
 #endif
 
-static int
+int
 tty_child_pos_param (struct frame *child, Lisp_Object key,
 		     Lisp_Object params, int dflt)
 {
@@ -1405,7 +1409,7 @@ tty_child_pos_param (struct frame *child, Lisp_Object key,
   return dflt;
 }
 
-static int
+int
 tty_child_size_param (struct frame *child, Lisp_Object key,
 		      Lisp_Object params, int dflt)
 {

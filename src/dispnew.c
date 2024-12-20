@@ -3495,7 +3495,7 @@ tty_raise_lower_frame (struct frame *f, bool raise)
 bool
 is_tty_frame (struct frame *f)
 {
-  return FRAME_TERMCAP_P (f);
+  return FRAME_TERMCAP_P (f) || FRAME_MSDOS_P (f);
 }
 
 /* Return true if frame F is a tty child frame.  */
@@ -6645,13 +6645,14 @@ change_frame_size (struct frame *f, int new_width, int new_height,
 {
   Lisp_Object tail, frame;
 
-  if (FRAME_MSDOS_P (f))
+  if (FRAME_MSDOS_P (f) && !FRAME_PARENT_FRAME (f))
     {
       /* On MS-DOS, all frames use the same screen, so a change in
          size affects all frames.  Termcap now supports multiple
          ttys. */
       FOR_EACH_FRAME (tail, frame)
-	if (!FRAME_WINDOW_P (XFRAME (frame)))
+	if (!FRAME_WINDOW_P (XFRAME (frame))
+	    && !FRAME_PARENT_FRAME (XFRAME (frame)))
 	  change_frame_size_1 (XFRAME (frame), new_width, new_height,
 			       pretend, delay, safe);
     }
