@@ -3930,6 +3930,8 @@ is_cursor_obscured (void)
   return cursor_glyph->frame != SELECTED_FRAME ();
 }
 
+#ifndef HAVE_ANDROID
+
 /* Decide where to show the cursor, and whether to hide it.
 
    This works very well for Vertico-Posframe, Transient-Posframe and
@@ -3969,9 +3971,12 @@ terminal_cursor_magic (struct frame *root, struct frame *topmost_child)
     }
 }
 
+#endif /* !HAVE_ANDROID */
+
 void
 combine_updates_for_frame (struct frame *f, bool inhibit_scrolling)
 {
+#ifndef HAVE_ANDROID
   struct frame *root = root_frame (f);
   eassert (FRAME_VISIBLE_P (root));
 
@@ -4008,6 +4013,7 @@ combine_updates_for_frame (struct frame *f, bool inhibit_scrolling)
       add_frame_display_history (f, false);
 #endif
     }
+#endif /* HAVE_ANDROID */
 }
 
 /* Update on the screen all root frames ROOTS.  Called from
