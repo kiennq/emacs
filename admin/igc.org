@@ -144,7 +144,7 @@ objects are therefore never copied, and their address does not change.
 * The registry
 
 The MPS shields itself from knowing application details, for example
-which GC roots the application has, which threads, how objects look
+which GC roots an application has, which threads, how objects look
 like and so on. MPS has an internal model instead which describes
 these details.
 
@@ -162,6 +162,15 @@ pools, object formats and so on.
 Igc collects all these MPS handles in a 'struct igc'. This "registry"
 of MPS handles is found in the global variable 'global_igc' and thus
 can be accessed from anywhere.
+
+The creation of MPS model objects and their registration are usually
+combined into a functions in igc. For example, the call to create an MPS
+root object, error checking, and putting the root handle into the
+registry is factored out into one function =root_create=. Other functions
+like =root_create_ambig= and =root_create_exact= exist to create different
+kinds of roots. This is just the result of factoring out commonalities
+so that not every caller has to deal with the necessarily complex
+argument list of =root_create=.
 
 * Root scan functions
 
@@ -200,7 +209,7 @@ registry.
 - Pools. We tell MPS which pools we want to use, and what the object
   formats are, i.e. which callbacks in Emacs MPS can use.
 - Threads. We define which threads Emacs has, and add their C stacks
-  as roots. This includes Emacs' main thread.
+  as roots.
 - Roots. We tell MPS about the various roots in Emacs, the DEFVARs,
   the byte code stack, staticpro, etc.
 - ...
@@ -209,21 +218,25 @@ When we done all that, we tell MPS it can start doing its job.
 
 * Lisp Object Allocation
 
-All of Emacs' Lisp object allocation ultimately ends up done in igc's
-'alloc_impl' function.
+All of Emacs' Lisp object allocation ultimately ends up being done in
+igc's =alloc_impl= function.
 
 MPS allocation from pools is thread-specific, using so-called
-"allocation points". These allocation points optimize allocation by
-reducing thread-contention. Allocation points are associated with
-pools, and there is one allocation point per thread.
+"allocation points" that are created and registered in the registry when
+we register a thread with MPS, via =create_thread_aps= and its
+subroutines.
 
-The function 'thread_ap' in igc determines which allocation point to
-use for the current thread and depending on the type of Lisp object
-to allocate.
+Allocation points optimize allocation by reducing
+thread-contention. Allocation points are associated with pools, and
+there is one allocation point per thread.
+
+The function =thread_ap= in igc determines which allocation point to use
+for the current thread and depending on the type of Lisp object to
+allocate.
 
 * Malloc with roots
 
-In a number of places, Emacs allocates memory with its 'xmalloc'
+In a number of places, Emacs allocates memory with its =xmalloc=
 function family and then stores references to Lisp objects there,
 pointers or Lisp_Objects.
 
@@ -232,36 +245,36 @@ objects is prevented by inhibiting GC.
 
 With igc, we do things differently. We don't want to temporarily stop
 the GC thread to inhibit GC, as a design decision. Instead, we make
-the malloc'd memory a root. The root is destroyed when the memory is
+the =malloc'd= memory a root, which is destroyed when the memory is
 freed.
 
-igc provides a number if functions for doing such allocations. For
-example 'igc_xzalloc_ambig', 'igc_xpalloc_exact' and so on. Freeing
-the memory must be done with 'igc_xfree'.
+igc provides a number of functions for doing such allocations. For
+example =igc_xzalloc_ambig=, =igc_xpalloc_exact= and so on. Freeing the
+memory allocated with all these functions must be done with =igc_xfree=.
 
-These functions are used throughout Emacs in äifdef HAVE_MPS. In
-general, it's an erro to put references to Lisp objects in malloc'd
-memory and not use the igc functions.
+These malloc-with-root functions are used throughout Emacs in =#ifdef
+HAVE_MPS=. In general, it's an error to put references to Lisp objects in
+=malloc'd= memory and not use the =igc= functions.
 
 An example:
 
-Emacs' atimers are created with the function start_atimer, which takes
-as arguments, among others, a callback to call when the atimer fires,
-and client data of type void * to pass to the callback.  The client data
+Emacs' atimers are created with the function =start_atimer=, which takes
+as arguments, among others, a =callback= to call when the atimer fires,
+and =client_data= of type =void *= to pass to the callback.  The client data
 can be anything. It can be a pointer to a C string, an integer cast to
 void *, a pointer to some Lisp object, anything that fits.
 
 The atimer implementation stores away the client data until the timer
 fires. Until then, Emacs must make sure that the client data is not
-discarded, in case it is a Lisp object, which we don't know.
+discarded by the GC, in case it is a Lisp object.
 
-It therefore does things like this, simplified:
+Here is how this is done, simplified:
 
-1. Start an aitmer.
+1. Start an atimer.
 
    Malloc a struct, making it an ambiguous root. The allocation is done
-   with igc_xzalloc_ambig. The xzalloc part of the name tells that it
-   does the same thing as xzalloc. The ambig part tells that it creates
+   with =igc_xzalloc_ambig=. The =xzalloc= part of the name tells that it
+   does the same thing as =xzalloc=. The =ambig= part tells that it creates
    an ambiguous root.
 
    Store callback and client data in that struct.
@@ -276,7 +289,7 @@ It therefore does things like this, simplified:
 2. Timer fires.
 
    Call the callback with client data, then free the memory and destroy
-   the root with igc_free.
+   the root with =igc_free=.
 
    #+begin_src C
      ...
