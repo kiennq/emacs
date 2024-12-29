@@ -2420,29 +2420,17 @@ delimits medium sized statements in the source code.  It is,
 however, smaller in scope than sentences.  This is used by
 `treesit-forward-sexp' and friends.")
 
-(defun treesit-forward-list (&optional arg)
-  "Move forward across a list.
-What constitutes a list is determined by `sexp-list' in
-`treesit-thing-settings' that usually defines
-parentheses-like expressions.
-
-Unlike `forward-sexp', this command moves only across a list,
-but not across atoms (such as symbols or words) inside the list.
-
-This command is the tree-sitter variant of `forward-list'.  But since
-`forward-list' has no \"forward-list-function\" like there is
-`forward-sexp-function' for `forward-sexp', this command
-can be used on its own.
-
-ARG is described in the docstring of `forward-list'."
-  (interactive "^p")
-  (let ((treesit-sexp-type-regexp 'sexp-list))
-    (treesit-forward-sexp arg)))
+(defun treesit--scan-error (pred arg)
+  (when-let* ((parent (treesit-thing-at (point) pred t))
+              (boundary (treesit-node-child parent (if (> arg 0) -1 0))))
+    (signal 'scan-error (list (format-message "No more %S to move across" pred)
+                              (treesit-node-start boundary)
+                              (treesit-node-end boundary)))))
 
 (defun treesit-forward-sexp (&optional arg)
   "Tree-sitter implementation for `forward-sexp-function'.
 
-ARG is described in the docstring of `forward-sexp-function'.
+ARG is described in the docstring of `forward-sexp'.
 
 If point is inside a text environment where tree-sitter is not
 supported, go forward a sexp using `forward-sexp-default-function'.
@@ -2479,13 +2467,7 @@ across atoms (such as symbols or words) inside the list."
         ;; the obstacle, like `forward-sexp' does.  If we couldn't
         ;; find a parent, we simply return nil without moving point,
         ;; then functions like `up-list' will signal "at top level".
-        (when-let* ((parent (treesit-thing-at (point) pred t))
-                    (boundary (if (> arg 0)
-                                  (treesit-node-child parent -1)
-                                (treesit-node-child parent 0))))
-          (signal 'scan-error (list "No more sexp to move across"
-                                    (treesit-node-start boundary)
-                                    (treesit-node-end boundary)))))))
+        (treesit--scan-error pred arg))))
 
 (defun treesit-forward-sexp-list (&optional arg)
   "Alternative tree-sitter implementation for `forward-sexp-function'.
@@ -2540,6 +2522,81 @@ ARG is described in the docstring of `forward-sexp-function'."
                          (>= default-pos (treesit-node-end sibling)))))
           (goto-char default-pos))
         (treesit-forward-list arg))))
+
+(defun treesit-forward-list (&optional arg)
+  "Move forward across a list.
+What constitutes a list is determined by `sexp-list' in
+`treesit-thing-settings' that usually defines
+parentheses-like expressions.
+
+Unlike `forward-sexp', this command moves only across a list,
+but not across atoms (such as symbols or words) inside the list.
+
+This command is the tree-sitter variant of `forward-list'
+redefined by the variable `forward-list-function'.
+
+ARG is described in the docstring of `forward-list'."
+  (interactive "^p")
+  (let ((arg (or arg 1))
+        (pred 'sexp-list))
+    (or (if (> arg 0)
+            (treesit-end-of-thing pred (abs arg) 'restricted)
+          (treesit-beginning-of-thing pred (abs arg) 'restricted))
+        (treesit--scan-error pred arg))))
+
+(defun treesit-down-list (&optional arg)
+  "Move forward down one level of parentheses.
+What constitutes a level of parentheses is determined by
+`sexp-list' in `treesit-thing-settings' that usually defines
+parentheses-like expressions.
+
+This command is the tree-sitter variant of `down-list'
+redefined by the variable `down-list-function'.
+
+ARG is described in the docstring of `down-list'."
+  (interactive "^p")
+  (let* ((pred 'sexp-list)
+         (arg (or arg 1))
+         (inc (if (> arg 0) 1 -1)))
+    (while (/= arg 0)
+      (let* ((node (if (> arg 0)
+                       (treesit-thing-next (point) pred)
+                     (treesit-thing-prev (point) pred)))
+             (child (when node
+                      (treesit-node-child node (if (> arg 0) 0 -1))))
+             (pos (when child
+                    (if (> arg 0)
+                        (treesit-node-end child)
+                      (treesit-node-start child)))))
+        (if pos (goto-char pos) (treesit--scan-error pred arg)))
+      (setq arg (- arg inc)))))
+
+(defun treesit-up-list (&optional arg _escape-strings _no-syntax-crossing)
+  "Move forward out of one level of parentheses.
+What constitutes a level of parentheses is determined by
+`sexp-list' in `treesit-thing-settings' that usually defines
+parentheses-like expressions.
+
+This command is the tree-sitter variant of `up-list'
+redefined by the variable `up-list-function'.
+
+ARG is described in the docstring of `up-list'."
+  (interactive "^p")
+  (let* ((pred 'sexp-list)
+         (arg (or arg 1))
+         (inc (if (> arg 0) 1 -1)))
+    (while (/= arg 0)
+      (let ((node (treesit-thing-at (point) pred)))
+        (while (and node (eq (point) (if (> arg 0)
+                                         (treesit-node-end node)
+                                       (treesit-node-start node))))
+          (setq node (treesit-parent-until node pred)))
+        (if node
+            (goto-char (if (> arg 0)
+                           (treesit-node-end node)
+                         (treesit-node-start node)))
+          (user-error "At top level")))
+      (setq arg (- arg inc)))))
 
 (defun treesit-transpose-sexps (&optional arg)
   "Tree-sitter `transpose-sexps' function.
@@ -3332,6 +3389,49 @@ For BOUND, MOVE, BACKWARD, LOOKING-AT, see the descriptions in
       (setq level (1+ level)))
     (if (zerop level) 1 level)))
 
+;;; Show paren mode
+
+(defun treesit-show-paren-data--categorize (pos &optional end-p)
+  (let* ((pred 'sexp-list)
+         (parent (treesit-node-parent (treesit-node-at (if end-p (1- pos) pos))))
+         (parent (when (treesit-node-match-p parent pred t) parent))
+         (first (when parent (treesit-node-child parent 0)))
+         (first-start (when first (treesit-node-start first)))
+         (first-end (when first (treesit-node-end first)))
+         (last (when parent (treesit-node-child parent -1)))
+         (last-start (when last (treesit-node-start last)))
+         (last-end (when last (treesit-node-end last)))
+         (dir (if show-paren-when-point-inside-paren
+                  (cond
+                   ((and first (<= first-start pos first-end)) 1)
+                   ((and last (<= last-start pos last-end)) -1))
+                (cond
+                 ((and first (= first-start pos)) 1)
+                 ((and last (= pos last-end)) -1)))))
+    (cond
+     ((eq dir 1) (list first-start first-end last-start last-end))
+     ((eq dir -1) (list last-start last-end first-start first-end)))))
+
+(defun treesit-show-paren-data ()
+  "A function suitable for `show-paren-data-function' (which see)."
+  (or (treesit-show-paren-data--categorize (point))
+      (unless (bobp) (treesit-show-paren-data--categorize (point) t))
+      (when show-paren-when-point-in-periphery
+        (let* ((ind-pos (save-excursion (back-to-indentation) (point)))
+	       (eol-pos
+	        (save-excursion
+	          (end-of-line) (skip-chars-backward " \t" ind-pos) (point))))
+          (cond
+           ((<= (point) ind-pos)
+            (or (treesit-show-paren-data--categorize ind-pos)
+	        (unless (bobp)
+                  (treesit-show-paren-data--categorize (1- eol-pos)))))
+           ((>= (point) eol-pos)
+            (unless (bobp)
+              (treesit-show-paren-data--categorize (1- eol-pos)))))))
+      ;; Fall back for parens in e.g. 'for_statement'
+      (show-paren--default)))
+
 ;;; Activating tree-sitter
 
 (defun treesit-ready-p (language &optional quiet)
@@ -3465,7 +3565,10 @@ before calling this function."
     (setq-local transpose-sexps-function #'treesit-transpose-sexps))
 
   (when (treesit-thing-defined-p 'sexp-list nil)
-    (setq-local forward-sexp-function #'treesit-forward-sexp-list))
+    (setq-local forward-sexp-function #'treesit-forward-sexp-list)
+    (setq-local forward-list-function #'treesit-forward-list)
+    (setq-local down-list-function #'treesit-down-list)
+    (setq-local up-list-function #'treesit-up-list))
 
   (when (treesit-thing-defined-p 'sentence nil)
     (setq-local forward-sentence-function #'treesit-forward-sentence))
@@ -3486,6 +3589,8 @@ before calling this function."
             #'treesit-outline-predicate--from-imenu))
     (setq-local outline-search-function #'treesit-outline-search
                 outline-level #'treesit-outline-level))
+
+  (setq-local show-paren-data-function 'treesit-show-paren-data)
 
   ;; Remove existing local parsers.
   (dolist (ov (overlays-in (point-min) (point-max)))
