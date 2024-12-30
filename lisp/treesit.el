@@ -4090,14 +4090,16 @@ window."
 
 The value should be an alist where each element has the form
 
-    (LANG . (URL REVISION SOURCE-DIR CC C++))
+    (LANG . (URL REVISION SOURCE-DIR CC C++ COMMIT))
 
 Only LANG and URL are mandatory.  LANG is the language symbol.
 URL is the URL of the grammar's Git repository or a directory
 where the repository has been cloned.
 
-REVISION is the Git tag or branch of the desired version,
-defaulting to the latest default branch.
+REVISION is the Git tag or branch of the desired version, defaulting to
+the latest default branch.  If COMMIT is non-nil, checkout this commit
+hash after cloning the repo.  COMMIT has precedence over REVISION if
+both are non-nil.
 
 SOURCE-DIR is the relative subdirectory in the repository in which
 the grammar's parser.c file resides, defaulting to \"src\".
@@ -4169,10 +4171,7 @@ executable programs, such as the C/C++ compiler and linker.
 Interactively, prompt for the directory in which to install the
 compiled grammar files.  Non-interactively, use OUT-DIR; if it's
 nil, the grammar is installed to the standard location, the
-\"tree-sitter\" directory under `user-emacs-directory'.
-
-Return the git revision of the installed grammar, but it only works when
-`treesit--install-language-grammar-full-clone' is t."
+\"tree-sitter\" directory under `user-emacs-directory'."
   (interactive (list (intern
                       (completing-read
                        "Language: "
@@ -4197,13 +4196,12 @@ Return the git revision of the installed grammar, but it only works when
                default-out-dir)
             ;; When called non-interactively, OUT-DIR should
             ;; default to DEFAULT-OUT-DIR.
-            (or out-dir default-out-dir)))
-         version)
+            (or out-dir default-out-dir))))
     (when recipe
       (condition-case err
           (progn
-            (setq version (apply #'treesit--install-language-grammar-1
-                                 (cons out-dir recipe)))
+            (apply #'treesit--install-language-grammar-1
+                   (cons out-dir recipe))
 
             ;; Check that the installed language grammar is loadable.
             (pcase-let ((`(,available . ,err)
@@ -4224,22 +4222,32 @@ Return the git revision of the installed grammar, but it only works when
          (display-warning
           'treesit
           (format "Error encountered when installing language grammar: %s"
-                  err)))))
-    version))
+                  err)))))))
 
-(defun treesit--language-git-revision ()
-  "Return the Git revision of current directory.
+(defun treesit--language-git-revision (repo-dir)
+  "Return the Git revision of the repo in REPO-DIR.
 
 Return the output of \"git describe\". If anything goes wrong, return
 nil."
   (with-temp-buffer
     (cond
-     ((eq 0 (call-process "git" nil t nil "describe" "--tags"))
+     ((eq 0 (call-process "git" nil t nil "-C" repo-dir "describe" "--tags"))
       (string-trim (buffer-string)))
      ((eq 0 (progn (erase-buffer)
-                   (call-process "git" nil t nil "rev-parse" "HEAD")))
+                   (call-process "git" nil t nil
+                                 "-C" repo-dir "rev-parse" "HEAD")))
       (string-trim (buffer-string)))
      (t nil))))
+
+(defun treesit--language-git-timestamp (repo-dir)
+  "Return the commit date in REPO-DIR in UNIX epoch.
+
+Return nil if failed to run command."
+  (with-temp-buffer
+    (if (eq 0 (call-process
+               "git" nil t nil "-C" repo-dir "log" "-1" "--format=%ct"))
+        (string-to-number (string-trim (buffer-string)))
+      nil)))
 
 (defun treesit--call-process-signal (&rest args)
   "Run `call-process' with ARGS.
@@ -4266,7 +4274,8 @@ REVISION may be nil, in which case the cloned repo will be at its
 default branch.
 
 Use shallow clone by default.  Do a full clone when
-`treesit--install-language-grammar-full-clone' is t."
+`treesit--install-language-grammar-full-clone' is t.  Do a blobless
+clone if `treesit--install-language-grammar-blobless' is t."
   (message "Cloning repository")
   ;; git clone xxx --depth 1 --quiet [-b yyy] workdir
   (let ((args (list "git" nil t nil "clone" url "--quiet")))
@@ -4280,28 +4289,57 @@ Use shallow clone by default.  Do a full clone when
     (apply #'treesit--call-process-signal args)))
 
 (defun treesit--install-language-grammar-1
-    (out-dir lang url &optional revision source-dir cc c++)
-  "Install and compile a tree-sitter language grammar library.
+    (out-dir lang url &optional revision source-dir cc c++ commit)
+  "Compile and install a tree-sitter language grammar library.
 
 OUT-DIR is the directory to put the compiled library file.  If it
 is nil, the \"tree-sitter\" directory under user's Emacs
 configuration directory is used (and automatically created if it
 does not exist).
 
-For LANG, URL, REVISION, SOURCE-DIR, GRAMMAR-DIR, CC, C++, see
-`treesit-language-source-alist'.  If anything goes wrong, this
-function signals an error.
+For LANG, URL, REVISION, SOURCE-DIR, GRAMMAR-DIR, CC, C++, COMMIT, see
+`treesit-language-source-alist'.
 
 Return the git revision of the installed grammar.  The revision is
 generated by \"git describe\".  It only works when
-`treesit--install-language-grammar-full-clone' is t."
-  (let* ((lang (symbol-name lang))
+`treesit--install-language-grammar-full-clone' is t.
+
+If anything goes wrong, this function signals an `treesit-error'."
+  (let* ((default-directory (make-temp-file "treesit-workdir" t))
          (maybe-repo-dir (expand-file-name url))
          (url-is-dir (file-accessible-directory-p maybe-repo-dir))
-         (default-directory (make-temp-file "treesit-workdir" t))
          (workdir (if url-is-dir
                       maybe-repo-dir
                     (expand-file-name "repo")))
+         version)
+    (unwind-protect
+        (with-temp-buffer
+          (if url-is-dir
+              (when revision
+                (treesit--git-checkout-branch workdir revision))
+            (treesit--git-clone-repo url revision workdir))
+          (when commit
+            (treesit--git-checkout-branch workdir commit))
+          (setq version (treesit--language-git-revision workdir))
+          (treesit--build-grammar workdir out-dir lang source-dir cc c++))
+      ;; Remove workdir if it's not a repo owned by user and we
+      ;; managed to create it in the first place.
+      (when (and (not url-is-dir) (file-exists-p workdir))
+        (delete-directory workdir t)))
+    version))
+
+(defun treesit--build-grammar (workdir out-dir lang source-dir cc c++)
+  "Compile a tree-sitter language grammar library.
+
+WORKDIR is the cloned repo's directory.  OUT-DIR is the directory to put
+the compiled library file.  If it is nil, the \"tree-sitter\" directory
+under user's Emacs configuration directory is used (and automatically
+created if it does not exist).
+
+For LANG, SOURCE-DIR, CC, C++, see `treesit-language-source-alist'.
+
+If anything goes wrong, this function signals an `treesit-error'."
+  (let* ((lang (symbol-name lang))
          (source-dir (expand-file-name (or source-dir "src") workdir))
          (cc (or cc (seq-find #'executable-find '("cc" "gcc" "c99"))
                  ;; If no C compiler found, just use cc and let
@@ -4313,66 +4351,54 @@ generated by \"git describe\".  It only works when
                     (signal 'treesit-error '("Emacs cannot figure out the file extension for dynamic libraries for this system, because `dynamic-library-suffixes' is nil"))))
          (out-dir (or (and out-dir (expand-file-name out-dir))
                       (locate-user-emacs-file "tree-sitter")))
-         (lib-name (concat "libtree-sitter-" lang soext))
-         version)
-    (unwind-protect
-        (with-temp-buffer
-          (if url-is-dir
-              (when revision
-                (treesit--git-checkout-branch workdir revision))
-            (treesit--git-clone-repo url revision workdir))
-          ;; We need to go into the source directory because some
-          ;; header files use relative path (#include "../xxx").
-          ;; cd "${sourcedir}"
-          (setq default-directory source-dir)
-          (setq version (treesit--language-git-revision))
-          (message "Compiling library")
-          ;; cc -fPIC -c -I. parser.c
-          (treesit--call-process-signal
-           cc nil t nil "-fPIC" "-c" "-I." "parser.c")
-          ;; cc -fPIC -c -I. scanner.c
-          (when (file-exists-p "scanner.c")
-            (treesit--call-process-signal
-             cc nil t nil "-fPIC" "-c" "-I." "scanner.c"))
-          ;; c++ -fPIC -I. -c scanner.cc
-          (when (file-exists-p "scanner.cc")
-            (treesit--call-process-signal
-             c++ nil t nil "-fPIC" "-c" "-I." "scanner.cc"))
-          ;; cc/c++ -fPIC -shared *.o -o "libtree-sitter-${lang}.${soext}"
-          (apply #'treesit--call-process-signal
-                 (if (file-exists-p "scanner.cc") c++ cc)
-                 nil t nil
-                 (if (eq system-type 'cygwin)
-                     `("-shared" "-Wl,-dynamicbase"
-                       ,@(directory-files
-                          default-directory nil
-                          (rx bos (+ anychar) ".o" eos))
-                       "-o" ,lib-name)
-                   `("-fPIC" "-shared"
-                     ,@(directory-files
-                        default-directory nil
-                        (rx bos (+ anychar) ".o" eos))
-                     "-o" ,lib-name)))
-          ;; Copy out.
-          (unless (file-exists-p out-dir)
-            (make-directory out-dir t))
-          (let* ((library-fname (expand-file-name lib-name out-dir))
-                 (old-fname (concat library-fname ".old")))
-            ;; Rename the existing shared library, if any, then
-            ;; install the new one, and try deleting the old one.
-            ;; This is for Windows systems, where we cannot simply
-            ;; overwrite a DLL that is being used.
-            (if (file-exists-p library-fname)
-                (rename-file library-fname old-fname t))
-            (copy-file lib-name (file-name-as-directory out-dir) t t)
-            ;; Ignore errors, in case the old version is still used.
-            (ignore-errors (delete-file old-fname)))
-          (message "Library installed to %s/%s" out-dir lib-name))
-      ;; Remove workdir if it's not a repo owned by user and we
-      ;; managed to create it in the first place.
-      (when (and (not url-is-dir) (file-exists-p workdir))
-        (delete-directory workdir t)))
-    version))
+         (lib-name (concat "libtree-sitter-" lang soext)))
+    (with-temp-buffer
+      ;; We need to go into the source directory because some
+      ;; header files use relative path (#include "../xxx").
+      ;; cd "${sourcedir}"
+      (setq default-directory source-dir)
+      (message "Compiling library")
+      ;; cc -fPIC -c -I. parser.c
+      (treesit--call-process-signal
+       cc nil t nil "-fPIC" "-c" "-I." "parser.c")
+      ;; cc -fPIC -c -I. scanner.c
+      (when (file-exists-p "scanner.c")
+        (treesit--call-process-signal
+         cc nil t nil "-fPIC" "-c" "-I." "scanner.c"))
+      ;; c++ -fPIC -I. -c scanner.cc
+      (when (file-exists-p "scanner.cc")
+        (treesit--call-process-signal
+         c++ nil t nil "-fPIC" "-c" "-I." "scanner.cc"))
+      ;; cc/c++ -fPIC -shared *.o -o "libtree-sitter-${lang}.${soext}"
+      (apply #'treesit--call-process-signal
+             (if (file-exists-p "scanner.cc") c++ cc)
+             nil t nil
+             (if (eq system-type 'cygwin)
+                 `("-shared" "-Wl,-dynamicbase"
+                   ,@(directory-files
+                      default-directory nil
+                      (rx bos (+ anychar) ".o" eos))
+                   "-o" ,lib-name)
+               `("-fPIC" "-shared"
+                 ,@(directory-files
+                    default-directory nil
+                    (rx bos (+ anychar) ".o" eos))
+                 "-o" ,lib-name)))
+      ;; Copy out.
+      (unless (file-exists-p out-dir)
+        (make-directory out-dir t))
+      (let* ((library-fname (expand-file-name lib-name out-dir))
+             (old-fname (concat library-fname ".old")))
+        ;; Rename the existing shared library, if any, then
+        ;; install the new one, and try deleting the old one.
+        ;; This is for Windows systems, where we cannot simply
+        ;; overwrite a DLL that is being used.
+        (if (file-exists-p library-fname)
+            (rename-file library-fname old-fname t))
+        (copy-file lib-name (file-name-as-directory out-dir) t t)
+        ;; Ignore errors, in case the old version is still used.
+        (ignore-errors (delete-file old-fname)))
+      (message "Library installed to %s/%s" out-dir lib-name))))
 
 ;;; Shortdocs
 
