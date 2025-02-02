@@ -1115,16 +1115,6 @@ struct ablocks
 /* The list of free ablock.   */
 static struct ablock *free_ablock;
 
-#if !USE_ALIGNED_ALLOC
-
-static void *
-pointer_align (void *ptr, int alignment)
-{
-  return (void *) ROUNDUP ((uintptr_t) ptr, alignment);
-}
-
-#endif /* !USE_ALIGNED_ALLOC */
-
 /* Allocate an aligned block of nbytes.
    Alignment is on a multiple of BLOCK_ALIGN and `nbytes' has to be
    smaller or equal to BLOCK_BYTES.  */
