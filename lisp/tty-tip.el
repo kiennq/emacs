@@ -1,5 +1,4 @@
-;;; -*- lexical-binding: t; symbol-packages: t; -*-
-;;; tty-tip.el --- Display help in kind of tooltips on ttys
+;;; tty-tip.el --- Display help in kind of tooltips on ttys  -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2024-2025 Free Software Foundation, Inc.
 
@@ -27,6 +26,8 @@
 ;;
 ;; You can customize face `tooltip', `tooltip-short-delay',
 ;; `tooltip-delay', `tooltip-recent-seconds'.
+
+;;; Code:
 
 (require 'tooltip)
 
@@ -193,7 +194,7 @@
 
 ;;;###autoload
 (define-minor-mode tty-tip-mode
-  "Global minor mode for displaying help in tty child frames."
+  "Global minor mode for displaying help in TTY child frames."
   :global t :group 'help
   (unless (display-graphic-p)
     (cond (tty-tip-mode
