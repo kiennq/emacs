@@ -225,12 +225,15 @@ static void
 init_eval_once_for_pdumper (void)
 {
   enum { size = 50 };
-  union specbinding *pdlvec = malloc ((size + 1) * sizeof *specpdl);
+  union specbinding *pdlvec = xzalloc ((size + 1) * sizeof *specpdl);
   specpdl = specpdl_ptr = pdlvec + 1;
   specpdl_end = specpdl + size;
 #ifdef HAVE_MPS
   for (int i = 0; i < size; ++i)
-    specpdl[i].kind = SPECPDL_FREE;
+    {
+      specpdl[i].kind = SPECPDL_FREE;
+      memset (&specpdl[i], 0, sizeof specpdl[i]);
+    }
   igc_on_alloc_main_thread_specpdl ();
 #endif
 }
@@ -2478,15 +2481,23 @@ grow_specpdl_allocation (void)
   ptrdiff_t size = specpdl_end - specpdl;
   ptrdiff_t pdlvecsize = size + 1;
   eassert (max_size > size);
+
+#ifdef HAVE_MPS
+  ptrdiff_t old_pdlvecsize = pdlvecsize;
+  ptrdiff_t nbytes = xpalloc_nbytes (pdlvec, &pdlvecsize, 1, max_size + 1,
+				     sizeof *specpdl);
+  union specbinding *new_pdlvec = xzalloc (nbytes);
+  igc_replace_specpdl (pdlvec, old_pdlvecsize,
+		       new_pdlvec, pdlvecsize);
+  union specbinding *old_pdlvec = pdlvec;
+  pdlvec = new_pdlvec;
+  xfree (old_pdlvec);
+#else
   pdlvec = xpalloc (pdlvec, &pdlvecsize, 1, max_size + 1, sizeof *specpdl);
+#endif
   specpdl = pdlvec + 1;
   specpdl_end = specpdl + pdlvecsize - 1;
   specpdl_ptr = specpdl_ref_to_ptr (count);
-#ifdef HAVE_MPS
-  for (int i = size; i < pdlvecsize - 1; ++i)
-    specpdl[i].kind = SPECPDL_FREE;
-  igc_on_grow_specpdl ();
-#endif
 }
 
 /* Eval a sub-expression of the current expression (i.e. in the same
@@ -3846,6 +3857,7 @@ unbind_to (specpdl_ref count, Lisp_Object value)
       this_binding = *--specpdl_ptr;
 #ifdef HAVE_MPS
       specpdl_ptr->kind = SPECPDL_FREE;
+      memset (specpdl_ptr, 0, sizeof *specpdl_ptr);
 #endif
       do_one_unbind (&this_binding, true, SET_INTERNAL_UNBIND);
     }
