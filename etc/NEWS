@@ -473,6 +473,13 @@ default), the 'whitespace-cleanup' function will now add the newline.
 ** Bookmark
 
 ---
+*** Bookmark history now saves each bookmark only once.
+Previously, the variable 'bookmark-history' accumulated duplicate
+bookmark names when bookmark features were used interactively.  This
+made their history larger than necessary for frequent bookmark users.
+Bookmark names are now saved uniquely.
+
+---
 *** New user option 'bookmark-bmenu-type-column-width'.
 This user option controls the width of the type column on the bookmark
 menu 'bookmark-bmenu-list'.  The default value is 8 which is backwards
@@ -1094,6 +1101,12 @@ When the argument is non-nil, the function switches to a buffer visiting
 the directory into which the repository was cloned.
 
 ** Package
+
++++
+*** No longer warn if a package has no footer line.
+package.el no longer warns for packages without a "footer line", which
+is the line that usually appears at the very end of an Emacs Lisp file:
+;;; FILENAME ends here
 
 ---
 *** New optional argument to 'package-autoremove'.
