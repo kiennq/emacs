@@ -430,6 +430,11 @@ default is nil, which retains the old format.
 This allows passing a string with wildcards, or a cons cell where the
 first element is a list and the rest is a list of files.
 
+*** Bound unused letters in 'image-dired-thumbnail-mode-map'
+For a more comfortable navigation experience (as in, no modifier keys),
+the keys "f", "b", "n", "p", "a" and "e" are now bound to the
+same functions as their C- counterparts.
+
 ** Browse URL
 
 *** New user option 'browse-url-transform-alist'.
@@ -1468,6 +1473,12 @@ means of the GDI+ library.
 ** Emacs on MS-Windows now supports the ':data' keyword for 'play-sound'.
 In addition to ':file FILE' for playing a sound from a file, ':data
 DATA' can now be used to play a sound from memory.
+
+---
+** New major mode 'go-work-ts-mode'.
+A major mode based on the tree-sitter library for editing "go.work"
+files.  If tree-sitter is properly set-up by the user, it can be
+enabled for files named "go.work".
 
 
 ----------------------------------------------------------------------
