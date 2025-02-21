@@ -2757,7 +2757,7 @@ and @code{special} declarations are redundant in a fully
 dynamically-scoped Lisp.
 @end ignore
 A few declarations are meaningful when byte compiler optimizations
-are enabled, as they are by the default.  Otherwise these
+are enabled, as they are by default.  Otherwise these
 declarations will effectively be ignored.
 
 @defun cl-proclaim decl-spec
@@ -2784,10 +2784,6 @@ at the beginning of any of the many ``implicit @code{progn}s''
 throughout Lisp syntax, such as function bodies, @code{let} bodies,
 etc.  Currently the only declaration understood by @code{cl-declare}
 is @code{special}.
-@end defmac
-
-@defmac cl-locally declarations@dots{} forms@dots{}
-In this package, @code{cl-locally} is no different from @code{progn}.
 @end defmac
 
 @defmac cl-the type form
@@ -3055,7 +3051,7 @@ This section defines a few simple Common Lisp operations on numbers
 that were left out of Emacs Lisp.
 
 @menu
-* Predicates on Numbers::       @code{cl-plusp}, @code{cl-minusp}, etc.
+* Predicates on Numbers::       @code{cl-digit-char-p}, etc.
 * Numerical Functions::         @code{cl-floor}, @code{cl-ceiling}, etc.
 * Random Numbers::              @code{cl-random}, @code{cl-make-random-state}.
 * Implementation Parameters::   @code{cl-most-positive-float}, etc.
@@ -3067,16 +3063,6 @@ that were left out of Emacs Lisp.
 @noindent
 These functions return @code{t} if the specified condition is
 true of the numerical argument, or @code{nil} otherwise.
-
-@defun cl-plusp number
-This predicate tests whether @var{number} is positive.  It is an
-error if the argument is not a number.
-@end defun
-
-@defun cl-minusp number
-This predicate tests whether @var{number} is negative.  It is an
-error if the argument is not a number.
-@end defun
 
 @defun cl-digit-char-p char radix
 Test if @var{char} is a digit in the specified @var{radix} (default is

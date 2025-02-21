@@ -2624,10 +2624,8 @@ values.  For compatibility, (cl-values A B C) is a synonym for (list A B C).
 ;;; Declarations.
 
 ;;;###autoload
-(defmacro cl-locally (&rest body)
-  "Equivalent to `progn'."
-  (declare (debug t))
-  (cons 'progn body))
+(define-obsolete-function-alias 'cl-locally #'progn "31.1")
+
 ;;;###autoload
 (defmacro cl-the (type form)
   "Return FORM.  If type-checking is enabled, assert that it is of TYPE."
@@ -2701,7 +2699,7 @@ Example:
 	 (let ((speed (assq (nth 1 (assq 'speed (cdr spec)))
 			    '((0 nil) (1 t) (2 t) (3 t))))
 	       (safety (assq (nth 1 (assq 'safety (cdr spec)))
-			     '((0 t) (1 t) (2 t) (3 nil)))))
+			     '((0 t) (1 nil) (2 nil) (3 nil)))))
 	   (if speed (setq cl--optimize-speed (car speed)
 			   byte-optimize (nth 1 speed)))
 	   (if safety (setq cl--optimize-safety (car safety)
