@@ -515,18 +515,6 @@ Lisp_Object const *staticvec[NSTATICS];
 
 int staticidx;
 
-/* Return PTR rounded up to the next multiple of ALIGNMENT.  */
-
-#ifndef HAVE_MPS
-#ifndef HAVE_ALIGNED_ALLOC
-static void *
-pointer_align (void *ptr, int alignment)
-{
-  return (void *) ROUNDUP ((uintptr_t) ptr, alignment);
-}
-#endif
-#endif
-
 /* Extract the pointer hidden within O.  */
 
 static ATTRIBUTE_NO_SANITIZE_UNDEFINED void *
@@ -963,6 +951,19 @@ void *lisp_malloc_loser EXTERNALLY_VISIBLE;
 #endif
 
 #ifndef HAVE_MPS
+/* Allocate memory for Lisp data.
+   NBYTES is the number of bytes to allocate;
+   it must be a multiple of LISP_ALIGNMENT.
+   If CLEARIT, arrange for the allocated memory to be cleared
+   by using calloc, which can be faster than malloc+memset.
+   TYPE describes the intended use of the allocated memory block
+   (for strings, for conses, ...).
+   Return a null pointer if and only if allocation failed.
+
+   Code allocating heap memory for Lisp should use this function to get
+   a pointer P; that way, if T is an enum Lisp_Type value and
+   L == make_lisp_ptr (P, T), then XPNTR (L) == P and XTYPE (L) == T.  */
+
 static void *
 lisp_malloc (size_t nbytes, bool clearit, enum mem_type type)
 {
@@ -1141,6 +1142,16 @@ struct ablocks
 #ifndef HAVE_MPS
 /* The list of free ablock.   */
 static struct ablock *free_ablock;
+
+#if !USE_ALIGNED_ALLOC
+
+static void *
+pointer_align (void *ptr, int alignment)
+{
+  return (void *) ROUNDUP ((uintptr_t) ptr, alignment);
+}
+
+#endif /* !USE_ALIGNED_ALLOC */
 
 /* Allocate an aligned block of nbytes.
    Alignment is on a multiple of BLOCK_ALIGN and `nbytes' has to be
