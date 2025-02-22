@@ -1069,38 +1069,6 @@ A macro call, in which case the macro is expanded and @code{setf}
 is applied to the resulting form.
 @end itemize
 
-@c FIXME should this be in lispref?  It seems self-evident.
-@c Contrast with the cl-incf example later on.
-@c Here it really only serves as a contrast to wrong-order.
-The @code{setf} macro takes care to evaluate all subforms in
-the proper left-to-right order; for example,
-
-@example
-(setf (aref vec (cl-incf i)) i)
-@end example
-
-@noindent
-looks like it will evaluate @code{(cl-incf i)} exactly once, before the
-following access to @code{i}; the @code{setf} expander will insert
-temporary variables as necessary to ensure that it does in fact work
-this way no matter what setf-method is defined for @code{aref}.
-(In this case, @code{aset} would be used and no such steps would
-be necessary since @code{aset} takes its arguments in a convenient
-order.)
-
-However, if the @var{place} form is a macro which explicitly
-evaluates its arguments in an unusual order, this unusual order
-will be preserved.  Adapting an example from Steele, given
-
-@example
-(defmacro wrong-order (x y) (list 'aref y x))
-@end example
-
-@noindent
-the form @code{(setf (wrong-order @var{a} @var{b}) 17)} will
-evaluate @var{b} first, then @var{a}, just as in an actual call
-to @code{wrong-order}.
-
 @node Modify Macros
 @subsection Modify Macros
 
@@ -1257,26 +1225,13 @@ However, a @var{binding} specifier may be a one-element list
 @var{place})}.  In other words, the @var{place} is not disturbed
 on entry to the body, and the only effect of the @code{cl-letf} is
 to restore the original value of @var{place} afterwards.
-@c I suspect this may no longer be true; either way it's
-@c implementation detail and so not essential to document.
-@ignore
-(The redundant access-and-store suggested by the @code{(@var{place}
-@var{place})} example does not actually occur.)
-@end ignore
 
 Note that in this case, and in fact almost every case, @var{place}
 must have a well-defined value outside the @code{cl-letf} body.
 There is essentially only one exception to this, which is @var{place}
 a plain variable with a specified @var{value} (such as @code{(a 17)}
 in the above example).
-@c See https://debbugs.gnu.org/12758
-@c Some or all of this was true for cl.el, but not for cl-lib.el.
-@ignore
-The only exceptions are plain variables and calls to
-@code{symbol-value} and @code{symbol-function}.  If the symbol is not
-bound on entry, it is simply made unbound by @code{makunbound} or
-@code{fmakunbound} on exit.
-@end ignore
+
 @end defmac
 
 @defmac cl-letf* (bindings@dots{}) forms@dots{}
@@ -5296,24 +5251,6 @@ use this setf-method will optimize away most temporaries that
 turn out to be unnecessary, so there is little reason for the
 setf-method itself to optimize.
 @end defmac
-
-@c Removed in Emacs 24.3, not possible to make a compatible replacement.
-@ignore
-@defun get-setf-method place &optional env
-This function returns the setf-method for @var{place}, by
-invoking the definition previously recorded by @code{defsetf}
-or @code{define-setf-method}.  The result is a list of five
-values as described above.  You can use this function to build
-your own @code{cl-incf}-like modify macros.
-
-The argument @var{env} specifies the ``environment'' to be
-passed on to @code{macroexpand} if @code{get-setf-method} should
-need to expand a macro in @var{place}.  It should come from
-an @code{&environment} argument to the macro or setf-method
-that called @code{get-setf-method}.
-@end defun
-@end ignore
-
 
 @node GNU Free Documentation License
 @appendix GNU Free Documentation License
