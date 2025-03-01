@@ -601,10 +601,10 @@ If COUNT is negative, shifting is actually to the right.
 In this case, if VALUE is a negative fixnum treat it as unsigned,
 i.e., subtract 2 * `most-negative-fixnum' from VALUE before shifting it.
 
-Most uses of this function turn out to be mistakes.  We recommend
-to use `ash' instead, unless COUNT could ever be negative, and
-if, when COUNT is negative, your program really needs the special
-treatment of negative COUNT provided by this function."
+Most uses of this function turn out to be mistakes.  We recommend using
+`ash' instead, unless COUNT could ever be negative, in which case your
+program should only use this function if it specifically requires the
+special handling of negative COUNT."
   (declare (ftype (function (integer integer) integer))
            (compiler-macro
             (lambda (form)
@@ -2145,6 +2145,9 @@ instead; it will indirectly limit the specpdl stack size as well.")
   "Add to the value of HOOK the function FUNCTION.
 FUNCTION is not added if already present.
 
+HOOK should be a symbol.  If HOOK is void, or if HOOK's value is a
+single function, it is changed to a list of functions.
+
 The place where the function is added depends on the DEPTH
 parameter.  DEPTH defaults to 0.  By convention, it should be
 a number between -100 and 100 where 100 means that the function
@@ -2162,10 +2165,6 @@ the hook's buffer-local value rather than its global value.
 This makes the hook buffer-local, and it makes t a member of the
 buffer-local value.  That acts as a flag to run the hook
 functions of the global value as well as in the local value.
-
-HOOK should be a symbol.  If HOOK is void, it is first set to
-nil.  If HOOK's value is a single function, it is changed to a
-list of functions.
 
 FUNCTION may be any valid function, but it's recommended to use a
 function symbol and not a lambda form.  Using a symbol will
@@ -2231,10 +2230,11 @@ performance impact when running `add-hook' and `remove-hook'."
       (set-default hook hook-value))))
 
 (defun remove-hook (hook function &optional local)
-  "Remove from the value of HOOK the function FUNCTION.
-HOOK should be a symbol, and FUNCTION may be any valid function.  If
-FUNCTION isn't the value of HOOK, or, if FUNCTION doesn't appear in the
-list of hooks to run in HOOK, then nothing is done.  See `add-hook'.
+  "Remove FUNCTION from HOOK's functions.
+HOOK should be a symbol, and FUNCTION may be any valid function.
+Do nothing if HOOK does not currently contain FUNCTION.
+Compare functions with `equal`, which means that it can be
+slow if FUNCTION is not a symbol.  See `add-hook'.
 
 The optional third argument, LOCAL, if non-nil, says to modify
 the hook's buffer-local value rather than its default value.
@@ -3330,13 +3330,19 @@ process."
 
 (defun process-get (process propname)
   "Return the value of PROCESS' PROPNAME property.
-This is the last value stored with `(process-put PROCESS PROPNAME VALUE)'."
+This is the last value stored with `(process-put PROCESS PROPNAME VALUE)'.
+
+Together with `process-put', this can be used to store and retrieve
+miscellaneous values associated with the process."
   (declare (side-effect-free t))
   (plist-get (process-plist process) propname))
 
 (defun process-put (process propname value)
   "Change PROCESS' PROPNAME property to VALUE.
-It can be retrieved with `(process-get PROCESS PROPNAME)'."
+It can be retrieved with `(process-get PROCESS PROPNAME)'.
+
+Together with `process-get', this can be used to store and retrieve
+miscellaneous values associated with the process."
   (set-process-plist process
 		     (plist-put (process-plist process) propname value)))
 
