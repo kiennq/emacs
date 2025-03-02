@@ -625,23 +625,20 @@ and saves that overlay under the :inactive property for WIDGET."
 (defun widget-put (widget property value)
   "In WIDGET, set PROPERTY to VALUE.
 The value can later be retrieved with `widget-get'."
-  (setcdr widget (plist-put (cdr widget) property value)))
+  (setcdr widget (plist-put (cdr widget) property value))
+  value)
 
 ;;;###autoload
 (defun widget-get (widget property)
   "In WIDGET, get the value of PROPERTY.
 The value could either be specified when the widget was created, or
 later with `widget-put'."
-  (let (tmp)
-    (catch 'found
-      (while widget
-        (cond ((and (setq tmp (plist-member (cdr widget) property))
-                    (consp tmp))
-               (throw 'found (cadr tmp)))
-              ((setq tmp (widget-type widget))
-               (setq widget (get tmp 'widget-type)))
-              (t
-               (throw 'found nil)))))))
+   (let (value found)
+     (while (and widget (not found))
+       (if (setq found (plist-member (cdr widget) property))
+           (setq value (cadr found))
+         (setq widget (get (widget-type widget) 'widget-type))))
+     value))
 
 (defun widget-get-indirect (widget property)
   "In WIDGET, get the value of PROPERTY.
