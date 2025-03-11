@@ -135,6 +135,9 @@ usual minibuffer history commands.  Each command has a separate history.
 
 ---
 ** New minor mode 'find-function-mode' replaces 'find-function-setup-keys'.
+The new minor mode defines the keys at a higher precedence level than
+the old function, one more usual for a minor mode.  To restore the old
+behavior, customize 'find-function-mode-lower-precedence' to non-nil.
 
 ** Minibuffer and Completions
 
@@ -204,6 +207,14 @@ Several functions to modify the window layout have been added:
 'rotate-window-layout-clockwise', 'rotate-window-layout-anticlockwise',
 'flip-window-layout-vertically', 'flip-window-layout-horizontally',
 'transpose-window-layout', 'rotate-windows', and 'rotate-windows-back'.
+
++++
+*** Windmove commands now move to skipped windows if invoked twice in a row.
+The new user option 'windmove-allow-repeated-command-override' controls
+this behavior: if it's non-nil, invoking the same windmove command twice
+overrides the 'no-other-window' property, allowing navigation to windows
+that would normally be skipped.  The default is t; customize it to nil
+if you want the old behavior.
 
 +++
 *** New hook 'window-deletable-functions'.
@@ -376,6 +387,11 @@ to wrong results in some cases.  We believe that it is no longer useful;
 please contact us if you still need it for some reason.
 
 ** 'byte-compile-cond-use-jump-table' is now obsolete.
+---
+** Modified settings for an enabled theme now apply immediately.
+Evaluating a custom-theme-set-faces or custom-theme-set-variables
+call for an enabled theme causes the settings to apply immediately,
+without a need to re-load the theme.
 
 
 * Editing Changes in Emacs 31.1
@@ -1327,6 +1343,12 @@ the directory into which the repository was cloned.
 *** 'C-x v u' ('vc-revert') now works on directories listed in VC Directory.
 Reverting a directory means reverting changes to all files inside it.
 
+*** New function 'log-edit-done-strip-cvs-lines'.
+This function strips all lines beginning with "CVS:" from the buffer.
+It is intended to be added to the 'log-edit-done-hook' so that
+'vc-cvs-checkin' behaves like invoking "cvs commit [files...]" from the
+command line.
+
 ** Package
 
 +++
@@ -1432,6 +1454,13 @@ commands.  When nil, clicking on an inactive Emacs frame will only
 activate it.  When t (the default), the click will both activate the
 frame and be interpreted as a command.
 
+---
+*** New user option 'display-fill-column-indicator-warning'.
+Customize it to a non-nil value to have the fill-column indicators
+change their face if the current line exceeds the 'fill-column'.  The
+new face 'display-fill-column-indicator-warning-face' is used to
+highlight the fill-column indicators.  By default this is disabled.
+
 
 * New Modes and Packages in Emacs 31.1
 
@@ -1507,6 +1536,12 @@ Previously, its argument was always evaluated using dynamic binding.
 
 * Lisp Changes in Emacs 31.1
 
++++
+** New macros 'static-when' and 'static-unless' implement conditional
+compilation like 'static-if'.
+These macros evaluate their condition at macro-expansion time and are useful
+for writing code that can work across different Emacs versions.
+
 ---
 ** You can change the default value of 'lexical-binding'.
 While the default is still the use dynamic binding dialect of ELisp
@@ -1529,6 +1564,11 @@ and signal an error if they are given a non-number.
 ** New functions 'oddp' and 'evenp'.
 They return non-nil if an integer is odd or even, respectively, and
 signal an error if they are given a non-integer.
+
++++
+** The 'defvar-local' macro second argument is now optional.
+This means that you can now call it with just one argument, like
+'defvar', to declare a variable both special, and buffer-local.
 
 ** ERT
 

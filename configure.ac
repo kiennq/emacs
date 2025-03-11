@@ -3228,7 +3228,67 @@ AC_CACHE_CHECK(
    fi])
 doug_lea_malloc=$emacs_cv_var_doug_lea_malloc
 
+AC_CHECK_ALIGNOF([int])
+AC_CHECK_ALIGNOF([long])
+AC_CHECK_ALIGNOF([long long])
+AC_CHECK_SIZEOF([long])
+
+AC_CACHE_CHECK([for struct alignment],
+  [emacs_cv_struct_alignment],
+  [AC_COMPILE_IFELSE(
+     [AC_LANG_PROGRAM([[#include <stddef.h>
+			struct s { char c; } __attribute__ ((aligned (8)));
+			struct t { char c; struct s s; };
+			char verify[offsetof (struct t, s) == 8 ? 1 : -1];
+		      ]])],
+     [emacs_cv_struct_alignment=yes],
+     [emacs_cv_struct_alignment=no])])
+if test "$emacs_cv_struct_alignment" = yes; then
+  AC_DEFINE([HAVE_STRUCT_ATTRIBUTE_ALIGNED], [1],
+    [Define to 1 if 'struct __attribute__ ((aligned (N)))' aligns the
+     structure to an N-byte boundary.])
+fi
+
 system_malloc=yes
+
+# If it appears as if the system malloc can't be trusted to return
+# adequately positioned memory, enable the GNU malloc, which more
+# consistently provides allocations at low addresses, as is required for
+# the pdumper to load dump files at a representable location.
+AS_IF([test "$with_pdumper" = "yes" && test "$with_wide_int" != "yes"],
+  AC_CHECK_HEADERS([stdalign.h])
+  [AC_CACHE_CHECK([whether alignas is required yet unavailable],
+    [emacs_cv_alignas_unavailable],
+    [AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#ifdef HAVE_STDALIGN_H
+#include <stdalign.h>
+#endif
+      #include <limits.h>
+     ]], [[
+#define IDEAL_GCALIGNMENT 8
+#if INTPTR_MAX <= INT_MAX && !defined WIDE_EMACS_INT
+#  define ALIGNOF_EMACS_INT ALIGNOF_INT
+# elif INTPTR_MAX <= LONG_MAX && !defined WIDE_EMACS_INT
+#  define ALIGNOF_EMACS_INT ALIGNOF_LONG
+# elif INTPTR_MAX <= LLONG_MAX
+#  define ALIGNOF_EMACS_INT ALIGNOF_LONG_LONG
+# else
+# error "INTPTR_MAX too large"
+#endif
+
+#if (ALIGNOF_EMACS_INT < IDEAL_GCALIGNMENT && !defined alignas	\
+     && !defined HAVE_STRUCT_ATTRIBUTE_ALIGNED	       		\
+     && !defined __alignas_is_defined				\
+     && __STDC_VERSION__ < 202311 && __cplusplus < 201103)
+#error "!USE_LSB_TAG required"
+#endif
+   ]])], [emacs_cv_alignas_unavailable=no],
+        [emacs_cv_alignas_unavailable=yes])])
+   AS_IF([test "$emacs_cv_alignas_unavailable" = "yes"],
+     [system_malloc=no
+       AC_MSG_WARN([The GNU memory manager will be enabled as your system
+does not guarantee that the portable dumper can allocate memory at a suitably
+low address.])])])
 
 dnl This must be before the test of $ac_cv_func_sbrk below.
 AC_CHECK_FUNCS_ONCE([sbrk])
@@ -5882,7 +5942,6 @@ AC_SUBST([HAVE_LIBSECCOMP])
 AC_SUBST([LIBSECCOMP_LIBS])
 AC_SUBST([LIBSECCOMP_CFLAGS])
 
-AC_CHECK_SIZEOF([long])
 SIZEOF_LONG="$ac_cv_sizeof_long"
 AC_SUBST([SIZEOF_LONG])
 
@@ -7245,22 +7304,6 @@ else
 fi
 AC_SUBST([LIBXMENU])
 
-AC_CACHE_CHECK([for struct alignment],
-  [emacs_cv_struct_alignment],
-  [AC_COMPILE_IFELSE(
-     [AC_LANG_PROGRAM([[#include <stddef.h>
-			struct s { char c; } __attribute__ ((aligned (8)));
-			struct t { char c; struct s s; };
-			char verify[offsetof (struct t, s) == 8 ? 1 : -1];
-		      ]])],
-     [emacs_cv_struct_alignment=yes],
-     [emacs_cv_struct_alignment=no])])
-if test "$emacs_cv_struct_alignment" = yes; then
-  AC_DEFINE([HAVE_STRUCT_ATTRIBUTE_ALIGNED], [1],
-    [Define to 1 if 'struct __attribute__ ((aligned (N)))' aligns the
-     structure to an N-byte boundary.])
-fi
-
 AC_C_RESTRICT
 AC_C_TYPEOF
 
@@ -7882,9 +7925,8 @@ fi
 
 if test "${HAVE_XFT}" = yes; then
   AC_MSG_WARN([This configuration uses libXft, which has a number of
-    font rendering issues, and is being considered for removal in the
-    next release of Emacs.  Please consider using Cairo graphics +
-    HarfBuzz text shaping instead (they are auto-detected if the
+    font rendering issues in its earlier releases.  Please consider
+    using Cairo graphics instead (they are auto-detected if the
     relevant development headers are installed).])
 fi
 
