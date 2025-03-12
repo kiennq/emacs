@@ -7458,7 +7458,10 @@ Does not set point.  Does nothing if mark ring is empty."
   "Activate region when exchanging point and mark.
 
 When set to nil, this modifies `exchange-point-and-mark' so that it
-doesn't activate the mark if it is not already active.
+doesn't activate the mark if it is not already active, except when there
+is a prefix argument.  Setting this variable to nil effectively swaps
+the meanings of the presence and absence of a prefix argument to
+`exchange-point-and-mark'.
 
 This variable has no effect when Transient Mark mode is off."
   :type 'boolean
@@ -7470,10 +7473,15 @@ This variable has no effect when Transient Mark mode is off."
 This command works even when the mark is not active, and it reactivates
 the mark unless `exchange-point-and-mark-highlight-region' is nil.
 
-If Transient Mark mode is on, a prefix ARG deactivates the mark
-if it is active, and otherwise avoids reactivating it.  If
-Transient Mark mode is off, a prefix ARG enables Transient Mark
-mode temporarily."
+If Transient Mark mode is on, a prefix ARG deactivates the mark if it is
+active, and otherwise avoids reactivating it.  However, if
+`exchange-point-and-mark-highlight-region' is nil, then using a prefix
+argument does reactivate the mark; effectively, when Transient Mark mode
+is on, setting `exchange-point-and-mark-highlight-region' to nil swaps
+the meanings of the presence and absence of a prefix argument.
+
+If Transient Mark mode is off, a prefix ARG enables Transient Mark mode
+temporarily."
   (interactive "P")
   (let ((omark (mark t))
         (region-was-active (region-active-p))
