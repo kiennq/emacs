@@ -25,6 +25,8 @@
 
 ;;; Code:
 
+(declare-function tramp-revert-buffer-with-sudo "tramp-cmds")
+
 (defun make-mode-line-mouse-map (mouse function) "\
 Return a keymap with single entry for mouse key MOUSE on the mode line.
 MOUSE is defined to run function FUNCTION with no args in the buffer
@@ -1606,7 +1608,8 @@ if `inhibit-field-text-motion' is non-nil."
   "u" #'rename-uniquely
   "n" #'clone-buffer
   "i" #'insert-buffer
-  "t" #'toggle-truncate-lines)
+  "t" #'toggle-truncate-lines
+  "@" #'tramp-revert-buffer-with-sudo)
 (define-key ctl-x-map "x" ctl-x-x-map)
 
 (define-key esc-map "\C-l" 'reposition-window)
