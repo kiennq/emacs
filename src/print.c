@@ -33,6 +33,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "blockinput.h"
 #include "xwidget.h"
 #include "dynlib.h"
+#include "igc.h"
 
 #include <c-ctype.h>
 #include <float.h>
@@ -1312,9 +1313,17 @@ print (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 
 struct print_pp_entry {
   ptrdiff_t n;			/* number of values, or 0 if a single value */
+#ifdef HAVE_MPS
+  bool is_in_use;
+  ptrdiff_t start;
+#endif
   union {
     Lisp_Object value;		/* when n = 0 */
+#ifdef HAVE_MPS
+    Lisp_Object vectorlike;	/* when n > 0 */
+#else
     Lisp_Object *values;	/* when n > 0 */
+#endif
   } u;
 };
 
@@ -1326,12 +1335,48 @@ struct print_pp_stack {
 
 static struct print_pp_stack ppstack = {NULL, 0, 0};
 
+#ifdef HAVE_MPS
+static igc_scan_result_t
+scan_ppstack (struct igc_ss *ss, void *start, void *end, void *closure)
+{
+  eassert (start == (void *)ppstack.stack);
+  eassert (end == (void *)(ppstack.stack + ppstack.size));
+  eassert (closure == NULL);
+  for (struct print_pp_entry *p = start; (void *) p < end; ++p)
+    {
+      if (!p->is_in_use)
+	break;
+      igc_scan_result_t err = 0;
+      if (p->n == 0)
+	{
+	  if (err = igc_fix12_obj (ss, &p->u.value), err != 0)
+	    return err;
+	}
+      else
+	{
+	  eassert (p->n > 0);
+	  if (err = igc_fix12_obj (ss, &p->u.vectorlike), err != 0)
+	    return err;
+	}
+    }
+  return 0;
+}
+#endif
+
 NO_INLINE static void
 grow_pp_stack (void)
 {
   struct print_pp_stack *ps = &ppstack;
   eassert (ps->sp == ps->size);
+#ifdef HAVE_MPS
+  ptrdiff_t old_size = ps->size;
+  igc_xpalloc_exact ((void **) &ppstack.stack, &ps->size, 1, -1,
+		     sizeof *ps->stack, scan_ppstack, NULL);
+  for (ptrdiff_t i = old_size; i < ps->size; ++i)
+    ppstack.stack[i].is_in_use = false;
+#else
   ps->stack = xpalloc (ps->stack, &ps->size, 1, -1, sizeof *ps->stack);
+#endif
   eassert (ps->sp < ps->size);
 }
 
@@ -1340,10 +1385,39 @@ pp_stack_push_value (Lisp_Object value)
 {
   if (ppstack.sp >= ppstack.size)
     grow_pp_stack ();
-  ppstack.stack[ppstack.sp++] = (struct print_pp_entry){.n = 0,
-							.u.value = value};
+  volatile struct print_pp_entry entry =
+    {
+      .n = 0,
+      .u.value = value,
+#ifdef HAVE_MPS
+      .is_in_use = true,
+#endif
+    };
+  ppstack.stack[ppstack.sp++] = entry;
+  eassert (memcmp ((void *)&entry, (void *)&ppstack.stack[ppstack.sp - 1], sizeof entry) == 0);
 }
 
+#ifdef HAVE_MPS
+static inline void
+pp_stack_push_values (Lisp_Object vectorlike, ptrdiff_t start, ptrdiff_t n)
+{
+  eassert (VECTORLIKEP (vectorlike));
+  eassume (n >= 0);
+  if (n == 0)
+    return;
+  if (ppstack.sp >= ppstack.size)
+    grow_pp_stack ();
+  volatile struct print_pp_entry entry =
+    {
+      .start = start,
+      .n = n,
+      .u.vectorlike = vectorlike,
+      .is_in_use = true,
+    };
+  ppstack.stack[ppstack.sp++] = entry;
+  eassert (memcmp ((void *)&entry, (void *)&ppstack.stack[ppstack.sp - 1], sizeof entry) == 0);
+}
+#else
 static inline void
 pp_stack_push_values (Lisp_Object *values, ptrdiff_t n)
 {
@@ -1355,6 +1429,7 @@ pp_stack_push_values (Lisp_Object *values, ptrdiff_t n)
   ppstack.stack[ppstack.sp++] = (struct print_pp_entry){.n = n,
 							.u.values = values};
 }
+#endif
 
 static inline bool
 pp_stack_empty_p (void)
@@ -1366,18 +1441,34 @@ static inline Lisp_Object
 pp_stack_pop (void)
 {
   eassume (!pp_stack_empty_p ());
-  struct print_pp_entry *e = &ppstack.stack[ppstack.sp - 1];
-  if (e->n == 0)		/* single value */
+  struct print_pp_entry *ep = &ppstack.stack[ppstack.sp - 1];
+  volatile struct print_pp_entry e = *ep;
+  if (e.n == 0)			/* single value */
     {
       --ppstack.sp;
-      return e->u.value;
+#ifdef HAVE_MPS
+      ep->is_in_use = false;
+#endif
+      return e.u.value;
     }
   /* Array of values: pop them left to right, which seems to be slightly
      faster than right to left.  */
-  e->n--;
-  if (e->n == 0)
-    --ppstack.sp;		/* last value consumed */
-  return (++e->u.values)[-1];
+  ep->n--;
+  Lisp_Object result;
+#ifdef HAVE_MPS
+  result = AREF (e.u.vectorlike, e.start);
+  ep->start++;
+#else
+  result = (++ep->u.values)[-1];
+#endif
+  if (ep->n == 0)
+    {
+      --ppstack.sp;
+#ifdef HAVE_MPS
+      ep->is_in_use = false;
+#endif
+    }
+  return result;
 }
 
 /* Construct Vprint_number_table for the print-circle feature
@@ -1443,20 +1534,25 @@ print_preprocess (Lisp_Object obj)
 
 		case Lisp_Vectorlike:
 		  {
-		    struct Lisp_Vector *vec = XVECTOR (obj);
 		    ptrdiff_t size = ASIZE (obj);
 		    if (size & PSEUDOVECTOR_FLAG)
 		      size &= PSEUDOVECTOR_SIZE_MASK;
 		    ptrdiff_t start = (SUB_CHAR_TABLE_P (obj)
 				       ? SUB_CHAR_TABLE_OFFSET : 0);
+#ifdef HAVE_MPS
+		    pp_stack_push_values (obj, start, size - start);
+#else
+		    struct Lisp_Vector *vec = XVECTOR (obj);
 		    pp_stack_push_values (vec->contents + start, size - start);
+#endif
 		    if (HASH_TABLE_P (obj))
 		      {
 			struct Lisp_Hash_Table *h = XHASH_TABLE (obj);
-			/* The values pushed here may include
-			   HASH_UNUSED_ENTRY_KEY; see top of this function.  */
-			pp_stack_push_values (h->key_and_value,
-					      2 * h->table_size);
+			DOHASH (h, k, v)
+			  {
+			    pp_stack_push_value (k);
+			    pp_stack_push_value (v);
+			  }
 		      }
 		    break;
 		  }
@@ -2100,11 +2196,15 @@ print_vectorlike_unreadable (Lisp_Object obj, Lisp_Object printcharfun,
     case PVEC_CHAR_TABLE:
     case PVEC_SUB_CHAR_TABLE:
     case PVEC_HASH_TABLE:
+#ifdef HAVE_MPS
+    case PVEC_WEAK_HASH_TABLE:
+#endif
     case PVEC_BIGNUM:
     case PVEC_BOOL_VECTOR:
     /* Impossible cases.  */
     case PVEC_FREE:
     case PVEC_OTHER:
+    case PVEC_MODULE_GLOBAL_REFERENCE:
       break;
     }
   emacs_abort ();
@@ -2129,12 +2229,16 @@ named_escape (int i)
 }
 
 enum print_entry_type
-  {
-    PE_list,			/* print rest of list */
-    PE_rbrac,			/* print ")" */
-    PE_vector,			/* print rest of vector */
-    PE_hash,			/* print rest of hash data */
-  };
+{
+#ifdef HAVE_MPS
+  PE_free = 0,			/* must be zero so xzalloc'd memory
+				   scans without crashing */
+#endif
+  PE_list,			/* print rest of list */
+  PE_rbrac,			/* print ")" */
+  PE_vector,			/* print rest of vector */
+  PE_hash,			/* print rest of hash data */
+};
 
 struct print_stack_entry
 {
@@ -2189,12 +2293,62 @@ struct print_stack
 
 static struct print_stack prstack = {NULL, 0, 0};
 
+#ifdef HAVE_MPS
+static igc_scan_result_t
+scan_prstack (struct igc_ss *ss, void *start, void *end, void *closure)
+{
+  eassert (start == (void *)prstack.stack);
+  eassert (end == (void *)(prstack.stack + prstack.size));
+  eassert (closure == NULL);
+  for (struct print_stack_entry *p = start; (void *)p < end; p++)
+    {
+      igc_scan_result_t err = 0;
+      if (p->type == PE_free)
+	break;
+      switch (p->type)
+	{
+	case PE_free:
+	  emacs_abort ();
+
+	case PE_list:
+	  if (err = igc_fix12_obj (ss, &p->u.list.last), err != 0)
+	    return err;
+	  if (err = igc_fix12_obj (ss, &p->u.list.tortoise), err != 0)
+	    return err;
+	  break;
+
+	case PE_rbrac:
+	  break;
+
+	case PE_vector:
+	  if (err = igc_fix12_obj (ss, &p->u.vector.obj), err != 0)
+	    return err;
+	  break;
+
+	case PE_hash:
+	  if (err = igc_fix12_obj (ss, &p->u.hash.obj), err != 0)
+	    return err;
+	  break;
+	}
+    }
+  return 0;
+}
+#endif
+
 NO_INLINE static void
 grow_print_stack (void)
 {
   struct print_stack *ps = &prstack;
   eassert (ps->sp == ps->size);
+#ifdef HAVE_MPS
+  ptrdiff_t old_size = ps->size;
+  igc_xpalloc_exact ((void **) &prstack.stack, &ps->size, 1, -1,
+		     sizeof *ps->stack, scan_prstack, NULL);
+  for (ptrdiff_t i = old_size; i < ps->size; ++i)
+    ps->stack[i].type = PE_free;
+#else
   ps->stack = xpalloc (ps->stack, &ps->size, 1, -1, sizeof *ps->stack);
+#endif
   eassert (ps->sp < ps->size);
 }
 
@@ -2204,6 +2358,16 @@ print_stack_push (struct print_stack_entry e)
   if (prstack.sp >= prstack.size)
     grow_print_stack ();
   prstack.stack[prstack.sp++] = e;
+}
+
+static void
+print_stack_pop (void)
+{
+  --prstack.sp;
+  --print_depth;
+#ifdef HAVE_MPS
+  prstack.stack[prstack.sp].type = PE_free;
+#endif
 }
 
 static void
@@ -2605,9 +2769,10 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 			      printcharfun, escapeflag);
 	      }
 
-	    ptrdiff_t size = h->count;
-	    if (size > 0)
+	  hash_table_data:
+	    if (h->count > 0)
 	      {
+		ptrdiff_t size = h->count;
 		print_c_string (" data (", printcharfun);
 
 		/* Don't print more elements than the specified maximum.  */
@@ -2630,7 +2795,38 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 		--print_depth;   /* Done with this.  */
 	      }
 	    goto next_obj;
+#ifdef HAVE_MPS
+	  strong_hash_table:
+#endif
+	    h = XHASH_TABLE (obj);
+	    goto hash_table_data;
 	  }
+
+#ifdef HAVE_MPS
+	case PVEC_WEAK_HASH_TABLE:
+	  {
+	    struct Lisp_Weak_Hash_Table *h = XWEAK_HASH_TABLE (obj);
+	    /* Implement a readable output, e.g.:
+	       #s(hash-table test equal data (k1 v1 k2 v2)) */
+	    print_c_string ("#s(hash-table", printcharfun);
+
+	    if (!BASE_EQ (h->strong->test->name, Qeql))
+	      {
+		print_c_string (" test ", printcharfun);
+		print_object (h->strong->test->name, printcharfun, escapeflag);
+	      }
+
+	    if (h->strong->weakness != Weak_None)
+	      {
+		print_c_string (" weakness ", printcharfun);
+		print_object (hash_table_weakness_symbol (h->strong->weakness),
+			      printcharfun, escapeflag);
+	      }
+
+	    obj = strengthen_hash_table (obj);
+	    goto strong_hash_table;
+	  }
+#endif
 
 	case PVEC_BIGNUM:
 	  print_bignum (obj, printcharfun);
@@ -2658,6 +2854,10 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
       struct print_stack_entry *e = &prstack.stack[prstack.sp - 1];
       switch (e->type)
 	{
+#ifdef HAVE_MPS
+	case PE_free:
+	  emacs_abort ();
+#endif
 	case PE_list:
 	  {
 	    /* after "(" ELEM (* " " ELEM) */
@@ -2666,8 +2866,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	      {
 		/* end of list: print ")" */
 		printchar (')', printcharfun);
-		--prstack.sp;
-		--print_depth;
+		print_stack_pop ();
 		goto next_obj;
 	      }
 	    else if (CONSP (next))
@@ -2694,8 +2893,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 		if (e->u.list.maxlen <= 0)
 		  {
 		    print_c_string ("...)", printcharfun);
-		    --prstack.sp;
-		    --print_depth;
+		    print_stack_pop ();
 		    goto next_obj;
 		  }
 
@@ -2716,8 +2914,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 		    int len = sprintf (buf, ". #%" PRIdMAX ")",
 				       e->u.list.tortoise_idx);
 		    strout (buf, len, len, printcharfun);
-		    --prstack.sp;
-		    --print_depth;
+		    print_stack_pop ();
 		    goto next_obj;
 		  }
 		obj = XCAR (next);
@@ -2734,8 +2931,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 
 	case PE_rbrac:
 	  printchar (')', printcharfun);
-	  --prstack.sp;
-	  --print_depth;
+	  print_stack_pop ();
 	  goto next_obj;
 
 	case PE_vector:
@@ -2748,8 +2944,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 		  print_c_string ("...", printcharfun);
 		}
 	      print_c_string (e->u.vector.end, printcharfun);
-	      --prstack.sp;
-	      --print_depth;
+	      print_stack_pop ();
 	      goto next_obj;
 	    }
 	  if (e->u.vector.idx > 0)
@@ -2768,8 +2963,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 		  print_c_string ("...", printcharfun);
 		}
 	      print_c_string ("))", printcharfun);
-	      --prstack.sp;
-	      --print_depth;
+	      print_stack_pop ();
 	      goto next_obj;
 	    }
 
@@ -3023,4 +3217,10 @@ be printed.  */);
 
   /* Initialized in print_create_variable_mapping.  */
   staticpro (&Vprint_variable_mapping);
+
+#ifdef HAVE_MPS
+  /* FIXME/igc: Make it a Lisp vector and staticpro. */
+  igc_root_create_exact (being_printed,
+			 being_printed + ARRAYELTS (being_printed));
+#endif
 }
