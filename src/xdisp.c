@@ -16947,9 +16947,18 @@ overlay_arrow_at_row (struct it *it, struct glyph_row *row)
 
       val = find_symbol_value (var);
 
+      ptrdiff_t arrow_marker_pos;
       if (MARKERP (val)
 	  && current_buffer == XMARKER (val)->buffer
-	  && (MATRIX_ROW_START_CHARPOS (row) == marker_position (val)))
+	  && (arrow_marker_pos = marker_position (val),
+	      /* Normally, the marker position will be at the row's
+                 start charpos.  But if the previous text lines are
+                 invisible, the row's start charpos includes those
+                 invisible lines, so we make a more general test that
+                 the marker position is anywhere between the start and
+                 the end character positions of this row.  */
+	      (MATRIX_ROW_START_CHARPOS (row) <= arrow_marker_pos
+	       && arrow_marker_pos < MATRIX_ROW_END_CHARPOS (row))))
 	{
 	  if (FRAME_WINDOW_P (it->f)
 	      /* FIXME: if ROW->reversed_p is set, this should test
@@ -35867,6 +35876,15 @@ note_mode_line_or_margin_highlight (Lisp_Object window, int x, int y,
 #ifdef HAVE_WINDOW_SYSTEM
   if (IMAGEP (object))
     {
+      if (glyph != NULL && glyph->type == IMAGE_GLYPH)
+	{
+	  struct image *img = IMAGE_OPT_FROM_ID (f, glyph->u.img_id);
+	  if (img != NULL && IMAGEP (img->spec))
+	    {
+	      dx += glyph->slice.img.x;
+	      dy += glyph->slice.img.y;
+	    }
+	}
       Lisp_Object image_map, hotspot;
       if ((image_map = plist_get (XCDR (object), QCmap),
 	   !NILP (image_map))

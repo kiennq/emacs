@@ -2276,9 +2276,10 @@ Like `cl-flet' but the definitions can refer to previous ones.
 (defmacro cl-labels (bindings &rest body)
   "Make local (recursive) function definitions.
 
-BINDINGS is a list of definitions of the form (FUNC ARGLIST BODY...)
-where FUNC is the function name, ARGLIST its arguments, and BODY the
-forms of the function body.
+Each definition can take the form (FUNC EXP) where FUNC is the function
+name, and EXP is an expression that returns the function value to which
+it should be bound, or it can take the more common form (FUNC ARGLIST
+BODY...) which is a shorthand for (FUNC (lambda ARGLIST BODY)).
 
 FUNC is defined in any BODY, as well as FORM, so you can write recursive
 and mutually recursive function definitions.  See Info node
@@ -2574,6 +2575,50 @@ See also `macroexp-let2'."
           ,(let ,(cl-loop for name in names for gensym in our-gensyms
                           collect `(,(car name) ,gensym))
              ,@body)))))
+
+;;;###autoload
+(defmacro cl-with-accessors (bindings instance &rest body)
+  "Use BINDINGS as function calls on INSTANCE inside BODY.
+
+This macro helps when writing code that makes repeated use of the
+accessor functions of a structure or object instance, such as those
+created by `cl-defstruct' and `defclass'.
+
+BINDINGS is a list of (NAME ACCESSOR) pairs.  Inside BODY, NAME is
+treated as the function call (ACCESSOR INSTANCE) using
+`cl-symbol-macrolet'.  NAME can be used with `setf' and `setq' as a
+generalized variable.  Because of how the accessor is used,
+`cl-with-accessors' can be used with any generalized variable that can
+take a single argument, such as `car' and `cdr'.
+
+See also the macro `with-slots' described in the Info
+node `(eieio)Accessing Slots', which is similar, but uses slot names
+instead of accessor functions.
+
+\(fn ((NAME ACCESSOR) ...) INSTANCE &rest BODY)"
+  (declare (debug [(&rest (symbolp symbolp)) form body])
+           (indent 2))
+  (cond ((null body)
+         (macroexp-warn-and-return "`cl-with-accessors' used with empty body"
+                                   nil 'empty-body))
+        ((null bindings)
+         (macroexp-warn-and-return "`cl-with-accessors' used without accessors"
+                                   (macroexp-progn body)
+                                   'suspicious))
+        (t
+         (cl-once-only (instance)
+           (let ((symbol-macros))
+             (dolist (b bindings)
+               (pcase b
+                 (`(,(and (pred symbolp) var)
+                    ,(and (pred symbolp) accessor))
+                  (push `(,var (,accessor ,instance))
+                        symbol-macros))
+                 (_
+                  (error "Malformed `cl-with-accessors' binding: %S" b))))
+             `(cl-symbol-macrolet
+                  ,symbol-macros
+                ,@body))))))
 
 ;;; Multiple values.
 
