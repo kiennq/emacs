@@ -4879,8 +4879,9 @@ dump_anonymous_release (void *addr, size_t size)
   emacs_abort ();
 #endif
 }
+#endif /* not HAVE_MPS */
 
-#elif VM_SUPPORTED == VM_MS_WINDOWS && !defined HAVE_MPS
+#if VM_SUPPORTED == VM_MS_WINDOWS && !defined HAVE_MPS
 static void *
 dump_map_file_w32 (void *base, int fd, off_t offset, size_t size,
 		   enum dump_memory_protection protection)
