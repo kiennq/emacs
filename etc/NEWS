@@ -538,13 +538,14 @@ This variable has no effect when Transient Mark mode is off.
 ** Tree-sitter
 
 *** New command 'treesit-toggle-sexp-mode'.
-It toggles the mode of navigation for such sexp and list commands as
-'treesit-forward-sexp', 'treesit-forward-list', 'treesit-down-list',
-'treesit-up-list'.
-In sexp mode these commands navigate purely by treesit nodes
-defined by the thing ‘sexp’.
-In list mode they navigate using syntax tables for symbols
-and using the treesit thing ‘list’ for lists.
+It toggles the mode of navigation for commands that move across sexp's
+and lists, such as 'treesit-forward-sexp', 'treesit-forward-list',
+'treesit-down-list', and 'treesit-up-list'.  This mode can be either
+'list', the default, or 'sexp'.
+In the default 'list' mode these commands move using syntax tables for
+symbols and using the thing 'list' for lists.
+In 'sexp' mode these commands move by treesit-defined parser nodes
+defined by the treesit thing 'sexp' as determined by 'treesit-thing-at'.
 
 ---
 ** Text mode
@@ -2162,6 +2163,12 @@ Restrictions imposed on clients by the window manager on these systems
 are too prohibitive and don't allow restoring frame configurations.
 (For the same reason many window management facilities are also not
 implemented by Emacs.)
+
+---
+** Emacs responds to runtime display configuration changes on Android.
+The upshot of this is that Emacs will adapt to display resolution /
+layout changes applied while an Emacs session is active, which is
+possible on some recently released devices.
 
 ---
 ** 'NSSpeechRecognitionUsageDescription' now included in "Info.plist" (macOS).
