@@ -165,7 +165,8 @@ of max unsigned 32-bit value for byte offsets into buffer text."
 The primary parser should be a parser that parses the entire buffer, as
 opposed to embedded parsers which parses only part of the buffer.")
 
-(defvar-local treesit-language-at-point-function nil
+(defvar-local treesit-language-at-point-function
+  #'treesit-language-at-point-default
   "A function that returns the language at point.
 This is used by `treesit-language-at', which is used by various
 functions to determine which parser to use at point.
@@ -183,10 +184,19 @@ When there are multiple parsers that covers POSITION, determine
 the most relevant parser (hence language) by their embed level.
 If `treesit-language-at-point-function' is non-nil, return
 the return value of that function instead."
-  (if treesit-language-at-point-function
-      (funcall treesit-language-at-point-function position)
-    (treesit-parser-language
-     (car (treesit-parsers-at position)))))
+  (funcall (or treesit-language-at-point-function
+               #'treesit-language-at-point-default)
+           position))
+
+(defun treesit-language-at-point-default (position)
+  "Default function for `treesit-language-at-point-function'.
+
+Returns the language at POSITION, or nil if there's no parser in the
+buffer.  When there are multiple parsers that cover POSITION, use the
+parser with the deepest embed level as it's the \"most relevant\" parser
+at POSITION."
+  (when-let* ((parser (car (treesit-parsers-at position))))
+    (treesit-parser-language parser)))
 
 ;;; Node API supplement
 
@@ -238,12 +248,8 @@ language and doesn't match the language of the local parser."
                 ;; 2. Given a language, try local parser, then global
                 ;; parser.
                 (parser-or-lang
-                 (let* ((local-parser (car (treesit-local-parsers-at
-                                            pos parser-or-lang)))
-                        (global-parser (car (treesit-parsers-at
-                                             pos parser-or-lang nil
-                                             '(primary global))))
-                        (parser (or local-parser global-parser)))
+                 (let ((parser (car (treesit-parsers-at
+                                     pos parser-or-lang))))
                    (when parser
                      (treesit-parser-root-node parser))))
                 ;; 3. No given language, try to get a language at point.
@@ -252,20 +258,8 @@ language and doesn't match the language of the local parser."
                 ;; finding parser, try local parser first, then global
                 ;; parser.
                 (t
-                 ;; LANG can be nil.  We don't want to use the fallback
-                 ;; in `treesit-language-at', so here we call
-                 ;; `treesit-language-at-point-function' directly.
-                 (let* ((lang (and treesit-language-at-point-function
-                                   (funcall treesit-language-at-point-function
-                                            pos)))
-                        (local-parser
-                         ;; Find the local parser with highest
-                         ;; embed-level at point.
-                         (car (treesit-local-parsers-at pos lang)))
-                        (global-parser (car (treesit-parsers-at
-                                             pos lang nil
-                                             '(primary global))))
-                        (parser (or local-parser global-parser)))
+                 ;; LANG can be nil.  Use the parser deepest by embed level.
+                 (let ((parser (car (treesit-parsers-at pos))))
                    (when parser
                      (treesit-parser-root-node parser))))))
          (node root)
@@ -865,7 +859,10 @@ by an overlay with non-nil `treesit-parser-local-p' property.
 If ONLY contains the symbol `global', include non-local parsers
 excluding the primary parser.
 
-If ONLY contains the symbol `primary', include the primary parser."
+If ONLY contains the symbol `primary', include the primary parser.
+
+The returned parsers are sorted in descending order of embed level.
+That is, the deepest embedded parser comes first."
   (let ((res nil))
     ;; Refer to (ref:local-parser-overlay) for more explanation of local
     ;; parser overlays.
@@ -883,8 +880,10 @@ If ONLY contains the symbol `primary', include the primary parser."
                          (and (memq 'global only)
                               (not (overlay-get ov 'treesit-parser-local-p))))))
         (push (if with-host (cons parser host-parser) parser) res)))
-    (when (or (null only) (memq 'primary only))
-      (setq res (cons treesit-primary-parser res)))
+    (when (and (not with-host) (or (null only) (memq 'primary only)))
+      (push (or treesit-primary-parser
+                (car (treesit-parser-list)))
+            res))
     (seq-sort-by (lambda (p)
                    (treesit-parser-embed-level
                     (or (car-safe p) p)))
@@ -1061,7 +1060,7 @@ Return updated parsers as a list."
 
 (defun treesit--update-ranges-local
     ( host-parser query embedded-lang modified-tick embed-level
-      &optional beg end range-fn)
+      &optional beg end offset range-fn)
   "Update range for local parsers between BEG and END under HOST-PARSER.
 Use QUERY to get the ranges, and make sure each range has a local
 parser for EMBEDDED-LANG.  HOST-PARSER and QUERY must match.
@@ -1091,10 +1090,10 @@ Return the created local parsers as a list."
   (let ((ranges-by-lang
          (if (functionp embedded-lang)
              (treesit-query-range-by-language
-              host-parser query embedded-lang beg end range-fn)
+              host-parser query embedded-lang beg end offset range-fn)
            (list (cons embedded-lang
                        (treesit-query-range
-                        host-parser query beg end range-fn)))))
+                        host-parser query beg end offset range-fn)))))
         (touched-parsers nil))
     (dolist (lang-and-range ranges-by-lang)
       (let ((embedded-lang (car lang-and-range))
@@ -1172,7 +1171,7 @@ Function range settings in SETTINGS are ignored."
                   (append touched-parsers
                           (treesit--update-ranges-local
                            host-parser query embed-lang modified-tick
-                           embed-level beg end range-fn))))
+                           embed-level beg end offset range-fn))))
            ;; When updating ranges, we want to avoid querying the whole
            ;; buffer which could be slow in very large buffers.
            ;; Instead, we only query for nodes that intersect with the
@@ -3193,7 +3192,12 @@ ARG is described in the docstring of `up-list'."
               (goto-char (if (> arg 0)
                              (treesit-node-end parent)
                            (treesit-node-start parent))))
-            (user-error "At top level")))
+            (if no-syntax-crossing
+                ;; Assume called interactively; don't signal an error.
+                (user-error "At top level")
+              (signal 'scan-error
+                      (list (format-message "No more %S to move across" pred)
+                            (point) (point))))))
       (setq cnt (- cnt inc)))))
 
 (defun treesit-cycle-sexp-type ()
@@ -4117,7 +4121,8 @@ For BOUND, MOVE, BACKWARD, LOOKING-AT, see the descriptions in
     level))
 
 (defun treesit--after-change (beg end _len)
-  "Force updating the ranges after each text change."
+  "Force updating the ranges in BEG...END.
+Expected to be called after each text change."
   (treesit-update-ranges beg end))
 
 ;;; Hideshow mode
@@ -4415,15 +4420,7 @@ before calling this function."
             #'treesit-outline-predicate--from-imenu))
     (setq-local outline-search-function #'treesit-outline-search
                 outline-level #'treesit-outline-level)
-    (add-hook 'outline-minor-mode-hook
-              (lambda ()
-                (if (bound-and-true-p outline-minor-mode)
-                    (add-hook 'after-change-functions
-                              #'treesit--after-change
-                              0 t)
-                  (remove-hook 'after-change-functions
-                               #'treesit--after-change t)))
-              nil t))
+    (add-hook 'outline-after-change-functions #'treesit--after-change nil t))
 
   ;; Remove existing local parsers.
   (dolist (ov (overlays-in (point-min) (point-max)))
@@ -5278,6 +5275,36 @@ If anything goes wrong, this function signals an `treesit-error'."
         (make-directory dest-dir t))
       (dolist (file (directory-files query-dir t "\\.scm\\'" t))
         (copy-file file (expand-file-name (file-name-nondirectory file) dest-dir) t)))))
+
+(defcustom treesit-auto-install-grammar 'ask
+  "Whether to install tree-sitter language grammar libraries when needed.
+This controls whether Emacs will install missing grammar libraries
+when they are needed by some tree-sitter based mode.
+If `ask', ask for confirmation before installing the required grammar library.
+If `always', install the grammar library without asking.
+If nil or `never' or anything else, don't install the grammar library
+even while visiting a file in the mode that requires such grammar; this
+might display a warning and/or fail to turn on the mode."
+  :type '(choice (const :tag "Never install grammar libraries" never)
+                 (const :tag "Always automatically install grammar libraries"
+                        always)
+                 (const :tag "Ask whether to install missing grammar libraries"
+                        ask))
+  :version "31.1")
+
+(defun treesit-ensure-installed (lang)
+  "Ensure that the grammar library for the language LANG is installed.
+The option `treesit-auto-install-grammar' defines whether to install
+the grammar library if it's unavailable."
+  (or (treesit-ready-p lang t)
+      (when (or (eq treesit-auto-install-grammar 'always)
+                (and (eq treesit-auto-install-grammar 'ask)
+                     (y-or-n-p (format "\
+Tree-sitter grammar for `%s' is missing; install it?"
+                                       lang))))
+        (treesit-install-language-grammar lang)
+        ;; Check that the grammar was installed successfully
+        (treesit-ready-p lang))))
 
 ;;; Shortdocs
 

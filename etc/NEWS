@@ -219,17 +219,19 @@ popup interface, such as the interfaces that the GNU ELPA packages Corfu
 and Company provide, you can set this option to the same sort function
 that your popup interface uses for a more integrated experience.
 
-Note: 'completion-preview-sort-function' was present also in Emacs 30.1,
-albeit as a variable, not a user option.
+('completion-preview-sort-function' was already present in Emacs 30.1,
+but as a plain Lisp variable, not a user option.)
 
 ** Windows
 
 +++
-*** New functions to modify window layout.
-Several functions to modify the window layout have been added:
-'window-layout-rotate-clockwise', 'window-layout-rotate-anticlockwise',
-'window-layout-flip-topdown', 'window-layout-flip-leftright',
-'window-layout-transpose', 'rotate-windows', and 'rotate-windows-back'.
+*** New commands to modify window layouts.
+'C-x w t' and 'C-x w r <left>/<right>' rotate the window layout.
+'C-x w o <left>/<right>' rotate the windows within the current layout.
+'C-x w f <left>/<right>/<up>/<down>' flip window layouts.
+
+By default these commands operate on the selected frame's root window.
+With a prefix argument, they operate on the selected window's parent.
 
 +++
 *** Windmove commands now move to skipped windows if invoked twice in a row.
@@ -313,8 +315,10 @@ helps to restore window buffers across Emacs sessions.
 
 +++
 *** New function 'frame-deletable-p'.
-Calling this function before 'delete-frame' is useful to avoid that the
-latter throws an error when the argument FRAME cannot be deleted.
+If this function returns nil, the following call to 'delete-frame' might
+fail to delete its argument FRAME or might signal an error.  It is
+therefore advisable to use this function as part of a condition that
+determines whether to call 'delete-frame'.
 
 +++
 *** New value 'force' for user option 'frame-inhibit-implied-resize'.
@@ -546,6 +550,11 @@ This variable has no effect when Transient Mark mode is off.
 
 ** Tree-sitter
 
+*** New user option 'treesit-auto-install-grammar'.
+It controls the automatic installation of tree-sitter grammar libraries
+needed for tree-sitter based modes, if these grammar libraries are not
+available when such modes are turned on.
+
 *** The file treesit-x.el defines a number of simple tree-sitter modes.
 Using the new macro 'define-treesit-generic-mode', generic modes are
 defined including, but not limited to, 'gitattributes-generic-ts-mode'.
@@ -674,6 +683,77 @@ Now 'treesit-explore-mode' (or 'treesit-explore') prompts for a parser
 rather than a language, and it is now possible to select a local parser
 at point to explore.
 
+** C-ts mode
+
++++
+*** New user option 'c-ts-mode-enable-doxygen'.
+By default, this is nil, and the Doxygen comment blocks in C/C++ source
+are highlighted like other comments.  When non-nil, Doxygen comment
+blocks are syntax-highlighted if the Doxygen grammar library is
+available.
+
+** Go-ts mode
+
++++
+*** New unit test commands.
+Three new commands are now available to run unit tests.
+
+The 'go-ts-mode-test-function-at-point' command runs the unit test at
+point.  If a region is active, it runs all the unit tests under the
+region.  It is bound to 'C-c C-t t' in 'go-ts-mode'.
+
+The 'go-ts-mode-test-this-file' command runs all unit tests in the current
+file.  It is bound to 'C-c C-t f' in 'go-ts-mode'.
+
+The 'go-ts-mode-test-this-package' command runs all unit tests under the
+package of the current buffer.  It is bound to 'C-c C-t p' in 'go-ts-mode'.
+
+The 'go-ts-mode-build-tags' user option is available to set a list of
+build tags for the test commands.
+
+The 'go-ts-mode-test-flags' user option is available to set a list of
+additional flags to pass to the go test command line.
+
+** Java-ts mode
+
++++
+*** New user option 'java-ts-mode-enable-doxygen'.
+By default, this is nil, and the Doxygen comment blocks in Java source
+are highlighted like other comments.  When non-nil, Doxygen comment
+blocks are syntax-highlighted if the Doxygen grammar library is
+available.
+
+---
+*** New user option 'java-ts-mode-method-chaining-indent-offset'.
+Now method chaining is indented by 8 spaces rather than 4, and this
+option controls how much is indented for method chaining.
+
+** PHP-ts mode
+
+---
+*** 'php-ts-mode-run-php-webserver' can now accept a custom "php.ini" file.
+You can use the new optional argument CONFIG when calling
+'php-ts-mode-run-php-webserver' to pass an alternative "php.ini" file to
+the built-in Web server.  Interactively, when invoked with a prefix
+argument, 'php-ts-mode-run-php-webserver' prompts for the config file as
+well as for other connection parameters.
+
+** Rust-ts mode
+
+---
+*** New user option 'rust-ts-mode-fontify-number-suffix-as-type'.
+Rust number literals may have an optional type suffix.  When this option
+is non-nil, this suffix is fontified using 'font-lock-type-face'.
+
+** EIEIO
+---
+*** New value 'warn' for 'eieio-backward-compatibility'.
+This is the new default value and causes warnings to be emitted
+at run-time for the use of the associated deprecated features.
+(setq eieio-backward-compatibility t) can be used to recover
+the previous silence.
+
+---
 ** Text mode
 
 ---
@@ -1156,51 +1236,6 @@ To get the old behavior back, add an element '(enum-open
 'c-offsets-alist' likewise in any of the other ways detailed in the
 "(ccmode) Config Basics" node of the CC mode manual.
 
-** Go-ts mode
-
-+++
-*** New unit test commands.
-Three new commands are now available to run unit tests.
-
-The 'go-ts-mode-test-function-at-point' command runs the unit test at
-point.  If a region is active, it runs all the unit tests under the
-region.  It is bound to 'C-c C-t t' in 'go-ts-mode'.
-
-The 'go-ts-mode-test-this-file' command runs all unit tests in the current
-file.  It is bound to 'C-c C-t f' in 'go-ts-mode'.
-
-The 'go-ts-mode-test-this-package' command runs all unit tests under the
-package of the current buffer.  It is bound to 'C-c C-t p' in 'go-ts-mode'.
-
-The 'go-ts-mode-build-tags' user option is available to set a list of
-build tags for the test commands.
-
-The 'go-ts-mode-test-flags' user option is available to set a list of
-additional flags to pass to the go test command line.
-
-** C-ts mode
-
-+++
-*** New user option 'c-ts-mode-enable-doxygen'.
-By default, this is nil, and the Doxygen comment blocks in C/C++ source
-are highlighted like other comments.  When non-nil, Doxygen comment
-blocks are syntax-highlighted if the Doxygen grammar library is
-available.
-
-** Java-ts mode
-
-+++
-*** New user option 'java-ts-mode-enable-doxygen'.
-By default, this is nil, and the Doxygen comment blocks in Java source
-are highlighted like other comments.  When non-nil, Doxygen comment
-blocks are syntax-highlighted if the Doxygen grammar library is
-available.
-
----
-*** New user option 'java-ts-mode-method-chaining-indent-offset'.
-Now method chaining is indented by 8 spaces rather than 4, and this
-option controls how much is indented for method chaining.
-
 ** Emacs Lisp mode
 
 ---
@@ -1378,23 +1413,6 @@ They suggest the previous revision as the default for REV1, not the last
 one as before.  This makes them different from 'vc-diff' and
 'vc-root-diff' when those are called without a prefix argument.
 
-** PHP-ts mode
-
----
-*** 'php-ts-mode-run-php-webserver' can now accept a custom "php.ini" file.
-You can use the new optional argument CONFIG when calling
-'php-ts-mode-run-php-webserver' to pass an alternative "php.ini" file to
-the built-in Web server.  Interactively, when invoked with a prefix
-argument, 'php-ts-mode-run-php-webserver' prompts for the config file as
-well as for other connection parameters.
-
-** Rust-ts mode
-
----
-*** New user option 'rust-ts-mode-fontify-number-suffix-as-type'.
-Rust number literals may have an optional type suffix.  When this option
-is non-nil, this suffix is fontified using 'font-lock-type-face'.
-
 ** Ediff
 
 +++
@@ -1422,6 +1440,20 @@ variable set to nil.  This change enables custom layouts without
 a control panel window.
 
 ** Dired
+
+---
+*** New user option 'dired-create-empty-file-in-current-directory'.
+When non-nil, 'dired-create-empty-file' creates a new empty file and
+adds an entry for it (or its topmost new parent directory if created)
+under the current subdirectory in the Dired buffer by default
+(otherwise, it adds adds the new file (and new subdirectories if
+provided) to whichever directory the user enters at the prompt).  When
+nil, `dired-create-empty-file' acts on the default directory by default.
+
+Note that setting this user option to non-nil makes invoking
+'dired-create-empty-file' outside of a Dired buffer raise an error (like
+other Dired commands that always prompt with the current subdirectory,
+such as 'dired-create-directory').
 
 +++
 *** New user option 'dired-check-symlinks' allows disabling validity checks.
