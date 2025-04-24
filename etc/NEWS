@@ -1871,6 +1871,13 @@ New faces have been added to 'icomplete-vertical-mode':
 - 'icomplete-vertical-unselected-prefix-indicator-face' controls the
   appearance of unselected candidate prefixes.
 
+** Customize
+
+---
+*** New major mode 'Customize-dirlocals-mode'.
+This is intended for customizing directory-local variables in the
+current directory's '.dir-locals.el' file.
+
 ** Miscellaneous
 
 ---
@@ -2036,6 +2043,12 @@ restore the old behavior, you can set 'eshell-pwd-convert-function' to
 ---
 ** The rx 'eval' form now uses the current Elisp dialect for evaluation.
 Previously, its argument was always evaluated using dynamic binding.
+
+---
+** Unused block comment variables have been removed.
+The unused variables 'block-comment-start' and 'block-comment-end',
+which never actually had any effect when set by major modes, have been
+removed.
 
 
 * Lisp Changes in Emacs 31.1
