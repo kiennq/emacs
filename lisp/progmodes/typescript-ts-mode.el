@@ -67,20 +67,21 @@
 
 If the value is `align', align each declaration:
 
-    const foo = 'bar',
-          car = 'cdr',
-          stop = 'start';
+    const foo = \\='bar\\=',
+          baz = \\='quux\\=',
+          stop = \\='start\\=';
 
 If the value is `indent', indent subsequent declarations by one indent
 level:
 
-   const foo = 'bar',
-     car = 'cdr',
-     stop = 'start';
+   const foo = \\='bar\\=',
+     baz = \\='quux\\=',
+     stop = \\='start\\=';
 
 For changes to this variable to take effect, restart the major mode."
   :version "31.1"
-  :type 'symbol)
+  :type 'symbol
+  :group 'typescript)
 
 (defface typescript-ts-jsx-tag-face
   '((t . (:inherit font-lock-function-call-face)))
