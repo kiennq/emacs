@@ -1950,7 +1950,14 @@ Use `isearch-exit' to quit without signaling."
 	      (funcall isearch-wrap-function)
 	    (goto-char (if isearch-forward (point-min) (point-max))))))
     ;; C-s in reverse or C-r in forward, change direction.
-    (if (and isearch-other-end isearch-repeat-on-direction-change)
+    (if (and isearch-other-end isearch-repeat-on-direction-change
+             (or (null isearch-cmds)
+                 ;; Go to 'isearch-other-end' only when point is still
+                 ;; on the current match.  However, after scrolling
+                 ;; (when 'isearch-allow-scroll' is 'unlimited'),
+                 ;; repeat the reversed search from a new position
+                 ;; where point was moved during scrolling (bug#78074).
+                 (eq (isearch--state-point (car isearch-cmds)) (point))))
         (goto-char isearch-other-end))
     (setq isearch-forward (not isearch-forward)
 	  isearch-success t))
@@ -4618,7 +4625,13 @@ defaults to the value of `isearch-search-fun-default' when nil."
     ;; Otherwise, try to search for the next property.
     (unless beg
       (setq beg (funcall next-fun old))
-      (when beg (goto-char beg)))
+      (when beg
+        (if (or (null bound)
+                (if isearch-forward
+                    (< beg bound)
+                  (> beg bound)))
+            (goto-char beg)
+          (setq beg nil))))
     ;; Non-nil `beg' means there are more properties.
     (while (and beg (not found))
       ;; Search for the end of the current property.
@@ -4668,7 +4681,13 @@ defaults to the value of `isearch-search-fun-default' when nil."
       ;; Get the next text property.
       (unless found
         (setq beg (funcall next-fun end))
-        (when beg (goto-char beg))))
+        (when beg
+          (if (or (null bound)
+                  (if isearch-forward
+                      (< beg bound)
+                    (> beg bound)))
+              (goto-char beg)
+            (setq beg nil)))))
     (unless found (goto-char old))
     found))
 
