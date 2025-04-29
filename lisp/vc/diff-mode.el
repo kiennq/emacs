@@ -2364,48 +2364,51 @@ With non-nil prefix arg, re-diff all the hunks."
   "Re-diff the current hunk."
   (interactive)
   (let* ((char-offset (- (point) (diff-beginning-of-hunk t)))
-	 (opt-type (pcase (char-after)
+         (opt-type (pcase (char-after)
                      (?@ "-u")
                      (?* "-c")))
-	 (line-nb (and (or (looking-at "[^0-9]+\\([0-9]+\\)")
-			   (error "Can't find line number"))
-		       (string-to-number (match-string 1))))
-	 (inhibit-read-only t)
-	 (hunk (delete-and-extract-region
-		(point) (save-excursion (diff-end-of-hunk) (point))))
-	 (lead (make-string (1- line-nb) ?\n)) ;Line nums start at 1.
-	 (file1 (make-temp-file "diff1"))
-	 (file2 (make-temp-file "diff2"))
-	 (coding-system-for-read buffer-file-coding-system)
-	 opts old new)
+         (line-nb (and (or (looking-at "[^0-9]+\\([0-9]+\\)")
+                           (error "Can't find line number"))
+                       (string-to-number (match-string 1))))
+         (inhibit-read-only t)
+         (hunk (delete-and-extract-region
+                (point) (save-excursion (diff-end-of-hunk) (point))))
+         (lead (make-string (1- line-nb) ?\n)) ;Line nums start at 1.
+         (file1 (make-temp-file "diff1"))
+         (file2 (make-temp-file "diff2"))
+         (coding-system-for-read buffer-file-coding-system)
+         (opts (pcase diff-switches
+                 ((pred listp) diff-switches)
+                 ((pred stringp) (string-split diff-switches))))
+         old new)
     (when ignore-whitespace
-      (setq opts (ensure-list diff-ignore-whitespace-switches)))
+      (setq opts (nconc opts (ensure-list diff-ignore-whitespace-switches))))
     (when opt-type
-      (setq opts (cons opt-type opts)))
+      (setq opts (nconc opts (ensure-list opt-type))))
 
     (unwind-protect
-	(save-excursion
-	  (setq old (diff-hunk-text hunk nil char-offset))
-	  (setq new (diff-hunk-text hunk t char-offset))
-	  (write-region (concat lead (car old)) nil file1 nil 'nomessage)
-	  (write-region (concat lead (car new)) nil file2 nil 'nomessage)
-	  (with-temp-buffer
-	    (let ((status
-		   (apply #'call-process
-			  `(,diff-command nil t nil
-			                 ,@opts ,file1 ,file2))))
-	      (pcase status
-		(0 nil)                 ;Nothing to reformat.
-		(1 (goto-char (point-min))
+        (save-excursion
+          (setq old (diff-hunk-text hunk nil char-offset))
+          (setq new (diff-hunk-text hunk t char-offset))
+          (write-region (concat lead (car old)) nil file1 nil 'nomessage)
+          (write-region (concat lead (car new)) nil file2 nil 'nomessage)
+          (with-temp-buffer
+            (let ((status
+                   (apply #'call-process
+                          `(,diff-command nil t nil
+                                          ,@opts ,file1 ,file2))))
+              (pcase status
+                (0 nil)                 ;Nothing to reformat.
+                (1 (goto-char (point-min))
                    ;; Remove the file-header.
                    (when (re-search-forward diff-hunk-header-re nil t)
                      (delete-region (point-min) (match-beginning 0))))
-		(_ (goto-char (point-max))
-		   (unless (bolp) (insert "\n"))
-		   (insert hunk)))
-	      (setq hunk (buffer-string))
-	      (unless (memq status '(0 1))
-		(error "Diff returned: %s" status)))))
+                (_ (goto-char (point-max))
+                   (unless (bolp) (insert "\n"))
+                   (insert hunk)))
+              (setq hunk (buffer-string))
+              (unless (memq status '(0 1))
+                (error "Diff returned: %s" status)))))
       ;; Whatever happens, put back some equivalent text: either the new
       ;; one or the original one in case some error happened.
       (insert hunk)

@@ -61,10 +61,10 @@ If nil, only use the narrowed-to parts of the buffers."
 ;; prompt if prefix arg present
 (defun diff-switches ()
   (if current-prefix-arg
-      (read-string "Diff switches: "
-		   (if (stringp diff-switches)
-		       diff-switches
-		     (mapconcat #'identity diff-switches " ")))))
+      (read-string "Diff switches: ")
+    (if (stringp diff-switches)
+        diff-switches
+      (mapconcat #'identity diff-switches " "))))
 
 (defun diff-sentinel (code &optional old-temp-file new-temp-file)
   "Code run when the diff process exits.
