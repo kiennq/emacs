@@ -58,6 +58,14 @@
 (declare-function treesit-search-forward "treesit.c")
 (declare-function treesit-search-subtree "treesit.c")
 
+(declare-function treesit-parse-string "treesit.c")
+(declare-function treesit-parser-tracking-line-column-p "treesit.c")
+(declare-function treesit-tracking-line-column-p "treesit.c")
+(declare-function treesit--linecol-at "treesit.c")
+(declare-function treesit--linecol-cache-set "treesit.c")
+(declare-function treesit--linecol-cache "treesit.c")
+
+
 ;;; Basic API
 
 (ert-deftest treesit-basic-parsing ()
@@ -228,6 +236,7 @@
 
 (ert-deftest treesit-linecol-basic ()
   "Tests for basic lincol synchronization."
+  (skip-unless (fboundp 'treesit--linecol-cache))
   (with-temp-buffer
     (should (equal (treesit--linecol-cache)
                    '(:line 0 :col 0 :bytepos 0)))
@@ -271,6 +280,7 @@
 
 (ert-deftest treesit-linecol-search-back-across-newline ()
   "Search for newline backwards."
+  (skip-unless (fboundp 'treesit--linecol-at))
   (with-temp-buffer
     (insert "\n ")
     (treesit--linecol-cache-set 2 1 3)
@@ -280,6 +290,7 @@
 
 (ert-deftest treesit-linecol-col-same-line ()
   "Test col calculation when cache and target pos is in the same line."
+  (skip-unless (fboundp 'treesit--linecol-at))
   (with-temp-buffer
     (insert "aaaaaa")
     (treesit--linecol-cache-set 1 5 6)
@@ -287,6 +298,7 @@
     (should (equal (treesit--linecol-at 2) '(1 . 1)))
     (should (equal (treesit--linecol-at 1) '(1 . 0)))))
 
+(defvar treesit-languages-require-line-column-tracking)
 (ert-deftest treesit-linecol-enable-disable ()
   "Test enabling/disabling linecol tracking."
   (skip-unless (treesit-language-available-p 'json))
