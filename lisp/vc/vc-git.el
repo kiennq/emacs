@@ -1206,35 +1206,54 @@ It is based on `log-edit-mode', and has Git-specific extensions."
           (with-temp-file patch-file
             (insert vc-git-patch-string))
           (unwind-protect
-              (vc-git-command nil 0 nil "apply" "--cached" patch-file)
+              (vc-git-command nil 0 nil "apply" "--cached"
+                              (file-local-name patch-file))
             (delete-file patch-file))))
       (when to-stash (vc-git--stash-staged-changes to-stash)))
-    ;; When operating on the whole tree, better pass "-a" than ".",
-    ;; since "."  fails when we're committing a merge.
-    (apply #'vc-git-command nil 0
-           (if (and only (not vc-git-patch-string)) files)
-           (nconc (if msg-file (list "commit" "-F"
-                                     (file-local-name msg-file))
-                    (list "commit" "-m"))
-                  (let ((args
-                         (vc-git--log-edit-extract-headers comment)))
-                    (when msg-file
-                      (let ((coding-system-for-write
-                             (or pcsw vc-git-commits-coding-system)))
-                        (write-region (car args) nil msg-file))
-                      (setq args (cdr args)))
-                    args)
-                  (unless vc-git-patch-string
-                    (if only (list "--only" "--") '("-a")))))
-    (if (and msg-file (file-exists-p msg-file)) (delete-file msg-file))
-    (when to-stash
-      (let ((cached (make-nearby-temp-file "git-cached")))
-        (unwind-protect
-            (progn (with-temp-file cached
-                     (vc-git-command t 0 nil "stash" "show" "-p"))
-                   (vc-git-command nil 0 nil "apply" "--cached" cached))
-          (delete-file cached))
-        (vc-git-command nil 0 nil "stash" "drop")))))
+    (let ((files (and only (not vc-git-patch-string) files))
+          (args (vc-git--log-edit-extract-headers comment))
+          (buffer (format "*vc-git : %s*" (expand-file-name root)))
+          (post
+           (lambda ()
+             (when (and msg-file (file-exists-p msg-file))
+               (delete-file msg-file))
+             (when to-stash
+               (let ((cached (make-nearby-temp-file "git-cached")))
+                 (unwind-protect
+                     (progn
+                       (with-temp-file cached
+                         (vc-git-command t 0 nil "stash" "show" "-p"))
+                       (vc-git-command nil 0 "apply" "--cached"
+                                       (file-local-name cached)))
+                   (delete-file cached))
+                 (vc-git-command nil 0 nil "stash" "drop"))))))
+      (when msg-file
+        (let ((coding-system-for-write
+               (or pcsw vc-git-commits-coding-system)))
+          (write-region (car args) nil msg-file))
+        (setq args (cdr args)))
+      (setq args (nconc (if msg-file
+                            (list "commit" "-F"
+                                  (file-local-name msg-file))
+                          (list "commit" "-m"))
+                        args
+                        ;; When operating on the whole tree, better pass
+                        ;; "-a" than ".", since "."  fails when we're
+                        ;; committing a merge.
+                        (and (not vc-git-patch-string)
+                             (if only (list "--only" "--") '("-a")))))
+      (if vc-async-checkin
+          (progn (vc-wait-for-process-before-save
+                  (apply #'vc-do-async-command buffer root
+                         vc-git-program (nconc args files))
+                  "Finishing checking in files...")
+                 (with-current-buffer buffer
+                   (vc-run-delayed
+                     (vc-compilation-mode 'git)
+                     (funcall post)))
+                 (vc-set-async-update buffer))
+        (apply #'vc-git-command nil 0 files args)
+        (funcall post)))))
 
 (defun vc-git--stash-staged-changes (files)
   "Stash only the staged changes to FILES."
@@ -1264,7 +1283,7 @@ It is based on `log-edit-mode', and has Git-specific extensions."
                     (progn
                       (vc-git-command nil 0 nil "read-tree" "HEAD")
                       (vc-git-command nil 0 nil "apply" "--cached"
-                                      cached)
+                                      (file-local-name cached))
                       (setq tree (git-string "write-tree")))
                   (delete-file index))))
           (delete-file cached))
