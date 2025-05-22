@@ -71,10 +71,7 @@
 (eval-when-compile (require 'cl-lib))
 (require 'frame)
 (require 'mouse)
-(require 'scroll-bar)
 (require 'select)
-(require 'menu-bar)
-(require 'dnd)
 (require 'w32-vars)
 
 (declare-function x-select-font "w32font.c"
@@ -101,6 +98,7 @@
 ;;   (princ event))
 
 (defun w32-handle-dropped-file (window file-name)
+  (require 'dnd)
   (dnd-handle-multiple-urls
    window
    (list
@@ -142,6 +140,7 @@ If the optional argument NEW-FRAME is non-nil, perform the
 drag-n-drop action in a newly-created frame using its selected-window
 and that window's buffer."
   (interactive "e")
+  (require 'dnd)
   ;; Make sure the drop target has positive co-ords
   ;; before setting the selected frame - otherwise it
   ;; won't work.  <skx@tardis.ed.ac.uk>
@@ -219,6 +218,7 @@ If FRAME is nil or not given, use the selected frame.
 If FRAME does not have the menu bar enabled, display a text menu using
 `tmm-menubar'."
    (interactive "i")
+   (require 'menu-bar)
    (if menu-bar-mode
        (w32-send-sys-command ?\xf100 frame)
      (with-selected-frame (or frame (selected-frame))
@@ -331,8 +331,10 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
   ;; that this is only annoying.
   (setq split-window-keep-point t)
 
-  ;; W32 expects the menu bar cut and paste commands to use the clipboard.
-  (menu-bar-enable-clipboard)
+  (when menu-bar-mode
+    (require 'menu-bar)
+    ;; W32 expects the menu bar cut and paste commands to use the clipboard.
+    (menu-bar-enable-clipboard))
 
   ;; Don't show the frame name; that's redundant.
   (setq-default mode-line-frame-identification "  ")
