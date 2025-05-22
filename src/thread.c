@@ -672,12 +672,15 @@ mark_one_thread (struct thread_state *thread)
   mark_specpdl (thread->m_specpdl, thread->m_specpdl_ptr);
 
   mark_c_stack (thread->m_stack_bottom, stack_top);
+  mark_memory (&thread->m_getcjmp,
+       &thread->m_getcjmp + 1);
 
   for (struct handler *handler = thread->m_handlerlist;
        handler; handler = handler->next)
     {
       mark_object (handler->tag_or_ch);
       mark_object (handler->val);
+      mark_memory (&handler->jmp, &handler->jmp + 1);
     }
 
   if (thread->m_current_buffer)
