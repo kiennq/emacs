@@ -920,7 +920,7 @@ initialize_w32_display (struct terminal *term, int *width, int *height)
   EnumThreadWindows (GetCurrentThreadId (), find_ime_window, (LPARAM) &hwnd);
 
   /* Set up the keyboard hook.  */
-  setup_w32_kbdhook (hwnd);
+  /* setup_w32_kbdhook (hwnd); */
 }
 
 
