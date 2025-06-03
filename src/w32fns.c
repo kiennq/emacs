@@ -5693,7 +5693,7 @@ w32_wnd_proc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 #ifdef WINDOWSNT
     case WM_CREATE:
-      setup_w32_kbdhook (hwnd);
+      /* setup_w32_kbdhook (hwnd); */
       goto dflt;
 #endif
 
