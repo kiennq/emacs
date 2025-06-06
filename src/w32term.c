@@ -7728,7 +7728,7 @@ w32_initialize_display_info (Lisp_Object display_name)
 
 #ifdef HAVE_MPS
   igc_root_create_ambig (&one_w32_display_info, &one_w32_display_info + 1,
-                        "w32-display-info");
+			 "w32-display-info");
 #endif
 
   memset (dpyinfo, 0, sizeof (*dpyinfo));
