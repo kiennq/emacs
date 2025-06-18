@@ -3334,12 +3334,11 @@ igc_grow_rdstack (struct read_stack *rs)
 }
 
 Lisp_Object *
-igc_xalloc_lisp_objs_exact (size_t n)
+igc_xalloc_lisp_objs_exact (size_t n, const char *label)
 {
   size_t size = n * sizeof (Lisp_Object);
   void *p = xzalloc (size);
-  root_create_exact (global_igc, p, (char *) p + size, scan_exact,
-		     "xalloc-exact");
+  root_create_exact (global_igc, p, (char *) p + size, scan_exact, label);
   return p;
 }
 
@@ -3506,18 +3505,19 @@ igc_xnrealloc_ambig (void *old_pa, ptrdiff_t nitems, ptrdiff_t item_size)
 Lisp_Object *
 igc_xpalloc_lisp_objs_exact (Lisp_Object *pa, ptrdiff_t *nitems,
 			     ptrdiff_t nitems_incr_min, ptrdiff_t nitems_max,
-			     ptrdiff_t item_size, const char *label)
+			     const char *label)
 {
-  igc_assert (item_size == word_size);
   ptrdiff_t nitems_old = *nitems;
   ptrdiff_t nitems_new = nitems_old;
   ptrdiff_t nbytes
-    = xpalloc_nbytes (pa, &nitems_new, nitems_incr_min, nitems_max, item_size);
+    = xpalloc_nbytes (pa, &nitems_new, nitems_incr_min, nitems_max, word_size);
   Lisp_Object *old = pa;
   Lisp_Object *new = xzalloc (nbytes);
   root_create_exact (global_igc, new, new + nitems_new, scan_exact, label);
-  memcpy (new, old, nitems_old * sizeof old[0]);
+  for (ptrdiff_t i = 0; i < nitems_old; i++)
+    new[i] = old[i];
   igc_destroy_root_with_start (old);
+  xfree (old);
   *nitems = nitems_new;
   return new;
 }

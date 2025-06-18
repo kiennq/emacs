@@ -89,7 +89,7 @@ void *igc_realloc_ambig (void *block, size_t size);
 #ifdef ENABLE_CHECKING
 void igc_check_freeable (void *p);
 #endif
-Lisp_Object *igc_xalloc_lisp_objs_exact (size_t n);
+Lisp_Object *igc_xalloc_lisp_objs_exact (size_t n, const char *label);
 void * igc_xalloc_raw_exact (size_t n);
 
 void *igc_xpalloc_ambig (void *pa, ptrdiff_t *nitems,
@@ -99,7 +99,6 @@ void *igc_xpalloc_ambig (void *pa, ptrdiff_t *nitems,
 Lisp_Object *igc_xpalloc_lisp_objs_exact (Lisp_Object *pa, ptrdiff_t *nitems,
 					  ptrdiff_t nitems_incr_min,
 					  ptrdiff_t nitems_max,
-					  ptrdiff_t item_size,
 					  const char *label);
 
 typedef int igc_scan_result_t; /* zero means success */
