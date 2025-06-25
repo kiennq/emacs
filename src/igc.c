@@ -1752,6 +1752,35 @@ scan_kbd_buffer_ambig (mps_ss_t ss, void *start, void *end, void *closure)
     }
 }
 
+static mps_res_t
+scan_kboard (mps_ss_t ss, void *start, void *end, void *closure)
+{
+  struct kboard *kb = start;
+  MPS_SCAN_BEGIN (ss)
+  {
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Voverriding_terminal_local_map));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Vlast_command));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Vreal_last_command));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Vkeyboard_translate_table));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Vlast_repeatable_command));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Vprefix_arg));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Vlast_prefix_arg));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, kbd_queue));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, defining_kbd_macro));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Vlast_kbd_macro));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Vsystem_key_alist));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, system_key_syms));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Vwindow_system));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Vinput_decode_map));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Vlocal_function_key_map));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, Vdefault_minibuffer_frame));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, echo_string));
+    IGC_FIX12_OBJ (ss, &KVAR (kb, echo_prompt));
+  }
+  MPS_SCAN_END (ss);
+  return MPS_RES_OK;
+}
+
 /***********************************************************************
 			 Default pad, fwd, ...
  ***********************************************************************/
@@ -3520,6 +3549,30 @@ igc_xpalloc_lisp_objs_exact (Lisp_Object *pa, ptrdiff_t *nitems,
   xfree (old);
   *nitems = nitems_new;
   return new;
+}
+
+Lisp_Object *
+igc_xnrealloc_lisp_objs_exact (ptrdiff_t nitems_old,
+			       Lisp_Object *old,
+			       ptrdiff_t nitems_new,
+			       const char *label)
+{
+  ptrdiff_t nbytes = nitems_new * word_size;
+  Lisp_Object *new = xzalloc (nbytes);
+  root_create_exact (global_igc, new, new + nitems_new, scan_exact, label);
+  for (ptrdiff_t i = 0, n = min (nitems_old, nitems_new); i < n; i++)
+    new[i] = old[i];
+  igc_destroy_root_with_start (old);
+  xfree (old);
+  return new;
+}
+
+struct kboard *
+igc_alloc_kboard (void)
+{
+  struct kboard *kb = xzalloc (sizeof *kb);
+  root_create_exact (global_igc, kb, kb + 1, scan_kboard, "kboard");
+  return kb;
 }
 
 static void

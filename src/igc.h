@@ -101,6 +101,11 @@ Lisp_Object *igc_xpalloc_lisp_objs_exact (Lisp_Object *pa, ptrdiff_t *nitems,
 					  ptrdiff_t nitems_max,
 					  const char *label);
 
+Lisp_Object *igc_xnrealloc_lisp_objs_exact (ptrdiff_t nitems_old,
+					    Lisp_Object *old,
+					    ptrdiff_t nitems_new,
+					    const char *label);
+
 typedef int igc_scan_result_t; /* zero means success */
 struct igc_ss;
 typedef igc_scan_result_t (*igc_scan_area_t) (struct igc_ss *ss, void *start,
@@ -112,6 +117,7 @@ void igc_xpalloc_exact (void **pa_cell, ptrdiff_t *nitems,
 			void *closure);
 
 void *igc_xnrealloc_ambig (void *pa, ptrdiff_t nitems, ptrdiff_t item_size);
+struct kboard *igc_alloc_kboard (void);
 
 struct Lisp_Vector *igc_alloc_pseudovector (size_t nwords_mem,
 					    size_t nwords_lisp,
