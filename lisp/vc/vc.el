@@ -1957,6 +1957,11 @@ Runs the normal hooks `vc-before-checkin-hook' and `vc-checkin-hook'."
       ;; RCS 5.7 gripes about whitespace-only comments too.
       (unless (and comment (string-match "[^\t\n ]" comment))
         (setq comment "*** empty log message ***"))
+      (unless patch-string
+        ;; Must not pass non-nil NOT-ESSENTIAL because we will shortly
+        ;; call (in `vc-finish-logentry') `vc-resynch-buffer' with its
+        ;; NOQUERY parameter non-nil.
+        (vc-buffer-sync-fileset (list backend files)))
       (when register (vc-register (list backend register)))
       (cl-labels ((do-it ()
                     ;; We used to change buffers to get local value of
@@ -2455,6 +2460,7 @@ The merge base is a common ancestor between REV1 and REV2 revisions."
 ;;;###autoload
 (defun vc-root-diff-incoming (&optional remote-location)
   "Report diff of all changes that would be pulled from REMOTE-LOCATION.
+When unspecified REMOTE-LOCATION is the place \\[vc-update] would pull from.
 When called interactively with a prefix argument, prompt for REMOTE-LOCATION.
 In some version control systems REMOTE-LOCATION can be a remote branch name.
 
@@ -2473,14 +2479,16 @@ global binding."
 ;;;###autoload
 (defun vc-root-diff-outgoing (&optional remote-location)
   "Report diff of all changes that would be pushed to REMOTE-LOCATION.
+When unspecified REMOTE-LOCATION is the place \\[vc-push] would push to.
 When called interactively with a prefix argument, prompt for REMOTE-LOCATION.
 In some version control systems REMOTE-LOCATION can be a remote branch name.
 
 See `vc-use-incoming-outgoing-prefixes' regarding giving this command a
 global binding."
-  ;; For this command we want to ignore uncommitted changes because
-  ;; those are not outgoing, and the point is to make a comparison
-  ;; between locally committed changes and remote committed changes.
+  ;; For this command, for distributed VCS, we want to ignore
+  ;; uncommitted changes because those are not outgoing, and the point
+  ;; for those VCS is to make a comparison between locally committed
+  ;; changes and remote committed changes.
   ;; (Hence why we don't call `vc-buffer-sync-fileset'.)
   (interactive (vc--maybe-read-remote-location))
   (vc--with-backend-in-rootdir "VC root-diff"
@@ -3377,6 +3385,7 @@ The command prompts for the branch whose change log to show."
 ;;;###autoload
 (defun vc-log-incoming (&optional remote-location)
   "Show log of changes that will be received with pull from REMOTE-LOCATION.
+When unspecified REMOTE-LOCATION is the place \\[vc-update] would pull from.
 When called interactively with a prefix argument, prompt for REMOTE-LOCATION.
 In some version control systems REMOTE-LOCATION can be a remote branch name."
   (interactive (vc--maybe-read-remote-location))
@@ -3394,6 +3403,7 @@ In some version control systems REMOTE-LOCATION can be a remote branch name."
 ;;;###autoload
 (defun vc-log-outgoing (&optional remote-location)
   "Show log of changes that will be sent with a push operation to REMOTE-LOCATION.
+When unspecified REMOTE-LOCATION is the place \\[vc-push] would push to.
 When called interactively with a prefix argument, prompt for REMOTE-LOCATION.
 In some version control systems REMOTE-LOCATION can be a remote branch name."
   (interactive (vc--maybe-read-remote-location))
