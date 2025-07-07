@@ -2640,7 +2640,7 @@ print_object (Lisp_Object obj, bool escapeflag, struct print_context *pc)
 	  {
 	    /* Here, we must convert each multi-byte form to the
 	       corresponding character code before handing it to PRINTCHAR.  */
-	    int c = fetch_string_char_advance (name, &i, &i_byte);
+	    int c = fetch_string_char_as_multibyte_advance (name, &i, &i_byte);
 	    maybe_quit ();
 
 	    if (escapeflag)
