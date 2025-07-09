@@ -85,6 +85,7 @@ void *igc_alloc_global_ref (void);
 struct Lisp_Buffer_Local_Value *igc_alloc_blv (void);
 void *igc_alloc_handler (void);
 void *igc_xzalloc_ambig (size_t size);
+void *igc_xzalloc_ambig_with_label (size_t size, const char *label);
 void *igc_realloc_ambig (void *block, size_t size);
 #ifdef ENABLE_CHECKING
 void igc_check_freeable (void *p);
@@ -118,6 +119,7 @@ void igc_xpalloc_exact (void **pa_cell, ptrdiff_t *nitems,
 
 void *igc_xnrealloc_ambig (void *pa, ptrdiff_t nitems, ptrdiff_t item_size);
 struct kboard *igc_alloc_kboard (void);
+struct hash_table_user_test *igc_alloc_hash_table_user_test (void);
 
 struct Lisp_Vector *igc_alloc_pseudovector (size_t nwords_mem,
 					    size_t nwords_lisp,

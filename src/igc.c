@@ -1781,6 +1781,20 @@ scan_kboard (mps_ss_t ss, void *start, void *end, void *closure)
   return MPS_RES_OK;
 }
 
+static mps_res_t
+scan_hash_table_user_test (mps_ss_t ss, void *start, void *end, void *closure)
+{
+  struct hash_table_user_test *ut = start;
+  MPS_SCAN_BEGIN (ss)
+  {
+    IGC_FIX12_OBJ (ss, &ut->test.user_hash_function);
+    IGC_FIX12_OBJ (ss, &ut->test.user_cmp_function);
+    IGC_FIX12_OBJ (ss, &ut->test.name);
+  }
+  MPS_SCAN_END (ss);
+  return MPS_RES_OK;
+}
+
 /***********************************************************************
 			 Default pad, fwd, ...
  ***********************************************************************/
@@ -3382,7 +3396,7 @@ igc_xalloc_raw_exact (size_t n)
 }
 
 void *
-igc_xzalloc_ambig (size_t size)
+igc_xzalloc_ambig_with_label (size_t size, const char *label)
 {
   /* Can't make a root that has zero length.  Want one to be able to
      detect calling igc_free on something not having a root.  */
@@ -3392,8 +3406,14 @@ igc_xzalloc_ambig (size_t size)
     size++;
   void *p = xzalloc (size);
   void *end = (char *) p + size;
-  root_create_ambig (global_igc, p, end, "xzalloc-ambig");
+  root_create_ambig (global_igc, p, end, label ? label : "igc-xzalloc-ambig");
   return p;
+}
+
+void *
+igc_xzalloc_ambig (size_t size)
+{
+  return igc_xzalloc_ambig_with_label (size, NULL);
 }
 
 void *
@@ -3573,6 +3593,15 @@ igc_alloc_kboard (void)
   struct kboard *kb = xzalloc (sizeof *kb);
   root_create_exact (global_igc, kb, kb + 1, scan_kboard, "kboard");
   return kb;
+}
+
+struct hash_table_user_test *
+igc_alloc_hash_table_user_test (void)
+{
+  struct hash_table_user_test *ut = xzalloc (sizeof *ut);
+  root_create_exact (global_igc, ut, ut + 1, scan_hash_table_user_test,
+		     "hash-table-user-test");
+  return ut;
 }
 
 static void
@@ -4625,7 +4654,7 @@ igc_alloc_blv (void)
 void *
 igc_alloc_handler (void)
 {
-  struct handler *h = igc_xzalloc_ambig (sizeof *h);
+  struct handler *h = igc_xzalloc_ambig_with_label (sizeof *h, "handler");
   return h;
 }
 
