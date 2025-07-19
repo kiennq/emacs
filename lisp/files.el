@@ -1212,14 +1212,15 @@ the function needs to examine, starting with FILE."
   ;; Represent /home/luser/foo as ~/foo so that we don't try to look for
   ;; `name' in /home or in /.
   (setq file (abbreviate-file-name (expand-file-name file)))
+  (when (and (not (directory-name-p file))
+	     (file-directory-p file))
+    (setq file (file-name-as-directory file)))
   (let ((root nil)
         try)
     (while (not (or root
                     (null file)
                     (string-match locate-dominating-stop-dir-regexp file)))
-      (setq file (if (file-directory-p file)
-                     file
-                   (file-name-directory file))
+      (setq file (file-name-directory file)
             try (if (stringp name)
                     (file-exists-p (expand-file-name name file))
                   (funcall name file)))
@@ -2736,27 +2737,29 @@ Do you want to revisit the file normally now? ")))
       (and (not rawfile)
 	   (set-buffer-multibyte t))
       (if rawfile
-	  (condition-case ()
+	  (condition-case err
 	      (let ((inhibit-read-only t)
                     (enable-local-variables nil))
 		(insert-file-contents-literally filename t))
 	    (file-error
-	     (when (and (file-exists-p filename)
-			(not (file-readable-p filename)))
+	     (when (file-exists-p filename)
 	       (kill-buffer buf)
-	       (signal 'file-error (list "File is not readable"
-					 filename)))
+	       (signal 'file-error
+		       (if (file-readable-p filename)
+			   (cdr err)
+			 (list "File is not readable" filename))))
 	     ;; Unconditionally set error
 	     (setq error t)))
-	(condition-case ()
+	(condition-case err
 	    (let ((inhibit-read-only t))
 	      (insert-file-contents filename t))
 	  (file-error
-	   (when (and (file-exists-p filename)
-		      (not (file-readable-p filename)))
+	   (when (file-exists-p filename)
 	     (kill-buffer buf)
-	     (signal 'file-error (list "File is not readable"
-				       filename)))
+	     (signal 'file-error
+		     (if (file-readable-p filename)
+			 (cdr err)
+		       (list "File is not readable" filename))))
 	   ;; Run find-file-not-found-functions until one returns non-nil.
 	   (or (run-hook-with-args-until-success 'find-file-not-found-functions)
 	       ;; If they fail too, set error.
@@ -4783,10 +4786,7 @@ those in the first."
                      (list file-2 file-1)))
         (when (and f
                    (file-readable-p f)
-                   ;; FIXME: Aren't file-regular-p and
-                   ;; file-directory-p mutually exclusive?
-                   (file-regular-p f)
-                   (not (file-directory-p f)))
+                   (file-regular-p f))
           (push f out)))
       out)))
 

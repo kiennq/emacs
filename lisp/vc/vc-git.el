@@ -1336,10 +1336,8 @@ It is based on `log-edit-mode', and has Git-specific extensions."
 	    (if (string= fn "")
 		(file-relative-name file (vc-git-root default-directory))
 	      (substring fn 0 -1)))))
-    (vc-git-command
-     buffer 0
-     nil
-     "cat-file" "blob" (concat (if rev rev "HEAD") ":" fullname))))
+    (vc-git-command buffer 0 nil "cat-file" "--filters"
+                    (concat (or rev "HEAD") ":" fullname))))
 
 (defun vc-git-find-ignore-file (file)
   "Return the git ignore file that controls FILE."
@@ -1811,16 +1809,21 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
                                 samp coding-system-for-read t)))
     (setq coding-system-for-read 'undecided)))
 
+(defconst vc-git--empty-tree "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+  "Git object ID of the empty tree object.")
+
 (defun vc-git-diff (files &optional rev1 rev2 buffer async)
   "Get a difference report using Git between two revisions of FILES."
   (let (process-file-side-effects
         (command "diff-tree"))
     (vc-git--asciify-coding-system)
     (if rev2
-        ;; Diffing against the empty tree.
-        (unless rev1 (setq rev1 "4b825dc642cb6eb9a060e54bf8d69288fbee4904"))
+        (unless rev1 (setq rev1 vc-git--empty-tree))
       (setq command "diff-index")
-      (unless rev1 (setq rev1 "HEAD")))
+      (unless rev1
+        ;; If there aren't any commits yet then there is no HEAD.
+        ;; So diff against the empty tree object.
+        (setq rev1 (if (vc-git--empty-db-p) vc-git--empty-tree "HEAD"))))
     (if vc-git-diff-switches
         (apply #'vc-git-command (or buffer "*vc-diff*")
                (if async 'async 1)

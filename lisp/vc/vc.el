@@ -491,11 +491,14 @@
 ;;
 ;;   Attach the tag NAME to the state of the working copy.  This
 ;;   should make sure that files are up-to-date before proceeding with
-;;   the action.  DIR can also be a file and if BRANCHP is specified,
+;;   the action.  DIR can also be a file and if BRANCHP is non-nil,
 ;;   NAME should be created as a branch and DIR should be checked out
-;;   under this new branch.  The default implementation does not
-;;   support branches but does a sanity check, a tree traversal and
-;;   assigns the tag to each file.
+;;   under this new branch.  Where it makes sense with the underlying
+;;   VCS, should prompt for a branch or tag from which to start/fork the
+;;   new branch, with completion candidates including all the known
+;;   branches and tags of the repository.  The default implementation
+;;   does not support branches but does a sanity check, a tree traversal
+;;   and assigns the tag to each file.
 ;;
 ;; - retrieve-tag (dir name update)
 ;;
@@ -1671,13 +1674,14 @@ from which to check out the file(s)."
 	  (find-file-other-window file))
 	(if (save-window-excursion
 	      (vc-diff-internal nil
-				(cons (car vc-fileset) (cons (cadr vc-fileset) (list file)))
+				(cons (car vc-fileset)
+                                      (cons (cadr vc-fileset) (list file)))
 				(vc-working-revision file) nil)
 	      (goto-char (point-min))
 	      (let ((inhibit-read-only t))
 		(insert
 		 (format "Changes to %s since last lock:\n\n" file)))
-	      (not (beep))
+	      (beep)
 	      (yes-or-no-p (concat "File has unlocked changes.  "
 				   "Claim lock retaining changes? ")))
 	    (progn (vc-call-backend backend 'steal-lock file)
@@ -1719,34 +1723,29 @@ first backend that could register the file is used."
     ;; possibility to register directories rather than files only, since
     ;; many VCS allow that as well.
     (dolist (fname files)
-      (let ((bname (get-file-buffer fname)))
-	(unless fname
-	  (setq fname buffer-file-name))
-	(when (vc-call-backend backend 'registered fname)
-	  (error "This file is already registered: %s" fname))
-	;; Watch out for new buffers of size 0: the corresponding file
-	;; does not exist yet, even though buffer-modified-p is nil.
-	(when bname
-	  (with-current-buffer bname
-	    (when (and (not (buffer-modified-p))
-		       (zerop (buffer-size))
-		       (not (file-exists-p buffer-file-name)))
-	      (set-buffer-modified-p t))
-	    (vc-buffer-sync)))))
+      (when (vc-call-backend backend 'registered fname)
+	(error "This file is already registered: %s" fname))
+      ;; Watch out for new buffers of size 0: the corresponding file
+      ;; does not exist yet, even though buffer-modified-p is nil.
+      (when-let* ((bname (get-file-buffer fname)))
+	(with-current-buffer bname
+	  (when (and (not (buffer-modified-p))
+		     (zerop (buffer-size))
+		     (not (file-exists-p buffer-file-name)))
+	    (set-buffer-modified-p t))
+	  (vc-buffer-sync))))
     (message "Registering %s... " files)
     (mapc #'vc-file-clearprops files)
     (vc-call-backend backend 'register files comment)
-    (mapc
-     (lambda (file)
-       (vc-file-setprop file 'vc-backend backend)
-       ;; FIXME: This is wrong: it should set `backup-inhibited' in all
-       ;; the buffers visiting files affected by this `vc-register', not
-       ;; in the current-buffer.
-       ;; (unless vc-make-backup-files
-       ;;   (setq-local backup-inhibited t))
-
-       (vc-resynch-buffer file t t))
-     files)
+    (dolist (fname files)
+      (vc-file-setprop fname 'vc-backend backend)
+      (when-let* ((bname (get-file-buffer fname)))
+        (with-current-buffer bname
+          (unless vc-make-backup-files
+            (setq-local backup-inhibited t))
+          (when vc-auto-revert-mode
+            (auto-revert-mode 1))))
+      (vc-resynch-buffer fname t t))
     (message "Registering %s... done" files)))
 
 (defun vc-register-with (backend)
@@ -3010,6 +3009,7 @@ locked files at or below DIR (but if NAME is empty, locked files are
 allowed and simply skipped).
 If BRANCHP is non-nil (interactively, the prefix argument), switch to the
 branch and check out and update the files to their version on that branch.
+In this case NAME may not be empty.
 This function runs the hook `vc-retrieve-tag-hook' when finished."
   (interactive
    (let* ((granularity
@@ -3023,16 +3023,16 @@ This function runs the hook `vc-retrieve-tag-hook' when finished."
                ;; file-in-directory-p inside vc-resynch-buffers-in-directory.
                (expand-file-name (vc-root-dir))
              (read-directory-name "Directory: " default-directory nil t))))
-     (list
-      dir
-      (vc-read-revision (format-prompt
-                         (if current-prefix-arg
-                             "Switch to branch"
-                           "Tag name to retrieve")
-                         "latest revisions")
-                        (list dir)
-                        (vc-responsible-backend dir))
-      current-prefix-arg)))
+     (list dir
+           (vc-read-revision (if current-prefix-arg
+                                 "Switch to branch: "
+                               (format-prompt "Tag name to retrieve"
+                                              "latest revisions"))
+                             (list dir)
+                             (vc-responsible-backend dir))
+           current-prefix-arg)))
+  (unless (or (not branchp) (and name (not (string-empty-p name))))
+    (user-error "Branch name required"))
   (let* ((backend (vc-responsible-backend dir))
          (update (when (vc-call-backend backend 'update-on-retrieve-tag)
                    (yes-or-no-p "Update any affected buffers? ")))
@@ -3050,7 +3050,6 @@ This function runs the hook `vc-retrieve-tag-hook' when finished."
 ;;;###autoload
 (defun vc-switch-branch (dir name)
   "Switch to the branch NAME in the directory DIR.
-If NAME is empty, it refers to the latest revision of the current branch.
 Interactively, prompt for DIR only for VCS that works at file level;
 otherwise use the root directory of the current buffer's VC tree.
 Interactively, prompt for the NAME of the branch.
@@ -3065,11 +3064,10 @@ Uses `vc-retrieve-tag' with the non-nil arg `branchp'."
            (if (eq granularity 'repository)
                (expand-file-name (vc-root-dir))
              (read-directory-name "Directory: " default-directory nil t))))
-     (list
-      dir
-      (vc-read-revision (format-prompt "Switch to branch" "latest revisions")
-                        (list dir)
-                        (vc-responsible-backend dir)))))
+     (list dir
+           (vc-read-revision "Switch to branch: "
+                             (list dir)
+                             (vc-responsible-backend dir)))))
   (vc-retrieve-tag dir name t))
 
 ;; Miscellaneous other entry points
