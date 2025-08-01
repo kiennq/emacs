@@ -7509,7 +7509,7 @@ ns_in_echo_area (void)
   if (NS_KEYLOG)
     NSLog (@"selectedRange request");
 
-  struct window *w = XWINDOW (FRAME_SELECTED_WINDOW (emacsframe));
+  struct window *w = XWINDOW (FRAME_SELECTED_WINDOW (*emacsframe));
   struct buffer *buf = XBUFFER (w->contents);
   ptrdiff_t point = BUF_PT (buf);
 
@@ -8695,8 +8695,8 @@ ns_in_echo_area (void)
       NSWindowCollectionBehavior b = [win collectionBehavior];
       if (ns_use_native_fullscreen)
         {
-            if (FRAME_PARENT_FRAME (*emacsframe)
-                || FRAME_TOOLTIP_P (emacsframe))
+	  if (FRAME_PARENT_FRAME (*emacsframe)
+	      || FRAME_TOOLTIP_P (*emacsframe))
             {
               b &= ~NSWindowCollectionBehaviorFullScreenPrimary;
               b |= NSWindowCollectionBehaviorFullScreenAuxiliary;
