@@ -966,7 +966,7 @@ characters in CJK texts.  For example, 'A' is converted to 'Ａ', '1' is
 converted to '１', etc.  Companion commands 'halfwidth-region' and
 'halfwidth-word' perform the opposite conversion.
 
-** Texinfo Mode
+** Texinfo mode
 
 ---
 *** texinfo-mode now can auto-close the ``'' pairs.
@@ -2212,6 +2212,16 @@ destination window is chosen using 'display-buffer-alist'.  Example:
                                    display-buffer-use-some-window)
                                   (some-window . mru))))
 
+** Revert
+
++++
+*** Variable 'revert-buffer-in-progress' has been renamed.
+The old name, 'revert-buffer-in-progress-p', is kept as obsolete
+variable alias.
+
+Symbol names with a trailing '-p' are reserved for predicates.  Calling
+a variable like this was a mistake.
+
 ** Autorevert
 
 +++
@@ -2226,7 +2236,7 @@ runs its body, and removes the current buffer from
 'inhibit-auto-revert-buffers' afterwards.
 
 +++
-*** New variable 'auto-revert-buffer-in-progress-p'.
+*** New variable 'auto-revert-buffer-in-progress'.
 'auto-revert-buffer' binds this variable to a non-nil value while it is
 working.  This can be used by major mode 'revert-buffer-function'
 implementations to suppress messages in Auto Revert modes, for example.
@@ -2663,6 +2673,14 @@ separator, are also supported.
 That is, if the PATH environment variable is unset or empty, 'exec-path'
 now acts as if PATH is the system default, which is "/bin:/usr/bin"
 on GNU/Linux systems.
+
+---
+** New variable 'tty-cursor-movement-use-TAB-BS'.
+The display optimization where the combination TAB characters +
+BACKSPACE is used to move to a position on a TTY frame is now disabled
+by default and controlled by this variable; it can be set to non-nil
+to keep the old behavior.  This change is to accomodate screen
+readers.
 
 
 * Lisp Changes in Emacs 31.1
