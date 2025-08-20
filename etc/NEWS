@@ -162,15 +162,26 @@ behavior, customize 'find-function-mode-lower-precedence' to non-nil.
 ** Minibuffer and Completions
 
 +++
-*** New user option 'completion-eager-display'.
-This option configures whether completion commands should display the
-"*Completions*" buffer immediately.  When the option is set to t, all
-completion commands show "*Completions*" immediately, respectively nil
-disables the eager display for all commands.  The default setting auto
-enables eager completion only if requested by the command.
-For more fine-grained control you can also toggle this feature by
-category using the symbol 'eager-display' in the user option
-'completion-category-overrides'.
+*** Support for immediate display of the "*Completions*" buffer.
+Whenever a minibuffer with completion is opened, the "*Completions*"
+buffer will now be displayed immediately if the completion property
+'eager-display', set by the completion table, is non-nil.  This property
+can be overridden for different completion categories by customizing
+'completion-category-overrides'.  Alternatively, the new user option
+'completion-eager-display' can be set to t to force eager display of
+"*Completions*" for all minibuffers, or nil to suppress this for all
+minibuffers.
+
++++
+*** Support for updating "*Completions*" as you type.
+If the "*Completions*" buffer is displayed, it will now be updated as
+you type if the completion property 'eager-update', set by the
+completion table, is non-nil.  This property can be overridden for
+different completion categories by customizing
+'completion-category-overrides'.  Alternatively, the new user option
+'completion-eager-update can be set to t to make "*Completions*" always
+be updated as you type, or nil to suppress this always.  Note that for
+large or inefficient completion tables this can slow down typing.
 
 +++
 *** New user option 'completion-pcm-leading-wildcard'.
@@ -435,6 +446,11 @@ a buffer.  The value must be a condition which is passed to
 *** New user option 'tab-line-close-modified-button-show'.
 With this user option, if non-nil (the default), the tab close button
 will change its appearance if the tab buffer has been modified.
+
+---
+*** New user option 'tab-line-tabs-window-buffers-filter-function'.
+This user option controls which buffers should appear in the tab line.
+By default, this is set to not filter the buffers.
 
 ** Project
 
@@ -717,6 +733,12 @@ the default UI you get, i.e., when 'register-use-preview' is 'traditional'.
 
 ** Tree-sitter
 
+*** New user option 'treesit-enabled-modes'.
+You can customize it either to t to enable all available ts-modes,
+or to select a list of ts-modes to enable.  Depending on customization,
+it modifies the variable 'major-mode-remap-alist' from the corresponding
+variable 'treesit-major-mode-remap-alist' prepared by ts-mode packages.
+
 *** New user option 'treesit-auto-install-grammar'.
 It controls the automatic installation of tree-sitter grammar libraries
 needed for tree-sitter based modes, if these grammar libraries are not
@@ -932,12 +954,46 @@ option controls how much is indented for method chaining.
 ** PHP-ts mode
 
 ---
+*** 'php-ts-mode' now depends on 'mhtml-ts-mode'.
+The direct dependency on js-ts-mode, css-ts-mode and html-ts-mode has
+now been replaced by ‘mhtml-ts-mode’.  Navigation, Outline and Imenu
+work for all languages and code maintenance is easier.
+
+---
 *** 'php-ts-mode-run-php-webserver' can now accept a custom "php.ini" file.
 You can use the new optional argument CONFIG when calling
 'php-ts-mode-run-php-webserver' to pass an alternative "php.ini" file to
 the built-in Web server.  Interactively, when invoked with a prefix
 argument, 'php-ts-mode-run-php-webserver' prompts for the config file as
 well as for other connection parameters.
+
+---
+*** The option 'php-ts-mode-css-fontify-colors' has been removed.
+'mhtml-ts-mode-css-fontify-colors' replaces this option.
+
+---
+*** New user option 'php-ts-mode-html-relative-indent'.
+In buffers containing both PHP and HTML, this option allows you to
+define how the PHP code should be indented relative to the position of
+the HTML tags.
+
+---
+*** New user option 'php-ts-mode-html-indent-offset'.
+Offset of PHP code block relative to HTML tags.
+
+---
+*** New user option 'php-ts-mode-find-sibling-rules'.
+Rules for finding siblings of a PHP file.
+
+---
+*** New user option 'php-ts-mode-phpdoc-highlight-errors'.
+When non nil, it highlights unknown PHPDOC tags using
+'font-lock-warning-face' so that the user can identify them more easily.
+
+---
+*** New command 'php-ts-mode-show-ini'.
+Show the location of the PHP ini files, if the buffer is associated to a remote
+PHP file show the remote PHP ini files.
 
 ** Rust-ts mode
 
@@ -1156,6 +1212,14 @@ slot.  Symbol macros are created for the accessor functions using
 *** 'whitespace-cleanup' now adds missing newline at end of file.
 If 'whitespace-style' includes 'missing-newline-at-eof' (which is the
 default), the 'whitespace-cleanup' function will now add the newline.
+
+---
+*** 'whitespace-mode' now can prettify page delimiter characters (^L).
+If 'page-delimiters' is set in 'whitespace-style', or the new minor mode
+'whitespace-page-delimiters-mode' is on, the page delimiter characters
+(^L) are displayed as a pretty horizontal line that spans the entire
+width of the window.  The new 'whitespace-page-delimiter' face can be
+used to customize the appearence.
 
 ** Bookmark
 
@@ -1946,6 +2010,7 @@ other working trees:
 
 - 'C-x v w c': Add a new working tree.
 - 'C-x v w w': Visit this file in another working tree.
+- 'C-x v w s': Like 'C-x p p' but limited to other working trees.
 - 'C-x v w x': Delete a working tree you no longer need.
 - 'C-x v w R': Relocate a working tree to another file name.
 
@@ -2066,14 +2131,18 @@ relevant buffers before generating the contents of a VC Directory buffer
 (like the third-party package Magit does with its status buffer).
 
 +++
-*** New commands 'vc-root-diff-incoming' and 'vc-root-diff-outgoing'.
-These commands report diffs of all the changes that would be pulled and
-would be pushed, respectively.  They are the diff analogues of the
-existing commands 'vc-log-incoming' and 'vc-log-outgoing'.
+*** New commands to report incoming and outgoing diffs.
+'vc-root-diff-incoming' and 'vc-root-diff-outgoing' report diffs of all
+the changes that would be pulled and would be pushed, respectively.
+They are the diff analogues of the existing commands 'vc-log-incoming'
+and 'vc-log-outgoing'.
 
 In particular, 'vc-root-diff-outgoing' is useful as a way to preview
 your push and ensure that all and only the changes you intended to
 include were committed and will be pushed.
+
+'vc-diff-incoming' and 'vc-diff-outgoing' are similar but limited to the
+current VC fileset.
 
 +++
 *** New user option 'vc-use-incoming-outgoing-prefixes'.
@@ -2681,6 +2750,13 @@ BACKSPACE is used to move to a position on a TTY frame is now disabled
 by default and controlled by this variable; it can be set to non-nil
 to keep the old behavior.  This change is to accomodate screen
 readers.
+
++++
+** A thread's current buffer can now be killed.
+We introduce a new attribute for threads called buffer-disposition.
+See the new argument in 'make-thread'.  The default value allows the
+thread's current buffer to be killed by another thread.  This does not
+apply to the main thread's buffer.
 
 
 * Lisp Changes in Emacs 31.1
