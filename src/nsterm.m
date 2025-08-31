@@ -7995,25 +7995,25 @@ ns_in_echo_area (void)
   NSWindow *win = [self window];
   NSRect r = [win frame];
   NSArray *screens = [NSScreen screens];
-  NSScreen *screen = [screens objectAtIndex: 0];
+  NSScreen *screen = [screens objectAtIndex:0];
+  struct frame *f = *emacsframe;
 
-  if (!(*emacsframe)->output_data.ns)
+  if (!f->output_data.ns)
     return;
 
   if (screen != nil)
     {
-      (*emacsframe)->left_pos = (NSMinX (r)
-                                 - NS_PARENT_WINDOW_LEFT_POS (*emacsframe));
-      (*emacsframe)->top_pos = (NS_PARENT_WINDOW_TOP_POS (*emacsframe)
-                                - NSMaxY (r));
+      f->left_pos = (NSMinX (r)
+		     - NS_PARENT_WINDOW_LEFT_POS (f));
+      f->top_pos = (NS_PARENT_WINDOW_TOP_POS (f)
+		    - NSMaxY (r));
 
       if (emacs_event)
         {
           struct input_event ie;
           EVENT_INIT (ie);
           ie.kind = MOVE_FRAME_EVENT;
-          struct frame *f = *emacsframe;
-          XSETFRAME (ie.frame_or_window, f);
+          XSETFRAME (ie.frame_or_window, emacsframe);
           XSETINT (ie.x, f->left_pos);
           XSETINT (ie.y, f->top_pos);
           kbd_buffer_store_event (&ie);
