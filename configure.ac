@@ -5567,8 +5567,7 @@ if test "${with_mps}" != "no"; then
   # https://github.com/Ravenbrook/mps/pull/38
   MPS_CFLAGS="-fno-omit-frame-pointer"
 
-  dnl Using external mps for now as included mps causes crashes in ucrt64
-  dnl AC_CONFIG_SUBDIRS([mps])
+  AC_CONFIG_SUBDIRS([mps])
 fi
 
 # FIXME: update for in-tree MPS
