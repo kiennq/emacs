@@ -14,10 +14,12 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
+along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 
 #ifndef EMACS_W32INEVT_H
 #define EMACS_W32INEVT_H
+
+#include "termhooks.h" /* for Time, enum scroll_bar_part */
 
 extern int w32_console_unicode_input;
 
@@ -26,7 +28,7 @@ extern int w32_console_read_socket (struct terminal *term,
 extern void w32_console_mouse_position (struct frame **f, int insist,
 					Lisp_Object *bar_window,
 					enum scroll_bar_part *part,
-					Lisp_Object *x, Lisp_Object *y,
-					Time *time);
+					Lisp_Object *x,
+					Lisp_Object *y, Time *time);
 
 #endif /* EMACS_W32INEVT_H */
