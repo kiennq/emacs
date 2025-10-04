@@ -2393,6 +2393,11 @@ You can get back the old behavior with something like this:
 
 In addition, a new command 'U' removes all marks.
 
++++
+*** New command 'w' in Log View mode.
+'w' now copies the revision of the log entry at point to the kill ring.
+If there are marked revisions, it copies those, instead.
+
 ** Diff mode
 
 +++
