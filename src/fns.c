@@ -4802,9 +4802,9 @@ static const hash_idx_t empty_hash_index_vector[] = {-1};
 static struct Lisp_Weak_Hash_Table *allocate_weak_hash_table
 (hash_table_weakness_t weak, ssize_t size, ssize_t index_bits);
 
-static Lisp_Object make_weak_hash_table
-(const struct hash_table_test *test, EMACS_INT size,
- hash_table_weakness_t weak);
+static Lisp_Object make_weak_hash_table (const struct hash_table_test *test,
+					 EMACS_INT size,
+					 hash_table_weakness_t weak);
 #endif
 
 /* Create and initialize a new hash table.
@@ -5388,23 +5388,27 @@ sweep_weak_table (struct Lisp_Hash_Table *h, bool remove_entries_p)
 Lisp_Object
 weak_hash_from_key (struct Lisp_Weak_Hash_Table *h, Lisp_Object key)
 {
-  return make_ufixnum (SXHASH_REDUCE (h->strong->test->hashfn (key, NULL /* XXX */)));
+  return make_ufixnum (SXHASH_REDUCE (h->strong->test->hashfn
+				      (key, NULL /* XXX */)));
 }
 
 static void
-set_weak_hash_next_slot (struct Lisp_Weak_Hash_Table *h, ptrdiff_t idx, ptrdiff_t val)
+set_weak_hash_next_slot (struct Lisp_Weak_Hash_Table *h, ptrdiff_t idx,
+			 ptrdiff_t val)
 {
   eassert (idx >= 0 && idx < XFIXNUM (h->strong->table_size));
   h->strong->next[idx] = make_weak_hash_table_entry (make_fixnum (val));
 }
 static void
-set_weak_hash_hash_slot (struct Lisp_Weak_Hash_Table *h, ptrdiff_t idx, Lisp_Object val)
+set_weak_hash_hash_slot (struct Lisp_Weak_Hash_Table *h, ptrdiff_t idx,
+			 Lisp_Object val)
 {
   eassert (idx >= 0 && idx < XFIXNUM (h->strong->table_size));
   h->strong->hash[idx] = make_weak_hash_table_entry (val);
 }
 static void
-set_weak_hash_index_slot (struct Lisp_Weak_Hash_Table *h, ptrdiff_t idx, ptrdiff_t val)
+set_weak_hash_index_slot (struct Lisp_Weak_Hash_Table *h, ptrdiff_t idx,
+			  ptrdiff_t val)
 {
   eassert (idx >= 0 && idx < weak_hash_table_index_size (h));
   h->strong->index[idx] = make_weak_hash_table_entry (make_fixnum (val));
@@ -5433,10 +5437,12 @@ WEAK_HASH_INDEX (struct Lisp_Weak_Hash_Table *h, ptrdiff_t idx)
 }
 
 static struct Lisp_Weak_Hash_Table *
-allocate_weak_hash_table (hash_table_weakness_t weak, ssize_t size, ssize_t index_bits)
+allocate_weak_hash_table (hash_table_weakness_t weak, ssize_t size,
+			  ssize_t index_bits)
 {
   struct Lisp_Weak_Hash_Table *ret =
-    ALLOCATE_PLAIN_PSEUDOVECTOR (struct Lisp_Weak_Hash_Table, PVEC_WEAK_HASH_TABLE);
+    ALLOCATE_PLAIN_PSEUDOVECTOR (struct Lisp_Weak_Hash_Table,
+				 PVEC_WEAK_HASH_TABLE);
   ret->strong = igc_alloc_weak_hash_table_strong_part (weak, size, index_bits);
   ret->weak = igc_alloc_weak_hash_table_weak_part (weak, size, index_bits);
   ret->strong->hash = ret->strong->entries + 0;
@@ -5477,16 +5483,18 @@ static volatile struct Lisp_Weak_Hash_Table *hash_table_being_accessed;
    table TABLE.  */
 
 Lisp_Object
-strengthen_hash_table (Lisp_Object table)
+strong_copy_hash_table (Lisp_Object table)
 {
   if (!hash_table_being_accessed)
     {
       /* Never freed.  */
-      hash_table_being_accessed = igc_xzalloc_ambig (sizeof (*hash_table_being_accessed));
+      hash_table_being_accessed
+	= igc_xzalloc_ambig (sizeof (*hash_table_being_accessed));
     }
   hash_table_being_accessed->strong = XWEAK_HASH_TABLE (table)->strong;
   hash_table_being_accessed->weak = XWEAK_HASH_TABLE (table)->weak;
-  Lisp_Object ret = make_hash_table (XWEAK_HASH_TABLE (table)->strong->test, 0, Weak_None);
+  Lisp_Object ret = make_hash_table (XWEAK_HASH_TABLE (table)->strong->test,
+				     0, Weak_None);
 
   Lisp_Object k, v;
   DOHASH_WEAK (XWEAK_HASH_TABLE (table), k, v)
@@ -5502,19 +5510,16 @@ strengthen_hash_table (Lisp_Object table)
   return ret;
 }
 
-/* Return a hash table, new or existing, suitable for dumping and
-   restoring weak hash table WEAK. */
+/* Prepare weak hash table WEAK for dumping.  */
 
-Lisp_Object
+void
 strengthen_hash_table_for_dump (struct Lisp_Weak_Hash_Table *weak)
 {
-  if (!NILP (weak->dump_replacement))
-    return weak->dump_replacement;
-  Lisp_Object ret = strengthen_hash_table (make_lisp_weak_hash_table (weak));
-  XHASH_TABLE (ret)->weakness = weak->strong->weakness;
-  weak->dump_replacement = ret;
-
-  return ret;
+  if (weak->dump_replacement)
+    return;
+  Lisp_Object copy = strong_copy_hash_table (make_lisp_weak_hash_table (weak));
+  XHASH_TABLE (copy)->weakness = weak->strong->weakness;
+  weak->dump_replacement = copy;
 }
 
 /* Create and initialize a new weak hash table.
@@ -5531,16 +5536,22 @@ strengthen_hash_table_for_dump (struct Lisp_Weak_Hash_Table *weak)
    PURECOPY must be false. */
 
 static Lisp_Object
-make_weak_hash_table (const struct hash_table_test *test, EMACS_INT size,
-		      hash_table_weakness_t weak)
+make_weak_hash_table (const struct hash_table_test *test,
+		      EMACS_INT size, hash_table_weakness_t weak)
 {
   eassert (SYMBOLP (test->name));
-  eassert (0 <= size && size <= min (MOST_POSITIVE_FIXNUM, PTRDIFF_MAX));
+  /* FIXME/igc: support this?  */
+  if (test != &hashtest_eql && test != &hashtest_eq && test != &hashtest_equal)
+    error ("user-supplied hash table test not supported for weak tables");
 
-  if (size < 65)
-    size = 65;
+  eassert (0 <= size
+	   && size <= min (MOST_POSITIVE_FIXNUM, PTRDIFF_MAX));
 
-  struct Lisp_Weak_Hash_Table *h = allocate_weak_hash_table (weak, size, compute_hash_index_bits (size));
+  if (size < 1)
+    size = 1;
+
+  struct Lisp_Weak_Hash_Table *h
+    = allocate_weak_hash_table (weak, size, compute_hash_index_bits (size));
 
   h->strong->test = test;
   h->strong->weakness = weak;
@@ -5575,7 +5586,7 @@ make_weak_hash_table (const struct hash_table_test *test, EMACS_INT size,
     }
 
   h->strong->mutable = true;
-  /* Finally, mark the new hash table as scannable. */
+  /* Finally, mark the new hash table as scannable.  */
   h->strong->weak = h->weak;
   h->weak->strong = h->strong;
   return make_lisp_weak_hash_table (h);
@@ -5593,7 +5604,8 @@ maybe_resize_weak_hash_table (struct Lisp_Weak_Hash_Table *h)
 {
   if (XFIXNUM (h->strong->next_free) < 0)
     {
-      Lisp_Object tmp_table = strengthen_hash_table (make_lisp_weak_hash_table (h));
+      Lisp_Object table = make_lisp_weak_hash_table (h);
+      Lisp_Object tmp_table = strong_copy_hash_table (table);
       ptrdiff_t old_size = XFIXNUM (Fhash_table_count (tmp_table));
       ptrdiff_t min_size = 6;
       ptrdiff_t base_size = min (max (old_size, min_size), PTRDIFF_MAX / 2);
@@ -5606,9 +5618,11 @@ maybe_resize_weak_hash_table (struct Lisp_Weak_Hash_Table *h)
       ptrdiff_t index_bits = compute_hash_index_bits (new_size);
 
       struct Lisp_Weak_Hash_Table_Strong_Part *strong =
-	igc_alloc_weak_hash_table_strong_part (h->strong->weakness, new_size, index_bits);
+	igc_alloc_weak_hash_table_strong_part (h->strong->weakness,
+					       new_size, index_bits);
       struct Lisp_Weak_Hash_Table_Weak_Part *weak =
-	igc_alloc_weak_hash_table_weak_part (h->strong->weakness, new_size, index_bits);
+	igc_alloc_weak_hash_table_weak_part (h->strong->weakness,
+					     new_size, index_bits);
 
       /* Preserve the GC header, if any. */
       memcpy ((char *)strong + sizeof (union gc_header),
@@ -5663,11 +5677,15 @@ maybe_resize_weak_hash_table (struct Lisp_Weak_Hash_Table *h)
       strong->weak = weak;
       /* FIXME/igc: Fremhash and Fputhash can throw.  Do we need to
 	 handle that case?  */
+      /* key-or-value weakness is tricky, and currently implemented
+	 using the "extra dependency" feature originally intended for
+	 debugging.  To keep the extra dependency refcounts accurate, we
+	 must use Fremhash here.  */
       if (strong->weakness == Weak_Key_Or_Value)
 	{
 	  DOHASH (XHASH_TABLE (tmp_table), k, v)
 	    {
-	      Fremhash (k, make_lisp_weak_hash_table (h));
+	      Fremhash (k, table);
 	    }
 	}
 
@@ -5675,7 +5693,7 @@ maybe_resize_weak_hash_table (struct Lisp_Weak_Hash_Table *h)
       h->weak = weak;
       DOHASH (XHASH_TABLE (tmp_table), k, v)
 	{
-	  Fputhash (k, v, make_lisp_weak_hash_table (h));
+	  Fputhash (k, v, table);
 	}
     }
 }
@@ -5692,7 +5710,8 @@ weak_hash_lookup_with_hash (struct Lisp_Weak_Hash_Table *h,
     if (EQ (key, WEAK_HASH_KEY (h, i))
 	|| (h->strong->test->cmpfn
 	    && EQ (hash, WEAK_HASH_HASH (h, i))
-	    && !NILP (h->strong->test->cmpfn (key, WEAK_HASH_KEY (h, i), NULL))))
+	    && !NILP (h->strong->test->cmpfn (key, WEAK_HASH_KEY (h, i),
+					      NULL /* XXX */))))
       return i;
 
   return -1;
@@ -5709,8 +5728,8 @@ weak_hash_lookup (struct Lisp_Weak_Hash_Table *h, Lisp_Object key)
    Value is the index of the entry in H matching KEY.  */
 
 ptrdiff_t
-weak_hash_put (struct Lisp_Weak_Hash_Table *h, Lisp_Object key, Lisp_Object value,
-	       Lisp_Object hash)
+weak_hash_put (struct Lisp_Weak_Hash_Table *h, Lisp_Object key,
+	       Lisp_Object value, Lisp_Object hash)
 {
   //eassert (!hash_unused_entry_key_p (key));
   /* Increment count after resizing because resizing may fail.  */
@@ -5755,11 +5774,13 @@ weak_hash_remove_from_table (struct Lisp_Weak_Hash_Table *h, Lisp_Object key)
       if (EQ (key, WEAK_HASH_KEY (h, i))
 	  || (h->strong->test->cmpfn
 	      && EQ (hashval, WEAK_HASH_HASH (h, i))
-	      && !NILP (h->strong->test->cmpfn (key, WEAK_HASH_KEY (h, i), NULL))))
+	      && !NILP (h->strong->test->cmpfn (key, WEAK_HASH_KEY (h, i),
+						NULL /* XXX */))))
 	{
 	  /* Take entry out of collision chain.  */
 	  if (prev < 0)
-	    set_weak_hash_index_slot (h, start_of_bucket, WEAK_HASH_NEXT (h, i));
+	    set_weak_hash_index_slot (h, start_of_bucket,
+				      WEAK_HASH_NEXT (h, i));
 	  else
 	    set_weak_hash_next_slot (h, prev, WEAK_HASH_NEXT (h, i));
 
@@ -6306,7 +6327,7 @@ DEFUN ("copy-hash-table", Fcopy_hash_table, Scopy_hash_table, 1, 1, 0,
   struct Lisp_Weak_Hash_Table *wh = check_maybe_weak_hash_table (table);
   if (wh)
     {
-      return copy_hash_table (XHASH_TABLE (strengthen_hash_table (table)));
+      return strong_copy_hash_table (table);
     }
 #endif
   return copy_hash_table (check_hash_table (table));
@@ -6321,7 +6342,7 @@ DEFUN ("hash-table-count", Fhash_table_count, Shash_table_count, 1, 1, 0,
   struct Lisp_Weak_Hash_Table *wh = check_maybe_weak_hash_table (table);
   if (wh)
     {
-      table = strengthen_hash_table (table);
+      table = strong_copy_hash_table (table);
     }
 #endif
   struct Lisp_Hash_Table *h = check_hash_table (table);
@@ -6337,10 +6358,9 @@ without current significance.  */)
   (Lisp_Object table)
 {
 #ifdef HAVE_MPS
-  if (WEAK_HASH_TABLE_P (table))
-    table = strengthen_hash_table (table);
+  if (!WEAK_HASH_TABLE_P (table))
 #endif
-  CHECK_HASH_TABLE (table);
+    CHECK_HASH_TABLE (table);
   return make_float (1.5);  /* The old default rehash-size value.  */
 }
 
@@ -6353,10 +6373,9 @@ without current significance.  */)
   (Lisp_Object table)
 {
 #ifdef HAVE_MPS
-  if (WEAK_HASH_TABLE_P (table))
-    table = strengthen_hash_table (table);
+  if (!WEAK_HASH_TABLE_P (table))
 #endif
-  CHECK_HASH_TABLE (table);
+    CHECK_HASH_TABLE (table);
   return make_float (0.8125);  /* The old default rehash-threshold value.  */
 }
 
@@ -6374,7 +6393,10 @@ number is rarely of interest.  */)
 {
 #ifdef HAVE_MPS
   if (WEAK_HASH_TABLE_P (table))
-    table = strengthen_hash_table (table);
+    {
+      struct Lisp_Weak_Hash_Table *h = XWEAK_HASH_TABLE (table);
+      return h->strong->table_size;
+    }
 #endif
   struct Lisp_Hash_Table *h = check_hash_table (table);
   return make_fixnum (HASH_TABLE_SIZE (h));
@@ -6387,7 +6409,10 @@ DEFUN ("hash-table-test", Fhash_table_test, Shash_table_test, 1, 1, 0,
 {
 #ifdef HAVE_MPS
   if (WEAK_HASH_TABLE_P (table))
-    table = strengthen_hash_table (table);
+    {
+      struct Lisp_Weak_Hash_Table *h = XWEAK_HASH_TABLE (table);
+      return h->strong->test->name;
+    }
 #endif
   return check_hash_table (table)->test->name;
 }
@@ -6492,8 +6517,10 @@ VALUE.  In any case, return VALUE.  */)
 	{
 	  if (wh->strong->weakness == Weak_Key_Or_Value)
 	    {
-	      Figc__remove_extra_dependency (key, value, table);
-	      Figc__remove_extra_dependency (value, key, table);
+	      Figc__remove_extra_dependency (key, WEAK_HASH_VALUE (wh, i),
+					     table);
+	      Figc__remove_extra_dependency (WEAK_HASH_VALUE (wh, i), key,
+					     table);
 	    }
 	  set_weak_hash_value_slot (wh, i, value);
 	  if (wh->strong->weakness == Weak_Key_Or_Value)
@@ -6550,7 +6577,7 @@ set a new value for KEY, or `remhash' to remove KEY.
 {
 #ifdef HAVE_MPS
   if (WEAK_HASH_TABLE_P (table))
-    table = strengthen_hash_table (table);
+    table = strong_copy_hash_table (table);
 #endif
   struct Lisp_Hash_Table *h = check_hash_table (table);
   /* We can't use DOHASH here since FUNCTION may violate the rules and
@@ -6588,7 +6615,7 @@ DEFUN ("internal--hash-table-histogram",
 {
 #ifdef HAVE_MPS
   if (WEAK_HASH_TABLE_P (hash_table))
-    hash_table = strengthen_hash_table (hash_table);
+    return Qnil;
 #endif
   struct Lisp_Hash_Table *h = check_hash_table (hash_table);
   ptrdiff_t size = HASH_TABLE_SIZE (h);
@@ -6621,7 +6648,7 @@ Internal use only. */)
 {
 #ifdef HAVE_MPS
   if (WEAK_HASH_TABLE_P (hash_table))
-    hash_table = strengthen_hash_table (hash_table);
+    return Qnil;
 #endif
   struct Lisp_Hash_Table *h = check_hash_table (hash_table);
   Lisp_Object ret = Qnil;
@@ -6647,7 +6674,8 @@ DEFUN ("internal--hash-table-index-size",
 {
 #ifdef HAVE_MPS
   if (WEAK_HASH_TABLE_P (hash_table))
-    hash_table = strengthen_hash_table (hash_table);
+    return make_int
+      (weak_hash_table_index_size (XWEAK_HASH_TABLE (hash_table)));
 #endif
   struct Lisp_Hash_Table *h = check_hash_table (hash_table);
   return make_int (hash_table_index_size (h));
