@@ -147,10 +147,9 @@ enum charset_method
 
 struct charset
 {
+  GC_HEADER
   /* Index to charset_table.  */
   int id;
-
-  Lisp_Object attributes;
 
   /* Dimension of the charset: 1, 2, 3, or 4.  */
   int dimension;
@@ -250,6 +249,8 @@ extern struct charset *charset_table;
 extern int charset_table_size;
 extern int charset_table_used;
 
+extern Lisp_Object charset_attributes_table;
+
 #define CHARSET_FROM_ID(id) (charset_table + (id))
 
 extern Lisp_Object Vcharset_ordered_list;
@@ -287,8 +288,14 @@ extern int emacs_mule_charset[256];
 #define CHARSET_SYMBOL_HASH_INDEX(symbol)	\
   hash_find (XHASH_TABLE (Vcharset_hash_table), symbol)
 
+INLINE Lisp_Object
+charset_attributes_getter (struct charset *charset)
+{
+  return AREF (charset_attributes_table, charset->id);
+}
+
 /* Return the attribute vector of CHARSET.  */
-#define CHARSET_ATTRIBUTES(charset) (charset)->attributes
+#define CHARSET_ATTRIBUTES(charset) (charset_attributes_getter (charset))
 
 #define CHARSET_ID(charset)		((charset)->id)
 #define CHARSET_DIMENSION(charset)	((charset)->dimension)
@@ -538,6 +545,8 @@ extern int string_xstring_p (Lisp_Object);
 extern void map_charset_chars (void (*) (Lisp_Object, Lisp_Object),
                                Lisp_Object, Lisp_Object,
                                struct charset *, unsigned, unsigned);
+
+extern struct charset charset_table_init[180];
 
 INLINE_HEADER_END
 
