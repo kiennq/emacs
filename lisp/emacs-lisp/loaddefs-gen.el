@@ -657,7 +657,7 @@ instead of just updating them with the new/changed autoloads."
                                 (file-attributes file))))
           ;; If we're scanning for package versions, we want to look
           ;; at the file even if it's excluded.
-          (let* ((excluded (member (expand-file-name file dir) excluded-files))
+          (let* ((excluded (member-ignore-case (expand-file-name file dir) excluded-files))
                  (package-data
                   (and include-package-version (if excluded 'only t))))
             (when (or package-data (not excluded))
