@@ -548,17 +548,28 @@ Display the buffer in some window, but don't select it."
 
 (defvar compilation-error-regexp-alist)
 
+(defvar vc-compilation-mode-hook nil
+  "Hook run after entering `vc-compilation-mode'.
+No problems result if this variable is not bound.
+`add-hook' automatically binds it.  (This is true for all hook variables.)")
+
+(derived-mode-set-parent 'vc-compilation-mode 'compilation-mode)
+
 (defun vc-compilation-mode (backend)
-  "Setup `compilation-mode' with the appropriate `compilation-error-regexp-alist'."
-  (require 'compile)
-  (let* ((error-regexp-alist
-          (vc-make-backend-sym backend 'error-regexp-alist))
-	 (error-regexp-alist (and (boundp error-regexp-alist)
-				  (symbol-value error-regexp-alist))))
-    (let ((compilation-error-regexp-alist error-regexp-alist))
-      (compilation-mode))
-    (setq-local compilation-error-regexp-alist
-                error-regexp-alist)))
+  "Compilation mode for buffers with output from VC commands.
+Sets `compilation-error-regexp-alist' in accordance with the VC backend."
+  (delay-mode-hooks
+    (let* ((error-regexp-alist
+            (vc-make-backend-sym backend 'error-regexp-alist))
+	   (error-regexp-alist (and (boundp error-regexp-alist)
+				    (symbol-value error-regexp-alist))))
+      (let ((compilation-error-regexp-alist error-regexp-alist))
+        (compilation-mode)
+        (setq mode-name "VC-Compilation"
+              major-mode 'vc-compilation-mode))
+      (setq-local compilation-error-regexp-alist
+                  error-regexp-alist)))
+  (run-mode-hooks 'vc-compilation-mode-hook))
 
 (declare-function vc-dir-refresh "vc-dir" ())
 
@@ -860,9 +871,7 @@ DIFF-FUNCTION is `log-edit-diff-function' for the Log Edit buffer."
       (when (stringp comment) (insert comment)))
     (if (or (not comment) initial-contents)
         (message (substitute-command-keys
-                  (if (eq major-mode 'log-edit-mode)
-                      "%s  Type \\[log-edit-done] when done"
-                    "%s  Type \\`C-c C-c' when done"))
+                  "%s  Type \\<log-edit-mode-map>\\[log-edit-done] when done")
                  msg)
       (vc-finish-logentry (eq comment t)))))
 
