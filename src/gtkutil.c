@@ -1924,6 +1924,12 @@ xg_create_frame_outer_widgets (struct frame *f)
   f->output_data.xp->ttip_widget = 0;
   f->output_data.xp->ttip_lbl = 0;
   f->output_data.xp->ttip_window = 0;
+#ifndef HAVE_PGTK
+  gtk_widget_set_tooltip_text (wtop, "Dummy text");
+  g_signal_connect_data (wtop, "query-tooltip", G_CALLBACK (qttip_cb),
+			 gc_handle_for_pvec (&f->header), free_glib_gc_handle,
+			 0);
+#endif
 
   {
     GdkScreen *screen = gtk_widget_get_screen (wtop);
