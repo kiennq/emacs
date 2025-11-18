@@ -221,7 +221,14 @@ and with a `diff-minor-mode-prefix' prefix in `diff-minor-mode'."
   "A" #'diff-ediff-patch
   "r" #'diff-restrict-view
   "R" #'diff-reverse-direction
-  "<remap> <undo>" #'diff-undo)
+  "<remap> <undo>" #'diff-undo
+
+  ;; The foregoing commands don't affect buffers beyond this one.
+  ;; The following command is the only one that has a single-letter
+  ;; binding and which affects buffers beyond this one.
+  ;; However, the following command asks for confirmation by default,
+  ;; so that seems okay.  --spwhitton
+  "u" #'diff-revert-and-kill-hunk)
 
 (defvar-keymap diff-mode-map
   :doc "Keymap for `diff-mode'.  See also `diff-mode-shared-map'."
@@ -238,7 +245,7 @@ and with a `diff-minor-mode-prefix' prefix in `diff-minor-mode'."
   "C-x 4 A" #'diff-add-change-log-entries-other-window
   ;; Misc operations.
   "C-c C-a" #'diff-apply-hunk
-  "C-c M-r" #'diff-revert-and-kill-hunk
+  "C-c M-u" #'diff-revert-and-kill-hunk
   "C-c C-m a" #'diff-apply-buffer
   "C-c C-m n" #'diff-delete-other-hunks
   "C-c C-e" #'diff-ediff-patch
@@ -2180,7 +2187,8 @@ With a prefix argument, REVERSE the hunk."
 		     "Hunk has already been applied; undo it? ")))))
       (message "(Nothing done)"))
      ((and deletion (not switched))
-      (when (y-or-n-p (format-message "Delete file `%s'?" (buffer-file-name buf)))
+      (when (y-or-n-p (format-message "Delete file `%s'?"
+                                      (buffer-file-name buf)))
         (delete-file (buffer-file-name buf) delete-by-moving-to-trash)
         (kill-buffer buf)))
      (t
@@ -2190,7 +2198,8 @@ With a prefix argument, REVERSE the hunk."
 	(delete-region (car pos) (cdr pos))
 	(insert (car new)))
       ;; Display BUF in a window
-      (set-window-point (display-buffer buf) (+ (car pos) (cdr new)))
+      (set-window-point (display-buffer buf '(nil (inhibit-same-window . t)))
+                        (+ (car pos) (cdr new)))
       (diff-hunk-status-msg line-offset (xor switched reverse) nil)
       (when diff-advance-after-apply-hunk
 	(diff-hunk-next))))))
