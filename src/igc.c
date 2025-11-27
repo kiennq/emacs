@@ -103,7 +103,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 # ifndef HASH_Lisp_Finalizer_7DACDD23C5
 #  error "struct Lisp_Finalizer changed"
 # endif
-# ifndef HASH_Lisp_Bignum_B9D07E8637
+# ifndef HASH_Lisp_Bignum_8732048B98
 #  error "struct Lisp_Bignum changed"
 # endif
 # ifndef HASH_Lisp_Float_4F10F019A4
@@ -946,7 +946,6 @@ struct igc_thread
   mps_ap_t weak_hash_strong_ap;
   mps_ap_t weak_hash_weak_ap;
   mps_ap_t immovable_ap;
-  mps_ap_t oldgen_ap;
 
   /* Quick access to the roots used for specpdl, bytecode stack and
      control stack.  */
@@ -3347,8 +3346,6 @@ create_thread_aps (struct igc_thread *t)
   IGC_CHECK_RES (res);
   res = create_weak_hash_ap (&t->weak_hash_weak_ap, t, true);
   IGC_CHECK_RES (res);
-  res = create_oldgen_ap (&t->oldgen_ap, gc->dflt_pool, gc->gen_count);
-  IGC_CHECK_RES (res);
 }
 
 static struct igc_thread_list *
@@ -3735,13 +3732,11 @@ igc_alloc_hash_table_user_test (void)
   return ut;
 }
 
-#ifndef FLAT_BIGNUMS
 static void
 finalize_bignum (struct Lisp_Bignum *n)
 {
   mpz_clear (n->value);
 }
-#endif
 
 static void
 finalize_font (struct font *font)
@@ -3851,11 +3846,9 @@ finalize_vector (mps_addr_t v)
   /* Please use exhaustive switches, just to do me a favor :-).  */
   switch (pseudo_vector_type (v))
     {
-#ifndef FLAT_BIGNUMS
     case PVEC_BIGNUM:
       finalize_bignum (v);
       break;
-#endif
 
     case PVEC_FONT:
       finalize_font (v);
@@ -3941,9 +3934,6 @@ finalize_vector (mps_addr_t v)
     case PVEC_TERMINAL:
     case PVEC_MARKER:
     case PVEC_MODULE_GLOBAL_REFERENCE:
-#ifdef FLAT_BIGNUMS
-    case PVEC_BIGNUM:
-#endif
       igc_assert (!"finalization not implemented");
       break;
 
@@ -4004,9 +3994,7 @@ maybe_finalize (mps_addr_t ref, enum pvec_type tag)
     }
   switch (tag)
     {
-#ifndef FLAT_BIGNUMS
     case PVEC_BIGNUM:
-#endif
     case PVEC_FONT:
     case PVEC_THREAD:
     case PVEC_MUTEX:
@@ -4056,9 +4044,6 @@ maybe_finalize (mps_addr_t ref, enum pvec_type tag)
     case PVEC_PACKAGE:
 #endif
     case PVEC_MODULE_GLOBAL_REFERENCE:
-#ifdef FLAT_BIGNUMS
-    case PVEC_BIGNUM:
-#endif
       break;
     }
 }
@@ -5558,8 +5543,10 @@ void *
 igc_alloc_dump (size_t nbytes)
 {
   igc_assert (global_igc->park_count > 0);
-  struct igc_thread_list *t = current_thread->gc_info;
-  mps_ap_t ap = t->d.oldgen_ap;
+  mps_ap_t ap;
+  mps_res_t res = create_oldgen_ap (&ap, global_igc->dflt_pool,
+				    global_igc->gen_count);
+  IGC_CHECK_RES (res);
   size_t block_size = igc_header_size () + nbytes;
   mps_addr_t block;
   do
@@ -5570,6 +5557,7 @@ igc_alloc_dump (size_t nbytes)
       set_header (block, IGC_OBJ_INVALID, block_size, 0);
     }
   while (!mps_commit (ap, block, block_size));
+  mps_ap_destroy (ap);
   return (char *) block + igc_header_size ();
 }
 
