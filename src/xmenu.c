@@ -754,7 +754,7 @@ menu_highlight_callback (GtkWidget *widget, gpointer call_data)
   cb_data = g_object_get_data (G_OBJECT (widget), XG_ITEM_DATA);
   if (! cb_data) return;
 
-  help = call_data ? cb_data->help : Qnil;
+  help = call_data ? gc_handle_value (cb_data->help) : Qnil;
 
   /* If popup_activated_flag is greater than 1 we are in a popup menu.
      Don't pass the frame to show_help_event for those.
@@ -762,7 +762,9 @@ menu_highlight_callback (GtkWidget *widget, gpointer call_data)
      popup_widget_loop, it won't be handled.  Passing NULL shows the tip
      directly without using an Emacs event.  This is what the Lucid code
      does below.  */
-  show_help_event (popup_activated_flag <= 1 ? cb_data->cl_data->f : NULL,
+  show_help_event (popup_activated_flag <= 1
+		   ? XFRAME (gc_handle_value (cb_data->cl_data->frame))
+		   : NULL,
                    widget, help);
 }
 #else
@@ -770,7 +772,7 @@ static void
 menu_highlight_callback (Widget widget, LWLIB_ID id, void *call_data)
 {
   widget_value *wv = call_data;
-  Lisp_Object help = wv ? wv->help : Qnil;
+  Lisp_Object help = wv ? gc_handle_value (wv->help) : Qnil;
 
   /* Determine the frame for the help event.  */
   struct frame *f = menubar_id_to_frame (id);
@@ -798,7 +800,8 @@ menubar_selection_callback (GtkWidget *widget, gpointer client_data)
   if (xg_crazy_callback_abort)
     return;
 
-  if (! cb_data || ! cb_data->cl_data || ! cb_data->cl_data->f)
+  if (! cb_data || ! cb_data->cl_data
+      || NILP (gc_handle_value (cb_data->cl_data->frame)))
     return;
 
   /* For a group of radio buttons, GTK calls the selection callback first
@@ -821,9 +824,11 @@ menubar_selection_callback (GtkWidget *widget, gpointer client_data)
     gtk_main_iteration ();
   unblock_input ();
 
-  find_and_call_menu_selection (cb_data->cl_data->f,
+  find_and_call_menu_selection (XFRAME
+				(gc_handle_value (cb_data->cl_data->frame)),
                                 cb_data->cl_data->menu_bar_items_used,
-                                cb_data->cl_data->menu_bar_vector,
+                                gc_handle_value
+				(cb_data->cl_data->menu_bar_vector),
                                 cb_data->call_data);
 }
 
@@ -1656,16 +1661,16 @@ prepare_for_entry_into_toolkit_menu (struct frame *f)
 }
 
 static void
-leave_toolkit_menu (void *data)
+leave_toolkit_menu (Lisp_Object frame)
 {
   XIEventMask mask;
   ptrdiff_t l = XIMaskLen (XI_LASTEVENT);
   unsigned char *m;
-  Lisp_Object tail, frame;
+  Lisp_Object tail;
   struct x_display_info *dpyinfo;
   struct frame *f;
 
-  dpyinfo = FRAME_DISPLAY_INFO ((struct frame *) data);
+  dpyinfo = FRAME_DISPLAY_INFO (XFRAME (frame));
 
   if (!dpyinfo->supports_xi2)
     return;
@@ -1871,7 +1876,8 @@ create_and_show_popup_menu (struct frame *f, widget_value *first_wv,
 
     record_unwind_protect_int (pop_down_menu, (int) menu_id);
 #ifdef HAVE_XINPUT2
-    record_unwind_protect_ptr (leave_toolkit_menu, f);
+    record_unwind_protect (leave_toolkit_menu,
+			   make_lisp_ptr (f, Lisp_Vectorlike));
 #endif
 
     /* Process events that apply to the menu.  */
@@ -2168,10 +2174,11 @@ x_menu_show (struct frame *f, int x, int y, int menuflags,
 static void
 dialog_selection_callback (GtkWidget *widget, gpointer client_data)
 {
+  Lisp_Object *selection_pointer = client_data;
   /* Treat the pointer as an integer.  There's no problem
      as long as pointers have enough bits to hold small integers.  */
   if ((intptr_t) client_data != -1)
-    menu_item_selection = client_data;
+    menu_item_selection = selection_pointer;
 
   popup_activated_flag = 0;
 }
@@ -2604,10 +2611,12 @@ x_menu_show (struct frame *f, int x, int y, int menuflags,
       goto return_entry;
     }
 
+#ifndef HAVE_MPS
   /* Don't GC while we prepare and show the menu,
      because we give the oldxmenu library pointers to the
      contents of strings.  */
   inhibit_garbage_collection ();
+#endif
 
 #ifdef HAVE_X_WINDOWS
   x_translate_coordinates_to_root (f, x, y, &x, &y);
