@@ -394,8 +394,8 @@ source_marker_get (source_t *src)
 	c = BYTE8_TO_CHAR (c);
       bytepos++;
     }
-  XMARKER (m)->bytepos = bytepos;
-  XMARKER (m)->charpos++;
+  const ptrdiff_t charpos = marker_vector_charpos (XMARKER (m));
+  marker_vector_set_charpos (XMARKER (m), charpos + 1);
   return c;
 }
 
@@ -403,11 +403,8 @@ static void
 source_marker_unget (source_t *src, int c)
 {
   Lisp_Object m = src->object;
-  struct buffer *b = XMARKER (m)->buffer;
-  ptrdiff_t bytepos = XMARKER (m)->bytepos;
-  XMARKER (m)->charpos--;
-  bytepos -= src->multibyte ? buf_prev_char_len (b, bytepos) : 1;
-  XMARKER (m)->bytepos = bytepos;
+  const ptrdiff_t charpos = marker_vector_charpos (XMARKER (m));
+  marker_vector_set_charpos (XMARKER (m), charpos - 1);
 }
 
 static int

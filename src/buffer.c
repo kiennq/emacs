@@ -44,6 +44,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "itree.h"
 #include "pdumper.h"
 #include "igc.h"
+#include "text-index.h"
 
 #ifdef WINDOWSNT
 #include "w32heap.h"		/* for mmap_* */
@@ -597,6 +598,7 @@ even if it is dead.  The return value is never nil.  */)
 
   /* An ordinary buffer uses its own struct buffer_text.  */
   b->text = &b->own_text;
+  b->text->index = NULL;
   b->base_buffer = NULL;
   /* No one shares the text with us now.  */
   b->indirections = 0;
@@ -620,6 +622,8 @@ even if it is dead.  The return value is never nil.  */)
   b->pt_byte = BEG_BYTE;
   b->begv_byte = BEG_BYTE;
   b->zv_byte = BEG_BYTE;
+
+  BUF_MARKERS (b) = make_marker_vector ();
 
   BUF_GPT (b) = BEG;
   BUF_GPT_BYTE (b) = BEG_BYTE;
@@ -671,11 +675,6 @@ even if it is dead.  The return value is never nil.  */)
   reset_buffer_local_variables (b, 1);
 
   bset_mark (b, Fmake_marker ());
-#ifdef HAVE_MPS
-  BUF_MARKERS (b) = Qnil;
-#else
-  BUF_MARKERS (b) = NULL;
-#endif
   /* Put this in the alist of all live buffers.  */
   XSETBUFFER (buffer, b);
   Vbuffer_alist = nconc2 (Vbuffer_alist, list1 (Fcons (name, buffer)));
@@ -744,8 +743,8 @@ clone_per_buffer_values (struct buffer *from, struct buffer *to)
       if (MARKERP (obj) && XMARKER (obj)->buffer == from)
 	{
 	  struct Lisp_Marker *m = XMARKER (obj);
-
-	  obj = build_marker (to, m->charpos, m->bytepos);
+	  const ptrdiff_t charpos = marker_vector_charpos (m);
+	  obj = build_marker (to, charpos);
 	  XMARKER (obj)->insertion_type = m->insertion_type;
 	}
 
@@ -776,9 +775,9 @@ record_buffer_markers (struct buffer *b)
       eassert (!NILP (BVAR (b, zv_marker)));
 
       XSETBUFFER (buffer, b);
-      set_marker_both (BVAR (b, pt_marker), buffer, b->pt, b->pt_byte);
-      set_marker_both (BVAR (b, begv_marker), buffer, b->begv, b->begv_byte);
-      set_marker_both (BVAR (b, zv_marker), buffer, b->zv, b->zv_byte);
+      set_marker_both (BVAR (b, pt_marker), buffer, b->pt);
+      set_marker_both (BVAR (b, begv_marker), buffer, b->begv);
+      set_marker_both (BVAR (b, zv_marker), buffer, b->zv);
     }
 }
 
@@ -860,6 +859,8 @@ Interactively, CLONE and INHIBIT-BUFFER-HOOKS are nil.  */)
 
   /* Use the base buffer's text object.  */
   b->text = b->base_buffer->text;
+  /* Make sure index has a defined value.  */
+  b->own_text.index = NULL;
   /* We have no own text.  */
   b->indirections = -1;
   /* Notify base buffer that we share the text now.  */
@@ -917,16 +918,13 @@ Interactively, CLONE and INHIBIT-BUFFER-HOOKS are nil.  */)
       eassert (NILP (BVAR (b->base_buffer, zv_marker)));
 
       bset_pt_marker (b->base_buffer,
-		      build_marker (b->base_buffer, b->base_buffer->pt,
-				    b->base_buffer->pt_byte));
+		      build_marker (b->base_buffer, b->base_buffer->pt));
 
       bset_begv_marker (b->base_buffer,
-			build_marker (b->base_buffer, b->base_buffer->begv,
-				      b->base_buffer->begv_byte));
+			build_marker (b->base_buffer, b->base_buffer->begv));
 
       bset_zv_marker (b->base_buffer,
-		      build_marker (b->base_buffer, b->base_buffer->zv,
-				    b->base_buffer->zv_byte));
+		      build_marker (b->base_buffer, b->base_buffer->zv));
 
       XMARKER (BVAR (b->base_buffer, zv_marker))->insertion_type = 1;
     }
@@ -934,9 +932,9 @@ Interactively, CLONE and INHIBIT-BUFFER-HOOKS are nil.  */)
   if (NILP (clone))
     {
       /* Give the indirect buffer markers for its narrowing.  */
-      bset_pt_marker (b, build_marker (b, b->pt, b->pt_byte));
-      bset_begv_marker (b, build_marker (b, b->begv, b->begv_byte));
-      bset_zv_marker (b, build_marker (b, b->zv, b->zv_byte));
+      bset_pt_marker (b, build_marker (b, b->pt));
+      bset_begv_marker (b, build_marker (b, b->begv));
+      bset_zv_marker (b, build_marker (b, b->zv));
       XMARKER (BVAR (b, zv_marker))->insertion_type = 1;
     }
   else
@@ -2084,8 +2082,6 @@ cleaning up all windows currently displaying the buffer to be killed. */)
      insisted on circular lists) so allow quitting here.  */
   frames_discard_buffer (buffer);
 
-  clear_charpos_cache (b);
-
   tem = Vinhibit_quit;
   Vinhibit_quit = Qt;
   /* Once the buffer is removed from Vbuffer_alist, its undo_list field is
@@ -2103,27 +2099,12 @@ cleaning up all windows currently displaying the buffer to be killed. */)
       /* Unchain all markers that belong to this indirect buffer.
 	 Don't unchain the markers that belong to the base buffer
 	 or its other indirect buffers.  */
-#ifdef HAVE_MPS
-      DO_MARKERS (b, m)
+      FOR_EACH_MARKER (b, m)
 	{
 	  if (m->buffer == b)
-	    igc_remove_marker (b, m);
+	    marker_vector_remove (XVECTOR (BUF_MARKERS (b)), m);
 	}
-      END_DO_MARKERS;
-#else
-      struct Lisp_Marker **mp = &BUF_MARKERS (b);
-      struct Lisp_Marker *m;
-      while ((m = *mp))
-	{
-	  if (m->buffer == b)
-	    {
-	      m->buffer = NULL;
-	      *mp = m->next;
-	    }
-	  else
-	    mp = &m->next;
-	}
- #endif
+
      /* Intervals should be owned by the base buffer (Bug#16502).  */
       i = buffer_intervals (b);
       if (i)
@@ -2137,18 +2118,7 @@ cleaning up all windows currently displaying the buffer to be killed. */)
     {
       /* Unchain all markers of this buffer and its indirect buffers.
 	 and leave them pointing nowhere.  */
-#ifdef HAVE_MPS
-      igc_remove_all_markers (b);
-#else
-      for (struct Lisp_Marker *m = BUF_MARKERS (b); m; )
-	{
-	  struct Lisp_Marker *next = m->next;
-	  m->buffer = 0;
-	  m->next = NULL;
-	  m = next;
-	}
-      BUF_MARKERS (b) = NULL;
-#endif
+      marker_vector_reset (b);
       set_buffer_intervals (b, NULL);
 
       /* Perhaps we should explicitly free the interval tree here...  */
@@ -2198,6 +2168,7 @@ cleaning up all windows currently displaying the buffer to be killed. */)
       free_region_cache (b->bidi_paragraph_cache);
       b->bidi_paragraph_cache = 0;
     }
+  text_index_free (b->own_text.index);
   bset_width_table (b, Qnil);
   unblock_input ();
 
@@ -2679,7 +2650,7 @@ results, see Info node `(elisp)Swapping Text'.  */)
   other_buffer->text->end_unchanged = other_buffer->text->gpt;
   swap_buffer_overlays (current_buffer, other_buffer);
   {
-    DO_MARKERS (current_buffer, m)
+    FOR_EACH_MARKER (current_buffer, m)
       {
 	if (m->buffer == other_buffer)
 	  m->buffer = current_buffer;
@@ -2688,8 +2659,7 @@ results, see Info node `(elisp)Swapping Text'.  */)
 	     BUF_MARKERS(buf) should either be for `buf' or dead.  */
 	  eassert (!m->buffer);
       }
-    END_DO_MARKERS;
-    DO_MARKERS (other_buffer, m)
+    FOR_EACH_MARKER (other_buffer, m)
       {
 	if (m->buffer == current_buffer)
 	  m->buffer = other_buffer;
@@ -2698,8 +2668,8 @@ results, see Info node `(elisp)Swapping Text'.  */)
 	     BUF_MARKERS(buf) should either be for `buf' or dead.  */
 	  eassert (!m->buffer);
       }
-    END_DO_MARKERS;
   }
+
   { /* Some of the C code expects that both window markers of a
        live window points to that window's buffer.  So since we
        just swapped the markers between the two buffers, we need
@@ -2761,9 +2731,6 @@ If the multibyte flag was really changed, undo information of the
 current buffer is cleared.  */)
   (Lisp_Object flag)
 {
-#ifndef HAVE_MPS
-  struct Lisp_Marker *tail, *markers;
-#endif
   Lisp_Object btail, other;
   ptrdiff_t begv, zv;
   bool narrowed = (BEG != BEGV || Z != ZV);
@@ -2780,9 +2747,6 @@ current buffer is cleared.  */)
   /* Don't record these buffer changes.  We will put a special undo entry
      instead.  */
   bset_undo_list (current_buffer, Qt);
-
-  /* If the cached position is for this buffer, clear it out.  */
-  clear_charpos_cache (current_buffer);
 
   if (NILP (flag))
     begv = BEGV_BYTE, zv = ZV_BYTE;
@@ -2812,11 +2776,11 @@ current buffer is cleared.  */)
       GPT = GPT_BYTE;
       TEMP_SET_PT_BOTH (PT_BYTE, PT_BYTE);
 
-      DO_MARKERS (current_buffer, tail)
+      FOR_EACH_MARKER (current_buffer, tail)
 	{
-	  tail->charpos = tail->bytepos;
+	  const ptrdiff_t bytepos = marker_vector_bytepos (tail);
+	  marker_vector_set_charpos (tail, bytepos);
 	}
-      END_DO_MARKERS;
 
       /* Convert multibyte form of 8-bit characters to unibyte.  */
       pos = BEG;
@@ -2966,37 +2930,12 @@ current buffer is cleared.  */)
 	TEMP_SET_PT_BOTH (position, byte);
       }
 
-#ifdef HAVE_MPS
-      DO_MARKERS (current_buffer, tail)
+      FOR_EACH_MARKER (current_buffer, tail)
 	{
-	  Lisp_Object buf_markers = BUF_MARKERS (current_buffer);
-	  BUF_MARKERS (current_buffer) = Qnil;
-	  tail->bytepos = advance_to_char_boundary (tail->bytepos);
-	  tail->charpos = BYTE_TO_CHAR (tail->bytepos);
-	  BUF_MARKERS (current_buffer) = buf_markers;
+	  ptrdiff_t bytepos = marker_vector_bytepos (tail);
+	  bytepos = advance_to_char_boundary (bytepos);
+	  marker_vector_set_charpos (tail, BYTE_TO_CHAR (bytepos));
 	}
-      END_DO_MARKERS;
-#else
-      tail = markers = BUF_MARKERS (current_buffer);
-
-      /* This prevents BYTE_TO_CHAR (that is, buf_bytepos_to_charpos) from
-	 getting confused by the markers that have not yet been updated.
-	 It is also a signal that it should never create a marker.  */
-      BUF_MARKERS (current_buffer) = NULL;
-
-      for (; tail; tail = tail->next)
-	{
-	  tail->bytepos = advance_to_char_boundary (tail->bytepos);
-	  tail->charpos = BYTE_TO_CHAR (tail->bytepos);
-	}
-
-      /* Make sure no markers were put on the chain
-	 while the chain value was incorrect.  */
-      if (BUF_MARKERS (current_buffer))
-	emacs_abort ();
-
-      BUF_MARKERS (current_buffer) = markers;
-#endif
 
       /* Do this last, so it can calculate the new correspondences
 	 between chars and bytes.  */
