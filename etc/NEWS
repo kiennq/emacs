@@ -1748,6 +1748,11 @@ This contains the list of regular expressions used to match "Re:" and
 international variants of it when modifying the Subject field in
 replies.
 
+** mairix
+
+---
+*** 'mairix-search' now keeps its own minibuffer history.
+
 ** Imap
 
 ---
@@ -2539,7 +2544,7 @@ bindings:
 - 'C-x v O L' is bound to 'vc-log-outgoing'
 - 'C-x v O D' is bound to 'vc-root-diff-outgoing'.
 
----
++++
 *** New display of outgoing revisions count in VC-Dir.
 If there are outgoing revisions, VC-Dir now includes a count of how many
 in its headers, to remind you to push them.
