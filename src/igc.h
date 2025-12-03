@@ -83,9 +83,6 @@ void igc_on_face_cache_change (void *face_cache);
 
 void igc_process_messages (void);
 Lisp_Object igc_make_cons (Lisp_Object car, Lisp_Object cdr);
-void igc_add_marker (struct buffer *b, struct Lisp_Marker *m);
-void igc_remove_marker (struct buffer *b, struct Lisp_Marker *m);
-void igc_remove_all_markers (struct buffer *b);
 void igc_resurrect_markers (struct buffer *b);
 Lisp_Object igc_alloc_symbol (void);
 #ifdef HAVE_MODULES
@@ -93,6 +90,7 @@ void *igc_alloc_global_ref (void);
 void igc_free_global_ref (struct module_global_reference *ref);
 #endif
 
+Lisp_Object igc_alloc_marker_vector (ptrdiff_t len, Lisp_Object init);
 struct Lisp_Buffer_Local_Value *igc_alloc_blv (void);
 void *igc_alloc_handler (void);
 void *igc_xzalloc_ambig (size_t size);

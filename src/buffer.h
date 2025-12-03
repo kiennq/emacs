@@ -26,6 +26,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "character.h"
 #include "lisp.h"
 #include "itree.h"
+#include "text-index.h"
 
 INLINE_HEADER_BEGIN
 
@@ -217,7 +218,7 @@ extern ptrdiff_t advance_to_char_boundary (ptrdiff_t byte_pos);
    Do not check that the position is in range.  */
 
 #define FETCH_BYTE(n) (*BYTE_POS_ADDR (n))
-
+
 /* Define the actual buffer data structures.  */
 
 /* This data structure stores the cache of a position and its line and
@@ -233,6 +234,8 @@ struct ts_linecol
      the byte offset from BOL (or BOB).  */
   ptrdiff_t col;
 };
+
+struct text_index;
 
 /* This data structure describes the actual text contents of a buffer.
    It is shared between indirect buffers and their base buffer.  */
@@ -285,18 +288,8 @@ struct buffer_text
     /* Properties of this buffer's text.  */
     INTERVAL intervals;
 
-# ifdef HAVE_MPS
+    /* Marker vector.  */
     Lisp_Object markers;
-# else
-    /* The markers that refer to this buffer.
-       This is actually a single marker ---
-       successive elements in its marker `chain'
-       are the other markers referring to this buffer.
-       This is a singly linked unordered list, which means that it's
-       very cheap to add a marker to the list and it's also very cheap
-       to move a marker within a buffer.  */
-    struct Lisp_Marker *markers;
-# endif
 
     /* Usually false.  Temporarily true in decode_coding_gap to
        prevent Fgarbage_collect from shrinking the gap and losing
@@ -305,6 +298,9 @@ struct buffer_text
 
     /* True if it needs to be redisplayed.  */
     bool_bf redisplay : 1;
+
+    /* Index supporting char <-> byte position mapping.  */
+    struct text_index *index;
   };
 
 /* Most code should use this macro to access Lisp fields in struct buffer.  */
@@ -748,114 +744,6 @@ struct buffer
      the struct buffer. So we copy it around in set_buffer_internal.  */
   Lisp_Object undo_list_;
 };
-
-struct marker_it
-{
-# ifdef HAVE_MPS
-  struct Lisp_Vector *v;
-  Lisp_Object obj;
-  ptrdiff_t slot;
-# else
-  struct Lisp_Marker *marker;
-#endif
-};
-
-# ifdef HAVE_MPS
-
-enum
-{
-  IGC_IDX_FREE_LIST = 0,
-  IGC_IDX_HEAD = 1,
-  IGC_IDX_START = 2,
-
-  IGC_OFF_NEXT = 0,
-  IGC_OFF_PREV = 1,
-  IGC_OFF_MARKER = 2,
-  IGC_MA_NSLOTS = 3,
-};
-
-INLINE int
-slot_to_index (int slot)
-{
-  return (slot * IGC_MA_NSLOTS) + IGC_IDX_START;
-}
-
-#define IGC_MA_FREE_LIST(v) (v)->contents[IGC_IDX_FREE_LIST]
-#define IGC_MA_HEAD(v) (v)->contents[IGC_IDX_HEAD]
-
-#define IGC_MA_MARKER(v, slot) (v)->contents[slot_to_index (slot) + IGC_OFF_MARKER]
-#define IGC_MA_NEXT(v, slot) (v)->contents[slot_to_index (slot) + IGC_OFF_NEXT]
-#define IGC_MA_PREV(v, slot) (v)->contents[slot_to_index (slot) + IGC_OFF_PREV]
-
-#define IGC_MA_CAPACITY(v) (((v)->header.size - IGC_IDX_START) / IGC_MA_NSLOTS)
-
-INLINE struct marker_it
-marker_it_init (struct buffer *b)
-{
-  if (VECTORP (BUF_MARKERS (b)))
-    {
-      struct Lisp_Vector *v = XVECTOR (BUF_MARKERS (b));
-      ptrdiff_t slot = XFIXNUM (IGC_MA_HEAD (v));
-      if (slot >= 0)
-	return (struct marker_it)
-	  { .slot = slot, .v = v, .obj = IGC_MA_MARKER (v, slot) };
-    }
-  return (struct marker_it){ .obj = Qnil };
-}
-
-INLINE bool
-marker_it_valid (struct marker_it *it)
-{
-  return MARKERP (it->obj);
-}
-
-INLINE void
-marker_it_next (struct marker_it *it)
-{
-  it->slot = XFIXNUM (IGC_MA_NEXT (it->v, it->slot));
-  it->obj = it->slot < 0 ? Qnil : IGC_MA_MARKER (it->v, it->slot);
-}
-
-INLINE struct Lisp_Marker *
-marker_it_marker (struct marker_it *it)
-{
-  return XMARKER (it->obj);
-}
-
-# else
-INLINE struct marker_it
-marker_it_init (struct buffer *b)
-{
-  return (struct marker_it) { .marker = BUF_MARKERS (b) };
-}
-
-INLINE bool
-marker_it_valid (struct marker_it *it)
-{
-  return it->marker != NULL;
-}
-
-INLINE void
-marker_it_next (struct marker_it *it)
-{
-  it->marker = it->marker->next;
-}
-
-INLINE struct Lisp_Marker *
-marker_it_marker (struct marker_it *it)
-{
-  return it->marker;
-}
-
-# endif
-
-# define DO_MARKERS(b, m)                                                 \
-  for (struct marker_it it_ = marker_it_init (b); marker_it_valid (&it_); \
-       marker_it_next (&it_))                                             \
-    {									\
-       struct Lisp_Marker *m = marker_it_marker (&it_);
-
-# define END_DO_MARKERS }
 
 struct sortvec
 {
@@ -1932,5 +1820,7 @@ INLINE_HEADER_END
 
 int compare_overlays (const void *v1, const void *v2);
 void make_sortvec_item (struct sortvec *item, Lisp_Object overlay);
+
+#include "marker-vector.h"
 
 #endif /* EMACS_BUFFER_H */

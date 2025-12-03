@@ -1826,10 +1826,16 @@ ASIZE (Lisp_Object array)
 }
 
 INLINE ptrdiff_t
+gc_vsize (const struct Lisp_Vector *v)
+{
+  return v->header.size & ~ARRAY_MARK_FLAG;
+}
+
+INLINE ptrdiff_t
 gc_asize (Lisp_Object array)
 {
   /* Like ASIZE, but also can be used in the garbage collector.  */
-  return XVECTOR (array)->header.size & ~ARRAY_MARK_FLAG;
+  return gc_vsize (XVECTOR (array));
 }
 
 INLINE ptrdiff_t
@@ -3177,23 +3183,10 @@ struct Lisp_Marker
   /* The remaining fields are meaningless in a marker that
      does not point anywhere.  */
 
-#ifndef HAVE_MPS
-  /* For markers that point somewhere,
-     this is used to chain of all the markers in a given buffer.
-     The chain does not preserve markers from garbage collection;
-     instead, markers are removed from the chain when freed by GC.  */
-  /* We could remove it and use an array in buffer_text instead.
-     That would also allow us to preserve it ordered.  */
-  struct Lisp_Marker *next;
-  /* This is the char position where the marker points.  */
-#endif
-
-  ptrdiff_t charpos;
-  /* This is the byte position.
-     It's mostly used as a charpos<->bytepos cache (i.e. it's not directly
-     used to implement the functionality of markers, but rather to (ab)use
-     markers as a cache for char<->byte mappings).  */
-  ptrdiff_t bytepos;
+  /* If in a buffer's marker vector, this is the entry where it is
+     stored.  If not in the marker vector, this is minus its last
+     character position. */
+  ptrdiff_t entry;
 
 # ifdef HAVE_MPS
   /* If in a buffer's marker vector, this is the index where it is
@@ -5448,16 +5441,13 @@ extern void syms_of_buffer (void);
 
 extern ptrdiff_t marker_position (Lisp_Object);
 extern ptrdiff_t marker_byte_position (Lisp_Object);
-extern void clear_charpos_cache (struct buffer *);
-extern ptrdiff_t buf_charpos_to_bytepos (struct buffer *, ptrdiff_t);
-extern ptrdiff_t buf_bytepos_to_charpos (struct buffer *, ptrdiff_t);
 extern void detach_marker (Lisp_Object);
 extern void unchain_marker (struct Lisp_Marker *);
 extern Lisp_Object set_marker_restricted (Lisp_Object, Lisp_Object, Lisp_Object);
-extern Lisp_Object set_marker_both (Lisp_Object, Lisp_Object, ptrdiff_t, ptrdiff_t);
+extern Lisp_Object set_marker_both (Lisp_Object, Lisp_Object, ptrdiff_t);
 extern Lisp_Object set_marker_restricted_both (Lisp_Object, Lisp_Object,
-                                               ptrdiff_t, ptrdiff_t);
-extern Lisp_Object build_marker (struct buffer *, ptrdiff_t, ptrdiff_t);
+                                               ptrdiff_t);
+extern Lisp_Object build_marker (struct buffer *, ptrdiff_t);
 extern void syms_of_marker (void);
 
 /* Defined in fileio.c.  */
