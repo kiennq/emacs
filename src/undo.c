@@ -128,9 +128,9 @@ record_marker_adjustments (ptrdiff_t from, ptrdiff_t to)
 {
   prepare_record ();
 
-  DO_MARKERS (current_buffer, m)
+  FOR_EACH_MARKER (current_buffer, m)
     {
-      ptrdiff_t charpos = m->charpos;
+      ptrdiff_t charpos = marker_vector_charpos (m);
       eassert (charpos <= Z);
 
       if (from <= charpos && charpos <= to)
@@ -154,7 +154,6 @@ record_marker_adjustments (ptrdiff_t from, ptrdiff_t to)
             }
         }
     }
-  END_DO_MARKERS;
 }
 
 /* Record that a deletion is about to take place, of the characters in
