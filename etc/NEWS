@@ -3629,6 +3629,17 @@ This is an abbreviation for using the name of the keymap as the prefix
 command name.  E.g., '(defvar-keymap foo-map :prefix t)' is equivalent
 to '(defvar-keymap foo-map :prefix 'foo-map)'.
 
++++
+** New 'R' code letter for 'interactive' forms.
+This specifies the beginning and end of an active region, and nil twice
+if the region is inactive.  The interactive specification
+
+    (interactive "R")
+
+is equivalent to
+
+    (interactive (list (use-region-beginning) (use-region-end))
+
 ** Toolkit
 
 ---
@@ -3738,8 +3749,9 @@ DATA' can now be used to play a sound from memory.
 
 ---
 ** New primitive 'w32-sound-volume'.
-This primitive allows to get and set the volume of the system's default
-audio device (or the "optimal device", if there are several devices).
+This primitive allows getting and setting the volume of the system's
+default audio device (or the "optimal device", if there are several
+devices).
 
 ---
 ** The MS-DOS port of Emacs now supports more recent releases of GCC and Binutils.
