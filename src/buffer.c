@@ -3153,7 +3153,7 @@ next_overlay_change (ptrdiff_t pos)
   return next;
 }
 
-ptrdiff_t
+static ptrdiff_t
 previous_overlay_change (ptrdiff_t pos)
 {
   struct itree_node *node;
