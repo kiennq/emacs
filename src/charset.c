@@ -40,6 +40,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "buffer.h"
 #include "sysstdio.h"
 #include "pdumper.h"
+#include "igc.h"
 
 /*** GENERAL NOTES on CODED CHARACTER SETS (CHARSETS) ***
 
@@ -64,6 +65,12 @@ Lisp_Object Vcharset_hash_table;
 struct charset *charset_table;
 int charset_table_size;
 int charset_table_used;
+
+/* Table of attribute vectors.  charset_attributes_table[id] contains
+   the attribute vector for the charset at charset_table[id].
+
+   This is a separate vector to simplify GC.  */
+Lisp_Object charset_attributes_table;
 
 /* Special charsets corresponding to symbols.  */
 int charset_ascii;
@@ -1131,13 +1138,19 @@ usage: (define-charset-internal ...)  */)
 	     coding_system.charbuf[i] entries, which are 'int'.  */
 	  int old_size = charset_table_size;
 	  ptrdiff_t new_size = old_size;
-	  struct charset *new_table =
-	    xpalloc (0, &new_size, 1,
-		     min (INT_MAX, MOST_POSITIVE_FIXNUM),
-                     sizeof *charset_table);
-          memcpy (new_table, charset_table, old_size * sizeof *new_table);
-          charset_table = new_table;
+	  struct charset *new_table
+	    = xpalloc (0, &new_size, 1,
+		       min (INT_MAX, MOST_POSITIVE_FIXNUM),
+		       sizeof *charset_table);
+	  memcpy (new_table, charset_table,
+		  old_size * sizeof *new_table);
+	  charset_table = new_table;
 	  charset_table_size = new_size;
+	  Lisp_Object new_attr_table = make_vector (new_size, Qnil);
+	  for (size_t i = 0; i < old_size; i++)
+	    ASET (new_attr_table, i,
+		  AREF (charset_attributes_table, i));
+	  charset_attributes_table = new_attr_table;
 	  /* FIXME: This leaks memory, as the old charset_table becomes
 	     unreachable.  If the old charset table is charset_table_init
 	     then this leak is intentional; otherwise, it's unclear.
@@ -1152,8 +1165,9 @@ usage: (define-charset-internal ...)  */)
 
   ASET (attrs, charset_id, make_fixnum (id));
   charset.id = id;
-  charset.attributes = attrs;
   charset_table[id] = charset;
+  ASET (charset_attributes_table, id, attrs);
+  eassert (ASIZE (charset_attributes_table) == charset_table_size);
 
   if (charset.method == CHARSET_METHOD_MAP)
     {
@@ -2104,6 +2118,29 @@ DIMENSION, CHARS, and FINAL-CHAR.  */)
   return (id >= 0 ? CHARSET_NAME (CHARSET_FROM_ID (id)) : Qnil);
 }
 
+/* Shrink charset_table to charset_table_used.  */
+static void
+shrink_charset_table (void)
+{
+  eassert (charset_table_size >= charset_table_used);
+  eassert (ASIZE (charset_attributes_table) == charset_table_size);
+
+  struct charset *old = charset_table;
+  size_t nbytes = charset_table_used * sizeof *old;
+  struct charset *new = xmalloc (nbytes);
+  memcpy (new, old, nbytes);
+  charset_table = new;
+  xfree (old);
+
+  Lisp_Object new_attr_table = make_vector (charset_table_used, Qnil);
+  for (size_t i = 0; i < charset_table_used; i++)
+    ASET (new_attr_table, i, AREF (charset_attributes_table, i));
+  charset_attributes_table = new_attr_table;
+
+  charset_table_size = charset_table_used;
+
+  eassert (ASIZE (charset_attributes_table) == charset_table_size);
+}
 
 DEFUN ("clear-charset-maps", Fclear_charset_maps, Sclear_charset_maps,
        0, 0, 0,
@@ -2121,6 +2158,8 @@ It should be called only from temacs invoked for dumping.  */)
 
   if (CHAR_TABLE_P (Vchar_unify_table))
     Foptimize_char_table (Vchar_unify_table, Qnil);
+
+  shrink_charset_table ();
 
   return Qnil;
 }
@@ -2272,15 +2311,6 @@ See also `charset-priority-list' and `set-charset-priority'.  */)
   return charsets;
 }
 
-/* Not strictly necessary, because all charset attributes are also
-   reachable from `Vcharset_hash_table`.  */
-void
-mark_charset (void)
-{
-  for (int i = 0; i < charset_table_used; i++)
-    mark_object (charset_table[i].attributes);
-}
-
 
 void
 init_charset (void)
@@ -2340,17 +2370,11 @@ init_charset_once (void)
   PDUMPER_REMEMBER_SCALAR (charset_ksc5601);
 }
 
-/* Allocate an initial charset table that is large enough to handle
-   Emacs while it is bootstrapping.  As of September 2011, the size
-   needs to be at least 166; make it a bit bigger to allow for future
-   expansion.
-
-   Don't make the value so small that the table is reallocated during
-   bootstrapping, as glibc malloc calls larger than just under 64 KiB
-   during an initial bootstrap wreak havoc after dumping; see the
-   M_MMAP_THRESHOLD value in alloc.c, plus there is an extra overhead
-   internal to glibc malloc and perhaps to Emacs malloc debugging.  */
-static struct charset charset_table_init[180];
+/* Intitial value for charset_table_size.  As of October 2025, the
+   charset table uses 179 entries.  charset_table grows if needed and
+   we only dump the used entries; so getting the initial value right
+   is not overly important.  */
+#define CHARSET_TABLE_INIT_SIZE 190
 
 void
 syms_of_charset (void)
@@ -2368,6 +2392,11 @@ syms_of_charset (void)
   staticpro (&Vcharset_ordered_list);
   Vcharset_ordered_list = Qnil;
 
+#ifdef HAVE_MPS
+  staticpro (&Vcharset_non_preferred_head);
+  Vcharset_non_preferred_head = Qnil;
+#endif
+
   staticpro (&Viso_2022_charset_list);
   Viso_2022_charset_list = Qnil;
 
@@ -2377,11 +2406,15 @@ syms_of_charset (void)
   staticpro (&Vcharset_hash_table);
   Vcharset_hash_table = CALLN (Fmake_hash_table, QCtest, Qeq);
 
-  charset_table = charset_table_init;
-  charset_table_size = ARRAYELTS (charset_table_init);
+  charset_table_size = CHARSET_TABLE_INIT_SIZE;
   PDUMPER_REMEMBER_SCALAR (charset_table_size);
+  charset_table
+    = xmalloc (charset_table_size * sizeof *charset_table);
   charset_table_used = 0;
   PDUMPER_REMEMBER_SCALAR (charset_table_used);
+
+  charset_attributes_table = make_vector (charset_table_size, Qnil);
+  staticpro (&charset_attributes_table);
 
   defsubr (&Scharsetp);
   defsubr (&Smap_charset_chars);
