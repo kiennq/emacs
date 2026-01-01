@@ -13418,6 +13418,9 @@ is_ignored_event (union buffered_input_event *event)
     case TOOLKIT_THEME_CHANGED_EVENT:
       ignore_event = Qtoolkit_theme_changed;
       break;
+    default:
+      ignore_event = Qnil;
+      break;
     }
 
   return !NILP (Fmemq (ignore_event, Vwhile_no_input_ignore_events));
