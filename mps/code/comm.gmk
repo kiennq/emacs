@@ -170,6 +170,8 @@ ifeq ($(PFM),w3i3gc)
 TESTTHR = testthrw3.c
 else ifeq ($(PFM),w3i6gc)
 TESTTHR = testthrw3.c
+else ifeq ($(PFM),w3a6ll)
+TESTTHR = testthrw3.c
 else
 TESTTHR = testthrix.c
 endif
