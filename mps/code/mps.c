@@ -256,6 +256,20 @@
 #include "spw3i6.c"     /* Windows on x86-64 stack probe */
 #include "mpsiw3.c"     /* Windows interface layer extras */
 
+/* Windows on ARM64 with Clang/LLVM */
+
+#elif defined(MPS_PF_W3A6LL)
+
+#include "lockw3.c"     /* Windows locks */
+#include "thw3.c"       /* Windows threading */
+#include "vmw3.c"       /* Windows virtual memory */
+#include "protw3.c"     /* Windows protection */
+#include "prmcanan.c"   /* generic architecture mutator context */
+#include "prmcw3.c"     /* Windows mutator context */
+#include "prmcw3a6.c"   /* Windows on ARM64 mutator context */
+#include "spw3i6.c"     /* Windows stack probe */
+#include "mpsiw3.c"     /* Windows interface layer extras */
+
 /* Cygwin on x86-64 built with GCC */
 
 #elif defined(MPS_PF_CYI6GC)

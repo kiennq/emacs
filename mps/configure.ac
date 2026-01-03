@@ -180,6 +180,14 @@ case $host/$CLANG in
       PFMCFLAGS="$CFLAGS_GC"
       EXEEXT=.exe
     ;;
+  aarch64-*-mingw*/yes)
+      AC_MSG_RESULT([MinGW ARM64])
+      MPS_OS_NAME=w3
+      MPS_ARCH_NAME=a6
+      MPS_BUILD_NAME=ll
+      PFMCFLAGS="$CFLAGS_LL"
+      EXEEXT=.exe
+    ;;
   x86_64-*-cygwin*/no)
       AC_MSG_RESULT([Cygwin x86_64])
       MPS_OS_NAME=cy
@@ -189,7 +197,7 @@ case $host/$CLANG in
       EXEEXT=.exe
     ;;
     *)
-    AC_MSG_ERROR([MPS does not support this platform out of the box.  See manual/build.txt])
+    AC_MSG_ERROR([MPS does not support this $host/$CLANG platform out of the box.  See manual/build.txt])
 esac
 
 AC_CHECK_PROGS([MAKE],[gnumake gmake make],[AC_MSG_ERROR([Unable to find a make program.])])

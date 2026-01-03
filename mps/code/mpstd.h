@@ -423,6 +423,22 @@
 #define MPS_WORD_SHIFT  6
 #define MPS_PF_ALIGN    16
 
+#elif defined(__MINGW64__) && defined(__aarch64__) && defined(__GNUC__) \
+      && defined(__clang__)
+#     if defined(CONFIG_PF_STRING) && ! defined(CONFIG_PF_W3A6LL)
+#           error "specified CONFIG_PF_... inconsistent with detected w3a6ll"
+#     endif
+#define MPS_PF_W3A6LL
+#define MPS_PF_STRING   "w3a6ll"
+#define MPS_OS_W3
+#define MPS_ARCH_A6
+#define MPS_BUILD_LL
+#define MPS_T_WORD      unsigned __int64
+#define MPS_T_ULONGEST  unsigned __int64
+#define MPS_WORD_WIDTH  64
+#define MPS_WORD_SHIFT  6
+#define MPS_PF_ALIGN    16
+
 
 /* GCC 12.4.0, gcc -E -dM */
 
