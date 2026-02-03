@@ -43,6 +43,7 @@ GNUstep port and post-20 update by Adrian Robert (arobert@cogsci.ucsd.edu)
 #include <ftoastr.h>
 
 #include "lisp.h"
+#include "igc.h"
 #include "blockinput.h"
 #include "sysselect.h"
 #include "nsterm.h"
@@ -439,10 +440,11 @@ ev_modifiers_helper (unsigned int flags, unsigned int left_mask,
 
 /* This is a piece of code which is common to all the event handling
    methods.  Maybe it should even be a function.  */
-#define EV_TRAILER(e)						\
-  {								\
-    XSETFRAME (emacs_event->frame_or_window, emacsframe);	\
-    EV_TRAILER2 (e);						\
+#define EV_TRAILER(e, fr)				\
+  {							\
+    struct frame *f = fr;				\
+    XSETFRAME (emacs_event->frame_or_window, f);	\
+    EV_TRAILER2 (e);					\
   }
 
 #define EV_TRAILER2(e)                                                  \
@@ -492,10 +494,14 @@ hold_event (struct input_event *event)
 {
   if (hold_event_q.nr == hold_event_q.cap)
     {
-      if (hold_event_q.cap == 0) hold_event_q.cap = 10;
-      else hold_event_q.cap *= 2;
-      hold_event_q.q =
-        xrealloc (hold_event_q.q, hold_event_q.cap * sizeof *hold_event_q.q);
+      hold_event_q.cap = max (10, 2 * hold_event_q.cap);
+      size_t nbytes = hold_event_q.cap * sizeof *event;
+      /* Never freed. */
+#ifdef HAVE_MPS
+      hold_event_q.q = igc_realloc_ambig (hold_event_q.q, nbytes);
+#else
+      hold_event_q.q = xrealloc (hold_event_q.q, nbytes);
+#endif
     }
 
   hold_event_q.q[hold_event_q.nr++] = *event;
@@ -2400,7 +2406,7 @@ ns_mouse_position (struct frame **fp, int insist, Lisp_Object *bar_window,
 	continue;
 
       if (w && [[w delegate] isKindOfClass: [EmacsView class]])
-        f = ((EmacsView *) [w delegate])->emacsframe;
+        f = *((EmacsView *) [w delegate])->emacsframe;
       else if (EQ (track_mouse, Qdrag_source))
 	break;
 
@@ -5865,7 +5871,11 @@ ns_term_init (Lisp_Object display_name)
                                          selector: @selector (logNotification:)
                                              name: nil object: nil]; */
 
+#ifdef HAVE_MPS
+  dpyinfo = igc_xzalloc_ambig (sizeof *dpyinfo);
+#else
   dpyinfo = xzalloc (sizeof *dpyinfo);
+#endif
 
   ns_initialize_display_info (dpyinfo);
   terminal = ns_create_terminal (dpyinfo);
@@ -6276,7 +6286,6 @@ ns_term_shutdown (int sig)
 
 - (void)showPreferencesWindow: (id)sender
 {
-  struct frame *emacsframe = SELECTED_FRAME ();
   NSEvent *theEvent = [NSApp currentEvent];
 
   if (!emacs_event)
@@ -6284,7 +6293,7 @@ ns_term_shutdown (int sig)
   emacs_event->kind = NS_NONKEY_EVENT;
   emacs_event->code = KEY_NS_SHOW_PREFS;
   emacs_event->modifiers = 0;
-  EV_TRAILER (theEvent);
+  EV_TRAILER (theEvent, SELECTED_FRAME ());
 }
 
 
@@ -6292,7 +6301,6 @@ ns_term_shutdown (int sig)
 {
   NSTRACE ("[EmacsApp newFrame:]");
 
-  struct frame *emacsframe = SELECTED_FRAME ();
   NSEvent *theEvent = [NSApp currentEvent];
 
   if (!emacs_event)
@@ -6300,7 +6308,7 @@ ns_term_shutdown (int sig)
   emacs_event->kind = NS_NONKEY_EVENT;
   emacs_event->code = KEY_NS_NEW_FRAME;
   emacs_event->modifiers = 0;
-  EV_TRAILER (theEvent);
+  EV_TRAILER (theEvent, SELECTED_FRAME ());
 }
 
 
@@ -6309,7 +6317,6 @@ ns_term_shutdown (int sig)
 {
   NSTRACE ("[EmacsApp openFile:]");
 
-  struct frame *emacsframe = SELECTED_FRAME ();
   NSEvent *theEvent = [NSApp currentEvent];
 
   if (!emacs_event)
@@ -6320,7 +6327,7 @@ ns_term_shutdown (int sig)
   ns_input_file = append2 (ns_input_file, [fileName lispString]);
   ns_input_line = Qnil; /* can be start or cons start,end */
   emacs_event->modifiers =0;
-  EV_TRAILER (theEvent);
+  EV_TRAILER (theEvent, SELECTED_FRAME ());
 
   return YES;
 }
@@ -6726,7 +6733,6 @@ not_in_argv (NSString *arg)
 /* Called from ns_read_socket to clear queue.  */
 - (BOOL)fulfillService: (NSString *)name withArg: (NSString *)arg
 {
-  struct frame *emacsframe = SELECTED_FRAME ();
   NSEvent *theEvent = [NSApp currentEvent];
 
   NSTRACE ("[EmacsApp fulfillService:withArg:]");
@@ -6739,7 +6745,7 @@ not_in_argv (NSString *arg)
   ns_input_spi_name = [name lispString];
   ns_input_spi_arg = [arg lispString];
   emacs_event->modifiers = EV_MODIFIERS (theEvent);
-  EV_TRAILER (theEvent);
+  EV_TRAILER (theEvent, SELECTED_FRAME ());
 
   return YES;
 }
@@ -6901,6 +6907,12 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
   if (fs_state == FULLSCREEN_BOTH)
     [nonfs_window release];
 
+#ifdef HAVE_MPS
+  igc_xfree (emacsframe);
+#else
+  xfree (emacsframe);
+#endif
+
 #if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
   /* Release layer and menu */
   EmacsLayer *layer = (EmacsLayer *)[self layer];
@@ -6915,7 +6927,7 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
 /* Called on font panel selection.  */
 - (void) changeFont: (id) sender
 {
-  struct font *font = FRAME_OUTPUT_DATA (emacsframe)->font;
+  struct font *font = FRAME_OUTPUT_DATA (*emacsframe)->font;
   NSFont *nsfont;
 
 #ifdef NS_IMPL_GNUSTEP
@@ -6949,10 +6961,10 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
   /* If no font was previously selected, use the currently selected
      font.  */
 
-  if (!font_panel_result && FRAME_FONT (emacsframe))
+  if (!font_panel_result && FRAME_FONT (*emacsframe))
     {
       font_panel_result
-	= macfont_get_nsctfont (FRAME_FONT (emacsframe));
+	= macfont_get_nsctfont (FRAME_FONT (*emacsframe));
 
       if (font_panel_result)
 	[font_panel_result retain];
@@ -6976,7 +6988,7 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
 - (Lisp_Object) showFontPanel
 {
   id fm = [NSFontManager sharedFontManager];
-  struct font *font = FRAME_OUTPUT_DATA (emacsframe)->font;
+  struct font *font = FRAME_OUTPUT_DATA (*emacsframe)->font;
   NSFont *nsfont, *result;
   struct timespec timeout;
 #ifdef NS_IMPL_COCOA
@@ -7053,7 +7065,7 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
 - (void)resetCursorRects
 {
   NSRect visible = [self visibleRect];
-  NSCursor *currentCursor = FRAME_POINTER_TYPE (emacsframe);
+  NSCursor *currentCursor = FRAME_POINTER_TYPE (*emacsframe);
   NSTRACE ("[EmacsView resetCursorRects]");
 
   if (currentCursor == nil)
@@ -7078,7 +7090,7 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
 
 - (void)keyDown: (NSEvent *)theEvent
 {
-  Mouse_HLInfo *hlinfo = MOUSE_HL_INFO (emacsframe);
+  Mouse_HLInfo *hlinfo = MOUSE_HL_INFO (*emacsframe);
   int code;
   unsigned fnKeysym = 0;
   static NSMutableArray *nsEvArray;
@@ -7115,7 +7127,7 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
 
   if (!hlinfo->mouse_face_hidden
       && FIXNUMP (Vmouse_highlight)
-      && !EQ (emacsframe->tab_bar_window, hlinfo->mouse_face_window))
+      && !EQ ((*emacsframe)->tab_bar_window, hlinfo->mouse_face_window))
     {
       clear_mouse_face (hlinfo);
       hlinfo->mouse_face_hidden = true;
@@ -7225,7 +7237,7 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
             }
 
           emacs_event->code = code;
-          EV_TRAILER (theEvent);
+          EV_TRAILER (theEvent, *emacsframe);
           processingCompose = NO;
           return;
         }
@@ -7359,7 +7371,7 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
       emacs_event->kind
 	= code > 0xFF ? MULTIBYTE_CHAR_KEYSTROKE_EVENT : ASCII_KEYSTROKE_EVENT;
       emacs_event->code = code;
-      EV_TRAILER ((id)nil);
+      EV_TRAILER ((id)nil, *emacsframe);
     }
 }
 
@@ -7394,7 +7406,7 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
 
   emacs_event->kind = NS_TEXT_EVENT;
   emacs_event->code = KEY_NS_PUT_WORKING_TEXT;
-  EV_TRAILER ((id)nil);
+  EV_TRAILER ((id)nil, *emacsframe);
 }
 
 
@@ -7416,7 +7428,7 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
 
   emacs_event->kind = NS_TEXT_EVENT;
   emacs_event->code = KEY_NS_UNPUT_WORKING_TEXT;
-  EV_TRAILER ((id)nil);
+  EV_TRAILER ((id)nil, *emacsframe);
 }
 
 
@@ -7492,13 +7504,13 @@ ns_in_echo_area (void)
   if (WINDOWP (echo_area_window) && ns_in_echo_area ())
     win = XWINDOW (echo_area_window);
   else
-    win = XWINDOW (FRAME_SELECTED_WINDOW (emacsframe));
+    win = XWINDOW (FRAME_SELECTED_WINDOW (*emacsframe));
 
-  rect.size.width = theRange.length * FRAME_COLUMN_WIDTH (emacsframe);
-  rect.size.height = FRAME_LINE_HEIGHT (emacsframe);
+  rect.size.width = theRange.length * FRAME_COLUMN_WIDTH (*emacsframe);
+  rect.size.height = FRAME_LINE_HEIGHT (*emacsframe);
   pt.x = WINDOW_TEXT_TO_FRAME_PIXEL_X (win, win->phys_cursor.x);
   pt.y = WINDOW_TO_FRAME_PIXEL_Y (win, win->phys_cursor.y
-                                       +FRAME_LINE_HEIGHT (emacsframe));
+                                       +FRAME_LINE_HEIGHT (*emacsframe));
 
   pt = [self convertPoint: pt toView: nil];
 
@@ -7548,7 +7560,7 @@ ns_in_echo_area (void)
         return;
       emacs_event->kind = NON_ASCII_KEYSTROKE_EVENT;
       emacs_event->code = 0xFF08;
-      EV_TRAILER ((id)nil);
+      EV_TRAILER ((id)nil, *emacsframe);
     }
 }
 
@@ -7565,7 +7577,7 @@ ns_in_echo_area (void)
   if (NS_KEYLOG)
     NSLog (@"selectedRange request");
 
-  struct window *w = XWINDOW (FRAME_SELECTED_WINDOW (emacsframe));
+  struct window *w = XWINDOW (FRAME_SELECTED_WINDOW (*emacsframe));
   struct buffer *buf = XBUFFER (w->contents);
   ptrdiff_t point = BUF_PT (buf);
 
@@ -7612,7 +7624,7 @@ ns_in_echo_area (void)
 /* This is what happens when the user presses a mouse button.  */
 - (void)mouseDown: (NSEvent *)theEvent
 {
-  struct ns_display_info *dpyinfo = FRAME_DISPLAY_INFO (emacsframe);
+  struct ns_display_info *dpyinfo = FRAME_DISPLAY_INFO (*emacsframe);
   NSPoint p = [self convertPoint: [theEvent locationInWindow] fromView: nil];
   EmacsWindow *window;
 
@@ -7621,13 +7633,13 @@ ns_in_echo_area (void)
   if (!emacs_event)
     return;
 
-  if (FRAME_TOOLTIP_P (emacsframe))
+  if (FRAME_TOOLTIP_P (*emacsframe))
     return;
 
-  dpyinfo->last_mouse_frame = emacsframe;
+  dpyinfo->last_mouse_frame = *emacsframe;
   /* Appears to be needed to prevent spurious movement events generated on
      button clicks.  */
-  emacsframe->mouse_moved = 0;
+  (*emacsframe)->mouse_moved = 0;
 
   window = (EmacsWindow *) [self window];
   [window setLastDragEvent: theEvent];
@@ -7665,7 +7677,7 @@ ns_in_echo_area (void)
 	      end_flag = [theEvent momentumPhase] != NSEventPhaseNone;
 	      XSETINT (emacs_event->x, lrint (p.x));
 	      XSETINT (emacs_event->y, lrint (p.y));
-	      EV_TRAILER (theEvent);
+	      EV_TRAILER (theEvent, *emacsframe);
 	      return;
 	    }
 
@@ -7688,7 +7700,7 @@ ns_in_echo_area (void)
                 {
                   /* FIXME: Use actual line height instead of the default.  */
                   lineHeight = default_line_pixel_height
-                    (XWINDOW (FRAME_SELECTED_WINDOW (emacsframe)));
+                    (XWINDOW (FRAME_SELECTED_WINDOW (*emacsframe)));
                 }
 
               if ([theEvent phase] == NSEventPhaseBegan)
@@ -7757,9 +7769,9 @@ ns_in_echo_area (void)
 
               scrollUp = delta > 0;
 	      x = ([theEvent scrollingDeltaX]
-		   * FRAME_COLUMN_WIDTH (emacsframe));
+		   * FRAME_COLUMN_WIDTH (*emacsframe));
 	      y = ([theEvent scrollingDeltaY]
-		   * FRAME_LINE_HEIGHT (emacsframe));
+		   * FRAME_LINE_HEIGHT (*emacsframe));
             }
 
           if (lines == 0 && mwheel_coalesce_scroll_events)
@@ -7813,18 +7825,18 @@ ns_in_echo_area (void)
       Lisp_Object tab_bar_arg = Qnil;
       bool tab_bar_p = false;
 
-      if (WINDOWP (emacsframe->tab_bar_window)
-	  && WINDOW_TOTAL_LINES (XWINDOW (emacsframe->tab_bar_window)))
+      if (WINDOWP ((*emacsframe)->tab_bar_window)
+	  && WINDOW_TOTAL_LINES (XWINDOW ((*emacsframe)->tab_bar_window)))
 	{
 	  Lisp_Object window;
 	  int x = lrint (p.x);
 	  int y = lrint (p.y);
 
-	  window = window_from_coordinates (emacsframe, x, y, 0, true, true, true);
-	  tab_bar_p = EQ (window, emacsframe->tab_bar_window);
+	  window = window_from_coordinates (*emacsframe, x, y, 0, true, true, true);
+	  tab_bar_p = EQ (window, (*emacsframe)->tab_bar_window);
 
 	  if (tab_bar_p)
-	    tab_bar_arg = handle_tab_bar_click (emacsframe, x, y,
+	    tab_bar_arg = handle_tab_bar_click (*emacsframe, x, y,
 						EV_UDMODIFIERS (theEvent) & down_modifier,
 						EV_MODIFIERS (theEvent) | EV_UDMODIFIERS (theEvent));
 	}
@@ -7837,14 +7849,14 @@ ns_in_echo_area (void)
                              | EV_UDMODIFIERS (theEvent);
 
       if (emacs_event->modifiers & down_modifier)
-	FRAME_DISPLAY_INFO (emacsframe)->grabbed |= 1 << EV_BUTTON (theEvent);
+	FRAME_DISPLAY_INFO (*emacsframe)->grabbed |= 1 << EV_BUTTON (theEvent);
       else
-	FRAME_DISPLAY_INFO (emacsframe)->grabbed &= ~(1 << EV_BUTTON (theEvent));
+	FRAME_DISPLAY_INFO (*emacsframe)->grabbed &= ~(1 << EV_BUTTON (theEvent));
     }
 
   XSETINT (emacs_event->x, lrint (p.x));
   XSETINT (emacs_event->y, lrint (p.y));
-  EV_TRAILER (theEvent);
+  EV_TRAILER (theEvent, *emacsframe);
   return;
 }
 
@@ -7894,13 +7906,13 @@ ns_in_echo_area (void)
 /* Tell emacs the mouse has moved.  */
 - (void)mouseMoved: (NSEvent *)e
 {
-  Mouse_HLInfo *hlinfo = MOUSE_HL_INFO (emacsframe);
-  struct ns_display_info *dpyinfo = FRAME_DISPLAY_INFO (emacsframe);
+  Mouse_HLInfo *hlinfo = MOUSE_HL_INFO (*emacsframe);
+  struct ns_display_info *dpyinfo = FRAME_DISPLAY_INFO (*emacsframe);
   Lisp_Object frame;
   NSPoint pt;
   BOOL dragging;
 
-  if (FRAME_TOOLTIP_P (emacsframe))
+  if (FRAME_TOOLTIP_P (*emacsframe))
     return;
 
   NSTRACE_WHEN (NSTRACE_GROUP_EVENTS, "[EmacsView mouseMoved:]");
@@ -7926,7 +7938,7 @@ ns_in_echo_area (void)
       NSTRACE_MSG ("mouse_autoselect_window");
       static Lisp_Object last_mouse_window;
       Lisp_Object window
-	= window_from_coordinates (emacsframe, pt.x, pt.y, 0, 0, 0, 0);
+	= window_from_coordinates (*emacsframe, pt.x, pt.y, 0, 0, 0, 0);
 
       if (WINDOWP (window)
           && !EQ (window, last_mouse_window)
@@ -7946,10 +7958,11 @@ ns_in_echo_area (void)
     }
 
   dragging = (e.type == NSEventTypeLeftMouseDragged);
-  if (!ns_note_mouse_movement (emacsframe, pt.x, pt.y, dragging))
+  if (!ns_note_mouse_movement (*emacsframe, pt.x, pt.y, dragging))
     help_echo_string = previous_help_echo_string;
 
-  XSETFRAME (frame, emacsframe);
+  struct frame *f = *emacsframe;
+  XSETFRAME (frame, f);
   if (!NILP (help_echo_string) || !NILP (previous_help_echo_string))
     {
       /* NOTE: help_echo_{window,pos,object} are set in xdisp.c
@@ -7960,7 +7973,7 @@ ns_in_echo_area (void)
                       help_echo_object, help_echo_pos);
     }
 
-  if (emacsframe->mouse_moved && send_appdefined)
+  if ((*emacsframe)->mouse_moved && send_appdefined)
     ns_send_appdefined (-1);
 }
 
@@ -7998,7 +8011,8 @@ ns_in_echo_area (void)
       emacs_event->modifiers = EV_MODIFIERS (event);
       XSETINT (emacs_event->x, lrint (pt.x));
       XSETINT (emacs_event->y, lrint (pt.y));
-      XSETFRAME (emacs_event->frame_or_window, emacsframe);
+      struct frame *f = *emacsframe;
+      XSETFRAME (emacs_event->frame_or_window, f);
 
       if ([event phase] == NSEventPhaseBegan)
 	{
@@ -8017,7 +8031,7 @@ ns_in_echo_area (void)
 				  make_float (0.0),
 				  make_float (last_scale += [event magnification]),
 				  make_float (0.0));
-      EV_TRAILER (event);
+      EV_TRAILER (event, *emacsframe);
     }
 }
 #endif
@@ -8033,7 +8047,7 @@ ns_in_echo_area (void)
   emacs_event->kind = DELETE_WINDOW_EVENT;
   emacs_event->modifiers = 0;
   emacs_event->code = 0;
-  EV_TRAILER (e);
+  EV_TRAILER (e, *emacsframe);
   /* Don't close this window, let this be done from lisp code.  */
   return NO;
 }
@@ -8044,17 +8058,18 @@ ns_in_echo_area (void)
   NSWindow *win = [self window];
   NSRect r = [win frame];
   NSArray *screens = [NSScreen screens];
-  NSScreen *screen = [screens objectAtIndex: 0];
+  NSScreen *screen = [screens objectAtIndex:0];
+  struct frame *f = *emacsframe;
 
-  if (!emacsframe->output_data.ns)
+  if (!f->output_data.ns)
     return;
 
   if (screen != nil)
     {
-      emacsframe->left_pos = (NSMinX (r)
-                              - NS_PARENT_WINDOW_LEFT_POS (emacsframe));
-      emacsframe->top_pos = (NS_PARENT_WINDOW_TOP_POS (emacsframe)
-                             - NSMaxY (r));
+      f->left_pos = (NSMinX (r)
+		     - NS_PARENT_WINDOW_LEFT_POS (f));
+      f->top_pos = (NS_PARENT_WINDOW_TOP_POS (f)
+		    - NSMaxY (r));
 
       if (emacs_event)
         {
@@ -8062,8 +8077,8 @@ ns_in_echo_area (void)
           EVENT_INIT (ie);
           ie.kind = MOVE_FRAME_EVENT;
           XSETFRAME (ie.frame_or_window, emacsframe);
-          XSETINT (ie.x, emacsframe->left_pos);
-          XSETINT (ie.y, emacsframe->top_pos);
+          XSETINT (ie.x, f->left_pos);
+          XSETINT (ie.y, f->top_pos);
           kbd_buffer_store_event (&ie);
         }
     }
@@ -8081,7 +8096,7 @@ ns_in_echo_area (void)
   NSTRACE_RECT   ("[sender frame]", [sender frame]);
   NSTRACE_FSTYPE ("fs_state", fs_state);
 
-  if (!FRAME_LIVE_P (emacsframe))
+  if (!FRAME_LIVE_P (*emacsframe))
     return frameSize;
 
   if (fs_state == FULLSCREEN_MAXIMIZED
@@ -8100,15 +8115,15 @@ ns_in_echo_area (void)
 
   if (! [self isFullscreen])
     {
-      extra = FRAME_NS_TITLEBAR_HEIGHT (emacsframe)
-        + FRAME_TOOLBAR_HEIGHT (emacsframe);
+      extra = FRAME_NS_TITLEBAR_HEIGHT (*emacsframe)
+        + FRAME_TOOLBAR_HEIGHT (*emacsframe);
     }
 
-  cols = FRAME_PIXEL_WIDTH_TO_TEXT_COLS (emacsframe, frameSize.width);
+  cols = FRAME_PIXEL_WIDTH_TO_TEXT_COLS (*emacsframe, frameSize.width);
   if (cols < MINWIDTH)
     cols = MINWIDTH;
 
-  rows = FRAME_PIXEL_HEIGHT_TO_TEXT_LINES (emacsframe,
+  rows = FRAME_PIXEL_HEIGHT_TO_TEXT_LINES (*emacsframe,
                                            frameSize.height - extra);
   if (rows < MINHEIGHT)
     rows = MINHEIGHT;
@@ -8161,13 +8176,13 @@ ns_in_echo_area (void)
       if (r.size.width != frameSize.width)
         {
           frameSize.width =
-            FRAME_TEXT_COLS_TO_PIXEL_WIDTH  (emacsframe, cols);
+            FRAME_TEXT_COLS_TO_PIXEL_WIDTH  (*emacsframe, cols);
         }
 
       if (r.size.height != frameSize.height)
         {
           frameSize.height =
-            FRAME_TEXT_LINES_TO_PIXEL_HEIGHT (emacsframe, rows) + extra;
+            FRAME_TEXT_LINES_TO_PIXEL_HEIGHT (*emacsframe, rows) + extra;
         }
     }
 
@@ -8206,7 +8221,7 @@ ns_in_echo_area (void)
 
   [super resizeWithOldSuperviewSize:oldSize];
 
-  if (! FRAME_LIVE_P (emacsframe))
+  if (! FRAME_LIVE_P (*emacsframe))
     return;
 
   frame = [[self superview] bounds];
@@ -8220,10 +8235,10 @@ ns_in_echo_area (void)
      view's frame isn't resized correctly, or can end up with the
      wrong origin.  */
   [self setFrame:frame];
-  change_frame_size (emacsframe, width, height, false, YES, false);
+  change_frame_size (*emacsframe, width, height, false, YES, false);
 
-  SET_FRAME_GARBAGED (emacsframe);
-  cancel_mouse_face (emacsframe);
+  SET_FRAME_GARBAGED (*emacsframe);
+  cancel_mouse_face (*emacsframe);
   ns_send_appdefined (-1);
 }
 
@@ -8237,7 +8252,7 @@ ns_in_echo_area (void)
 
 - (void)windowDidBecomeKey      /* for direct calls */
 {
-  struct ns_display_info *dpyinfo = FRAME_DISPLAY_INFO (emacsframe);
+  struct ns_display_info *dpyinfo = FRAME_DISPLAY_INFO (*emacsframe);
   struct frame *old_focus = dpyinfo->ns_focus_frame;
   struct input_event event;
 
@@ -8245,14 +8260,14 @@ ns_in_echo_area (void)
 
   NSTRACE ("[EmacsView windowDidBecomeKey]");
 
-  if (emacsframe != old_focus)
-    dpyinfo->ns_focus_frame = emacsframe;
+  if (*emacsframe != old_focus)
+    dpyinfo->ns_focus_frame = *emacsframe;
 
-  ns_frame_rehighlight (emacsframe);
+  ns_frame_rehighlight (*emacsframe);
   [self adjustEmacsFrameRect];
 
   event.kind = FOCUS_IN_EVENT;
-  XSETFRAME (event.frame_or_window, emacsframe);
+  XSETFRAME (event.frame_or_window, *emacsframe);
   kbd_buffer_store_event (&event);
   ns_send_appdefined (-1);  // Kick main loop
 }
@@ -8261,28 +8276,29 @@ ns_in_echo_area (void)
 - (void)windowDidResignKey: (NSNotification *)notification
 /* cf. x_detect_focus_change(), x_focus_changed(), x_new_focus_frame() */
 {
-  struct ns_display_info *dpyinfo = FRAME_DISPLAY_INFO (emacsframe);
-  BOOL is_focus_frame = dpyinfo->ns_focus_frame == emacsframe;
+  struct ns_display_info *dpyinfo = FRAME_DISPLAY_INFO (*emacsframe);
+  BOOL is_focus_frame = dpyinfo->ns_focus_frame == *emacsframe;
   NSTRACE ("[EmacsView windowDidResignKey:]");
 
   if (is_focus_frame)
     dpyinfo->ns_focus_frame = 0;
 
-  emacsframe->mouse_moved = 0;
-  ns_frame_rehighlight (emacsframe);
+  (*emacsframe)->mouse_moved = 0;
+  ns_frame_rehighlight (*emacsframe);
 
   /* FIXME: for some reason needed on second and subsequent clicks away
             from sole-frame Emacs to get hollow box to show.  */
   if (!windowClosing && [[self window] isVisible] == YES)
     {
-      gui_update_cursor (emacsframe, 1);
-      ns_set_frame_alpha (emacsframe);
+      gui_update_cursor (*emacsframe, 1);
+      ns_set_frame_alpha (*emacsframe);
     }
 
   if (any_help_event_p)
     {
       Lisp_Object frame;
-      XSETFRAME (frame, emacsframe);
+      struct frame *f = *emacsframe;
+      XSETFRAME (frame, f);
       help_echo_string = Qnil;
       gen_help_event (Qnil, frame, Qnil, Qnil, 0);
       any_help_event_p = NO;
@@ -8291,7 +8307,7 @@ ns_in_echo_area (void)
   if (emacs_event && is_focus_frame)
     {
       emacs_event->kind = FOCUS_OUT_EVENT;
-      EV_TRAILER ((id)nil);
+      EV_TRAILER ((id)nil, *emacsframe);
     }
 }
 
@@ -8328,6 +8344,11 @@ ns_in_echo_area (void)
   NSTRACE ("[EmacsView initFrameFromEmacs:]");
   NSTRACE_MSG ("cols:%d lines:%d", f->text_cols, f->text_lines);
 
+#ifdef HAVE_MPS
+  emacsframe = igc_xalloc_raw_exact (1);
+#else
+  emacsframe = xzalloc (sizeof *emacsframe);
+#endif
   windowClosing = NO;
   processingCompose = NO;
   scrollbarsNeedingUpdate = 0;
@@ -8352,7 +8373,7 @@ ns_in_echo_area (void)
   [self setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
 
   FRAME_NS_VIEW (f) = self;
-  emacsframe = f;
+  *emacsframe = f;
 #ifdef NS_IMPL_COCOA
   old_title = 0;
   maximizing_resize = NO;
@@ -8419,7 +8440,7 @@ ns_in_echo_area (void)
             NSTRACE_FMT_RETURN "YES"),
            NSTRACE_ARG_RECT (newFrame));
 
-  emacsframe->output_data.ns->zooming = 1;
+  (*emacsframe)->output_data.ns->zooming = 1;
   return YES;
 }
 
@@ -8470,7 +8491,7 @@ ns_in_echo_area (void)
       if (next_maximized == FULLSCREEN_HEIGHT
           || (next_maximized == -1
               && abs ((int)(defaultFrame.size.height - result.size.height))
-              > FRAME_LINE_HEIGHT (emacsframe)))
+              > FRAME_LINE_HEIGHT (*emacsframe)))
         {
           /* first click */
           NSTRACE_MSG ("FULLSCREEN_HEIGHT");
@@ -8503,7 +8524,7 @@ ns_in_echo_area (void)
       else if (next_maximized == FULLSCREEN_MAXIMIZED
                || (next_maximized == -1
                    && abs ((int)(defaultFrame.size.width - result.size.width))
-                   > FRAME_COLUMN_WIDTH (emacsframe)))
+                   > FRAME_COLUMN_WIDTH (*emacsframe)))
         {
           NSTRACE_MSG ("FULLSCREEN_MAXIMIZED");
 
@@ -8548,17 +8569,17 @@ ns_in_echo_area (void)
 - (void)windowDidDeminiaturize: sender
 {
   NSTRACE ("[EmacsView windowDidDeminiaturize:]");
-  if (!emacsframe->output_data.ns)
+  if (!(*emacsframe)->output_data.ns)
     return;
 
-  SET_FRAME_ICONIFIED (emacsframe, 0);
-  SET_FRAME_VISIBLE (emacsframe, 1);
+  SET_FRAME_ICONIFIED (*emacsframe, 0);
+  SET_FRAME_VISIBLE (*emacsframe, 1);
   windows_or_buffers_changed = 63;
 
   if (emacs_event)
     {
       emacs_event->kind = DEICONIFY_EVENT;
-      EV_TRAILER ((id)nil);
+      EV_TRAILER ((id)nil, *emacsframe);
     }
 }
 
@@ -8566,11 +8587,11 @@ ns_in_echo_area (void)
 - (void)windowDidExpose: sender
 {
   NSTRACE ("[EmacsView windowDidExpose:]");
-  if (!emacsframe->output_data.ns)
+  if (!(*emacsframe)->output_data.ns)
     return;
 
-  SET_FRAME_VISIBLE (emacsframe, 1);
-  SET_FRAME_GARBAGED (emacsframe);
+  SET_FRAME_VISIBLE (*emacsframe, 1);
+  SET_FRAME_GARBAGED (*emacsframe);
 
   if (send_appdefined)
     ns_send_appdefined (-1);
@@ -8580,16 +8601,16 @@ ns_in_echo_area (void)
 - (void)windowDidMiniaturize: sender
 {
   NSTRACE ("[EmacsView windowDidMiniaturize:]");
-  if (!emacsframe->output_data.ns)
+  if (!(*emacsframe)->output_data.ns)
     return;
 
-  SET_FRAME_ICONIFIED (emacsframe, 1);
-  SET_FRAME_VISIBLE (emacsframe, 0);
+  SET_FRAME_ICONIFIED (*emacsframe, 1);
+  SET_FRAME_VISIBLE (*emacsframe, 0);
 
   if (emacs_event)
     {
       emacs_event->kind = ICONIFY_EVENT;
-      EV_TRAILER ((id)nil);
+      EV_TRAILER ((id)nil, *emacsframe);
     }
 }
 
@@ -8621,7 +8642,7 @@ ns_in_echo_area (void)
 
 - (void)adjustEmacsFrameRect
 {
-  struct frame *f = emacsframe;
+  struct frame *f = *emacsframe;
   NSWindow *frame_window = [FRAME_NS_VIEW (f) window];
   NSRect r = [frame_window frame];
   f->left_pos = NSMinX (r) - NS_PARENT_WINDOW_LEFT_POS (f);
@@ -8672,7 +8693,7 @@ ns_in_echo_area (void)
 - (void)windowWillExitFullScreen /* provided for direct calls */
 {
   NSTRACE ("[EmacsView windowWillExitFullScreen]");
-  if (!FRAME_LIVE_P (emacsframe))
+  if (!FRAME_LIVE_P (*emacsframe))
     {
       NSTRACE_MSG ("Ignored (frame dead)");
       return;
@@ -8690,7 +8711,7 @@ ns_in_echo_area (void)
 - (void)windowDidExitFullScreen /* provided for direct calls */
 {
   NSTRACE ("[EmacsView windowDidExitFullScreen]");
-  if (!FRAME_LIVE_P (emacsframe))
+  if (!FRAME_LIVE_P (*emacsframe))
     {
       NSTRACE_MSG ("Ignored (frame dead)");
       return;
@@ -8748,8 +8769,8 @@ ns_in_echo_area (void)
       NSWindowCollectionBehavior b = [win collectionBehavior];
       if (ns_use_native_fullscreen)
         {
-	  if (FRAME_PARENT_FRAME (emacsframe)
-	      || FRAME_TOOLTIP_P (emacsframe))
+	  if (FRAME_PARENT_FRAME (*emacsframe)
+	      || FRAME_TOOLTIP_P (*emacsframe))
             {
               b &= ~NSWindowCollectionBehaviorFullScreenPrimary;
               b |= NSWindowCollectionBehaviorFullScreenAuxiliary;
@@ -8802,7 +8823,7 @@ ns_in_echo_area (void)
 
   w = (EmacsWindow *)[self window];
   onFirstScreen = [[w screen] isEqual:[[NSScreen screens] objectAtIndex:0]];
-  f = emacsframe;
+  f = *emacsframe;
   col = [NSColor colorWithUnsignedLong:NS_FACE_BACKGROUND
 				 (FACE_FROM_ID (f, DEFAULT_FACE_ID))];
 
@@ -8833,7 +8854,7 @@ ns_in_echo_area (void)
 #endif
         }
 
-      fw = [[EmacsWindow alloc] initWithEmacsFrame:emacsframe
+      fw = [[EmacsWindow alloc] initWithEmacsFrame:*emacsframe
                                         fullscreen:YES
                                             screen:screen];
 
@@ -8887,7 +8908,7 @@ ns_in_echo_area (void)
 {
   NSTRACE ("[EmacsView handleFS]");
 
-  if (fs_state != emacsframe->want_fullscreen)
+  if (fs_state != (*emacsframe)->want_fullscreen)
     {
       if (fs_state == FULLSCREEN_BOTH)
         {
@@ -8895,7 +8916,7 @@ ns_in_echo_area (void)
           [self toggleFullScreen:self];
         }
 
-      switch (emacsframe->want_fullscreen)
+      switch ((*emacsframe)->want_fullscreen)
         {
         case FULLSCREEN_BOTH:
           NSTRACE_MSG ("FULLSCREEN_BOTH");
@@ -8929,7 +8950,7 @@ ns_in_echo_area (void)
           break;
         }
 
-      emacsframe->want_fullscreen = FULLSCREEN_NONE;
+      (*emacsframe)->want_fullscreen = FULLSCREEN_NONE;
     }
 
 }
@@ -8955,7 +8976,7 @@ ns_in_echo_area (void)
       lval = Qmaximized;
       break;
     }
-  store_frame_param (emacsframe, Qfullscreen, lval);
+  store_frame_param (*emacsframe, Qfullscreen, lval);
   fs_state = value;
 }
 
@@ -8963,24 +8984,24 @@ ns_in_echo_area (void)
 {
   NSTRACE ("[EmacsView mouseEntered:]");
   if (emacsframe)
-    FRAME_DISPLAY_INFO (emacsframe)->last_mouse_movement_time
+    FRAME_DISPLAY_INFO (*emacsframe)->last_mouse_movement_time
       = EV_TIMESTAMP (theEvent);
 }
 
 
 - (void)mouseExited: (NSEvent *)theEvent
 {
-  Mouse_HLInfo *hlinfo = emacsframe ? MOUSE_HL_INFO (emacsframe) : NULL;
+  Mouse_HLInfo *hlinfo = *emacsframe ? MOUSE_HL_INFO (*emacsframe) : NULL;
 
   NSTRACE ("[EmacsView mouseExited:]");
 
   if (!hlinfo)
     return;
 
-  FRAME_DISPLAY_INFO (emacsframe)->last_mouse_movement_time
+  FRAME_DISPLAY_INFO (*emacsframe)->last_mouse_movement_time
     = EV_TIMESTAMP (theEvent);
 
-  if (emacsframe == hlinfo->mouse_face_mouse_frame)
+  if (*emacsframe == hlinfo->mouse_face_mouse_frame)
     {
       clear_mouse_face (hlinfo);
       hlinfo->mouse_face_mouse_frame = 0;
@@ -8996,8 +9017,8 @@ ns_in_echo_area (void)
   else
     {
       NSInteger tag = [sender tag];
-      find_and_call_menu_selection (emacsframe, emacsframe->menu_bar_items_used,
-                                    emacsframe->menu_bar_vector,
+      find_and_call_menu_selection (*emacsframe, (*emacsframe)->menu_bar_items_used,
+                                    (*emacsframe)->menu_bar_vector,
                                     (void *)tag);
     }
 
@@ -9020,10 +9041,10 @@ ns_in_echo_area (void)
   theEvent = [[self window] currentEvent];
   emacs_event->kind = TOOL_BAR_EVENT;
   /* XSETINT (emacs_event->code, 0); */
-  emacs_event->arg = AREF (emacsframe->tool_bar_items,
+  emacs_event->arg = AREF ((*emacsframe)->tool_bar_items,
 			   idx + TOOL_BAR_ITEM_KEY);
   emacs_event->modifiers = EV_MODIFIERS (theEvent);
-  EV_TRAILER (theEvent);
+  EV_TRAILER (theEvent, *emacsframe);
   return self;
 }
 
@@ -9041,7 +9062,7 @@ ns_in_echo_area (void)
 
   emacs_event->kind = NS_NONKEY_EVENT;
   emacs_event->code = KEY_NS_TOGGLE_TOOLBAR;
-  EV_TRAILER ((id)nil);
+  EV_TRAILER ((id)nil, *emacsframe);
   return self;
 }
 
@@ -9050,7 +9071,7 @@ ns_in_echo_area (void)
 - (CALayer *)makeBackingLayer
 {
   EmacsLayer *l = [[EmacsLayer alloc]
-                    initWithDoubleBuffered:FRAME_DOUBLE_BUFFERED (emacsframe)];
+                    initWithDoubleBuffered:FRAME_DOUBLE_BUFFERED (*emacsframe)];
 
   [l setDelegate:(id)self];
 
@@ -9091,8 +9112,8 @@ ns_in_echo_area (void)
   [layer setContentsScale:[[notification object] backingScaleFactor]];
   [layer setColorSpace:[(id) [[notification object] colorSpace] CGColorSpace]];
 
-  ns_clear_frame (emacsframe);
-  expose_frame (emacsframe, 0, 0, NSWidth (frame), NSHeight (frame));
+  ns_clear_frame (*emacsframe);
+  expose_frame (*emacsframe, 0, 0, NSWidth (frame), NSHeight (frame));
 }
 #endif
 
@@ -9159,7 +9180,7 @@ ns_in_echo_area (void)
    appears to be safe to call redisplay here.  */
 - (void)layoutSublayersOfLayer:(CALayer *)layer
 {
-  if (!redisplaying_p && FRAME_GARBAGED_P (emacsframe))
+  if (!redisplaying_p && FRAME_GARBAGED_P (*emacsframe))
     {
       /* If there is IO going on when redisplay is run here Emacs
          crashes.  I think it's because this code will always be run
@@ -9183,15 +9204,15 @@ ns_in_echo_area (void)
   NSTRACE ("[EmacsView drawRect:" NSTRACE_FMT_RECT "]",
            NSTRACE_ARG_RECT(rect));
 
-  if (!emacsframe || !emacsframe->output_data.ns)
+  if (!emacsframe || !(*emacsframe)->output_data.ns)
     return;
 
   int x = NSMinX (rect), y = NSMinY (rect);
   int width = NSWidth (rect), height = NSHeight (rect);
 
-  ns_clear_frame_area (emacsframe, x, y, width, height);
+  ns_clear_frame_area (*emacsframe, x, y, width, height);
   block_input ();
-  expose_frame (emacsframe, x, y, width, height);
+  expose_frame (*emacsframe, x, y, width, height);
   unblock_input ();
 }
 
@@ -9265,7 +9286,7 @@ ns_in_echo_area (void)
 #ifdef NS_IMPL_GNUSTEP
   XSETINT (ie.x, x);
   XSETINT (ie.y, y);
-  XSETFRAME (ie.frame_or_window, emacsframe);
+  XSETFRAME (ie.frame_or_window, *emacsframe);
   ie.arg = Qlambda;
   ie.modifiers = 0;
 
@@ -9273,7 +9294,7 @@ ns_in_echo_area (void)
 #else
   /* Input events won't be processed until the drop happens on macOS,
      so call this function instead.  */
-  XSETFRAME (frame, emacsframe);
+  XSETFRAME (frame, *emacsframe);
 
   safe_calln (Vns_drag_motion_function, frame,
 	      make_fixnum (x), make_fixnum (y));
@@ -9396,7 +9417,7 @@ ns_in_echo_area (void)
 				   strings));
   XSETINT (ie.x, x);
   XSETINT (ie.y, y);
-  XSETFRAME (ie.frame_or_window, emacsframe);
+  XSETFRAME (ie.frame_or_window, *emacsframe);
 
   kbd_buffer_store_event (&ie);
   return YES;
@@ -9475,12 +9496,12 @@ ns_in_echo_area (void)
   /* NOTE: under Cocoa miniwindowImage always returns nil, documentation
      about "AppleDockIconEnabled" notwithstanding, however the set message
      below has its effect nonetheless.  */
-  if (image != emacsframe->output_data.ns->miniimage)
+  if (image != (*emacsframe)->output_data.ns->miniimage)
     {
       if (image && [image isKindOfClass: [EmacsImage class]])
         [image release];
       [[self window] setMiniwindowImage:
-                       setMini ? emacsframe->output_data.ns->miniimage : nil];
+                       setMini ? (*emacsframe)->output_data.ns->miniimage : nil];
     }
 
   return self;
@@ -9699,7 +9720,7 @@ ns_in_echo_area (void)
 
   Lisp_Object frame, tail;
   EmacsView *ourView = (EmacsView *)[self delegate];
-  struct frame *ourFrame = ourView->emacsframe;
+  struct frame *ourFrame = *ourView->emacsframe;
   struct frame *parentFrame = FRAME_PARENT_FRAME (ourFrame);
   EmacsWindow *oldParentWindow = (EmacsWindow *)[self parentWindow];
 
@@ -9736,7 +9757,7 @@ ns_in_echo_area (void)
   /* Check if we have an incorrectly set parent.  */
   if ((! parentFrame && oldParentWindow)
       || (parentFrame && oldParentWindow
-          && ((EmacsView *)[oldParentWindow delegate])->emacsframe != parentFrame))
+          && *((EmacsView *)[oldParentWindow delegate])->emacsframe != parentFrame))
     {
       [[self parentWindow] removeChildWindow:self];
 
@@ -9986,7 +10007,7 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
      child frame placement in some cases involving Dock placement and
      Dock Hiding.  */
 #ifdef NS_IMPL_COCOA
-  struct frame *f = ((EmacsView *) [self delegate])->emacsframe;
+  struct frame *f = *((EmacsView *) [self delegate])->emacsframe;
   if (FRAME_PARENT_FRAME (f))
     return frameRect;
 
@@ -10011,7 +10032,7 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
     // screen.  If it is not, ask the system to reposition it (only
     // for non-child windows).
 
-    if (!FRAME_PARENT_FRAME (((EmacsView *)[self delegate])->emacsframe))
+    if (!FRAME_PARENT_FRAME (*((EmacsView *)[self delegate])->emacsframe))
     {
       NSArray *screens = [NSScreen screens];
       NSUInteger nr_screens = [screens count];
@@ -10148,7 +10169,7 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
 - (void)setAppearance
 {
 #if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
-  struct frame *f = ((EmacsView *)[self delegate])->emacsframe;
+  struct frame *f = *((EmacsView *)[self delegate])->emacsframe;
   NSAppearance *appearance = nil;
 
   NSTRACE ("[EmacsWindow setAppearance]");
@@ -10201,7 +10222,7 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
 
 - (BOOL)canBecomeKeyWindow
 {
-  return !FRAME_NO_ACCEPT_FOCUS (((EmacsView *)[self delegate])->emacsframe);
+  return !FRAME_NO_ACCEPT_FOCUS (*((EmacsView *)[self delegate])->emacsframe);
 }
 
 - (BOOL)canBecomeMainWindow
@@ -10252,10 +10273,10 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
 
       if (dnd_mode != RETURN_FRAME_NOW
 	  || ![[w delegate] isKindOfClass: [EmacsView class]]
-	  || ((EmacsView *) [w delegate])->emacsframe->tooltip)
+	  || (*((EmacsView *) [w delegate])->emacsframe)->tooltip)
 	goto out;
 
-      dnd_return_frame = ((EmacsView *) [w delegate])->emacsframe;
+      dnd_return_frame = *((EmacsView *) [w delegate])->emacsframe;
 
       /* FIXME: there must be a better way to leave the event loop.  */
       [NSException raise: @""
@@ -10311,9 +10332,9 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
       w = [NSApp windowWithWindowNumber: window_number];
 
       if (w && [[w delegate] isKindOfClass: [EmacsView class]]
-	  && !((EmacsView *) [w delegate])->emacsframe->tooltip)
+	  && !(*((EmacsView *) [w delegate])->emacsframe)->tooltip)
 	{
-	  *frame_return = ((EmacsView *) [w delegate])->emacsframe;
+	  *frame_return = *((EmacsView *) [w delegate])->emacsframe;
 	  [image release];
 	  unblock_input ();
 
@@ -10397,9 +10418,24 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
   return r;
 }
 
+- (struct window *)lispWindow
+{
+  return *m_lisp_window;
+}
+
+- (struct frame *)lispFrame
+{
+  return XFRAME ((*m_lisp_window)->frame);
+}
+
 - (instancetype)initFrame: (NSRect )r window: (Lisp_Object)nwin
 {
   NSTRACE ("[EmacsScroller initFrame: window:]");
+#ifdef HAVE_MPS
+  m_lisp_window = igc_xalloc_raw_exact (1);
+#else
+  m_lisp_window = xzalloc (sizeof *m_lisp_window);
+#endif
 
   if (r.size.width > r.size.height)
       horizontal = YES;
@@ -10419,7 +10455,7 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
   [self setAutoresizingMask: NSViewMinXMargin | NSViewHeightSizable];
 #endif
 
-  window = XWINDOW (nwin);
+  *m_lisp_window = XWINDOW (nwin);
   condemned = NO;
   if (horizontal)
     pixel_length = NSWidth (r);
@@ -10428,11 +10464,11 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
   if (pixel_length == 0) pixel_length = 1;
   min_portion = 20 / pixel_length;
 
-  frame = XFRAME (window->frame);
-  if (FRAME_LIVE_P (frame))
+  struct frame *f = [self lispFrame];
+  if (FRAME_LIVE_P (f))
     {
       int i;
-      EmacsView *view = FRAME_NS_VIEW (frame);
+      EmacsView *view = FRAME_NS_VIEW (f);
       NSView *sview = [[view window] contentView];
       NSArray *subs = [sview subviews];
 
@@ -10469,14 +10505,20 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
 - (void)dealloc
 {
   NSTRACE ("[EmacsScroller dealloc]");
-  if (window)
+  struct window *w = [self lispWindow];
+  if (w)
     {
       if (horizontal)
-        wset_horizontal_scroll_bar (window, Qnil);
+        wset_horizontal_scroll_bar (w, Qnil);
       else
-        wset_vertical_scroll_bar (window, Qnil);
+        wset_vertical_scroll_bar (w, Qnil);
     }
-  window = 0;
+  *m_lisp_window = NULL;
+#ifdef HAVE_MPS
+  igc_xfree (m_lisp_window);
+#else
+  xfree (m_lisp_window);
+#endif
   [super dealloc];
 }
 
@@ -10506,17 +10548,18 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
       EmacsView *view;
       block_input ();
       /* Ensure other scrollbar updates after deletion.  */
-      view = (EmacsView *)FRAME_NS_VIEW (frame);
+      struct frame *f = [self lispFrame];
+      view = (EmacsView *)FRAME_NS_VIEW (f);
       if (view != nil)
         view->scrollbarsNeedingUpdate++;
-      if (window)
+      if (*m_lisp_window)
         {
           if (horizontal)
-            wset_horizontal_scroll_bar (window, Qnil);
+            wset_horizontal_scroll_bar (*m_lisp_window, Qnil);
           else
-            wset_vertical_scroll_bar (window, Qnil);
+            wset_vertical_scroll_bar (*m_lisp_window, Qnil);
         }
-      window = 0;
+      *m_lisp_window = NULL;
       [self removeFromSuperview];
       [self release];
       unblock_input ();
@@ -10526,12 +10569,15 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
 
 - (void) mark
 {
+#ifndef HAVE_MPS
+  struct window *window = [self lispWindow];
   if (window)
     {
       Lisp_Object win;
       XSETWINDOW (win, window);
       mark_object (win);
     }
+#endif
 }
 
 
@@ -10609,7 +10655,7 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
   emacs_event->part = last_hit_part;
   emacs_event->code = 0;
   emacs_event->modifiers = EV_MODIFIERS (e) | down_modifier;
-  XSETWINDOW (win, window);
+  XSETWINDOW (win, *m_lisp_window);
   emacs_event->frame_or_window = win;
   emacs_event->timestamp = EV_TIMESTAMP (e);
   emacs_event->arg = Qnil;
@@ -10860,7 +10906,7 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
 {
   NSTRACE ("[EmacsScroller scrollWheel:]");
 
-  EmacsView *view = (EmacsView *)FRAME_NS_VIEW (frame);
+  EmacsView *view = (EmacsView *)FRAME_NS_VIEW ([self lispFrame]);
   [view mouseDown: theEvent];
 }
 

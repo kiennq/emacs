@@ -155,10 +155,26 @@ changes."
       (setq res (concat res s)))
     res))
 
+;; strange code for use in subprocesses
+(progn
+  (eval-and-compile
+    (defun module--define-gc-form ()
+      '(defun module--gc ()
+         (cond ((fboundp 'igc--collect)
+                (igc--collect)
+                (igc--process-messages))
+               (t
+                (garbage-collect))))))
+
+  (defmacro module--define-gc-macro ()
+    (module--define-gc-form))
+
+  (module--define-gc-macro))
+
 (ert-deftest mod-test-globref-make-test ()
   (let ((mod-str (mod-test-globref-make))
         (ref-str (multiply-string "abcdefghijklmnopqrstuvwxyz" 100)))
-    (garbage-collect) ;; XXX: not enough to really test but it's something..
+    (module--gc) ;; XXX: not enough to really test but it's something..
     (should (string= ref-str mod-str))))
 
 (ert-deftest mod-test-globref-free-test ()
@@ -183,6 +199,16 @@ changes."
     (should (= r n))))
 
 ;; TODO: try to test finalizer
+
+;; This came up in the discussion surrounding bug 79736.  There was a
+;; time when this triggered an assertion failure in the GC code.
+(ert-deftest mod-test-unaligned-userptr ()
+  (let* ((addresses (cl-loop for i from 0 to 20
+                             collect (logior (ash 1 i) 7)))
+         (ptrs (mapcar #'mod-test-address-to-userptr addresses)))
+    (module--gc)
+    (should (equal (mapcar #'mod-test-userptr-to-address ptrs)
+                   addresses))))
 
 ;;; Vector tests
 
@@ -228,6 +254,7 @@ must evaluate to a regular expression string."
                                     ,(prin1-to-string
                                       `(progn
                                          (require 'mod-test ,mod-test-file)
+                                         ,(module--define-gc-form)
                                          ,@body)))))
          ;; Aborting doesn't raise a signal on MS-DOS/Windows, but
          ;; rather exits with a non-zero status: 2 on MS-DOS (see
@@ -283,13 +310,15 @@ should nevertheless detect the invalid load."
   "Check that -module-assertions prevents calling Emacs functions
 during garbage collection."
   :tags (if (getenv "EMACS_EMBA_CI") '(:unstable))
-  (skip-unless (or (file-executable-p mod-test-emacs)
-                   (and (eq system-type 'windows-nt)
-                        (file-executable-p (concat mod-test-emacs ".exe")))))
+  :expected-result (if (fboundp 'igc--collect) :failed :passed)
+  (skip-unless
+   (or (file-executable-p mod-test-emacs)
+       (and (eq system-type 'windows-nt)
+            (file-executable-p (concat mod-test-emacs ".exe")))))
   (module--test-assertion
       (rx "Module function called during garbage collection\n")
     (mod-test-invalid-finalizer)
-    (garbage-collect)))
+    (module--gc)))
 
 (ert-deftest module--test-assertions--globref-invalid-free ()
   "Check that -module-assertions detects invalid freeing of a
@@ -301,7 +330,7 @@ local reference."
   (module--test-assertion
       (rx "Global value was not found in list of " (+ digit) " globals")
     (mod-test-globref-invalid-free)
-    (garbage-collect)))
+    (module--gc)))
 
 (ert-deftest module/describe-function-1 ()
   "Check that Bug#30163 is fixed."
@@ -446,7 +475,7 @@ See Bug#36226."
   (cl-destructuring-bind (valid-before invalid-before)
       (mod-test-function-finalizer-calls)
     (should (zerop invalid-before))
-    (garbage-collect)
+    (module--gc)
     (cl-destructuring-bind (valid-after invalid-after)
         (mod-test-function-finalizer-calls)
       (should (zerop invalid-after))

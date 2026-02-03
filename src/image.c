@@ -51,6 +51,8 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "coding.h"
 #include "termhooks.h"
 #include "font.h"
+#include "pdumper.h"
+#include "igc.h"
 
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
@@ -1744,7 +1746,11 @@ or omitted means use the selected frame.  */)
 static struct image *
 make_image (Lisp_Object spec, EMACS_UINT hash)
 {
+#ifdef HAVE_MPS
+  struct image *img = igc_make_image ();
+#else
   struct image *img = xzalloc (sizeof *img);
+#endif
   Lisp_Object file = image_spec_value (spec, QCfile, NULL);
 
   eassert (valid_image_p (spec));
@@ -1802,7 +1808,9 @@ free_image (struct frame *f, struct image *img)
 	img->type->free_img (f, img);
 
       xfree (img->face_font_family);
+#ifndef HAVE_MPS
       xfree (img);
+#endif
     }
 }
 
@@ -2191,7 +2199,11 @@ static void cache_image (struct frame *f, struct image *img);
 struct image_cache *
 make_image_cache (void)
 {
+#ifdef HAVE_MPS
+  struct image_cache *c = igc_make_image_cache ();
+#else
   struct image_cache *c = xmalloc (sizeof *c);
+#endif
 
   c->size = 50;
   c->used = c->refcount = 0;
@@ -2319,8 +2331,12 @@ free_image_cache (struct frame *f)
   for (i = 0; i < c->used; ++i)
     free_image (f, c->images[i]);
   xfree (c->images);
+  c->images = NULL;
   xfree (c->buckets);
+  c->buckets = NULL;
+#ifndef HAVE_MPS
   xfree (c);
+#endif
 }
 
 /* Clear image cache of frame F.  FILTER=t means free all images.
@@ -3662,7 +3678,9 @@ cache_image (struct frame *f, struct image *img)
 
   /* If no free slot found, maybe enlarge c->images.  */
   if (i == c->used && c->used == c->size)
-    c->images = xpalloc (c->images, &c->size, 1, -1, sizeof *c->images);
+    {
+      c->images = xpalloc (c->images, &c->size, 1, -1, sizeof *c->images);
+    }
 
   /* Add IMG to c->images, and assign IMG an id.  */
   c->images[i] = img;
@@ -3812,6 +3830,7 @@ anim_get_animation_cache (Lisp_Object spec)
 
 #endif  /* HAVE_WEBP || HAVE_GIF */
 
+#ifndef HAVE_MPS
 /* Mark Lisp objects in image IMG.  */
 static void
 mark_image (struct image *img)
@@ -3842,6 +3861,7 @@ mark_image_cache (struct image_cache *c)
 #endif
 }
 
+#endif // not HAVE_MPS
 
 
 /***********************************************************************

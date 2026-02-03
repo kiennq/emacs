@@ -19,6 +19,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #ifndef THREAD_H
 #define THREAD_H
 
+#include "config.h"
 #include "regex-emacs.h"
 
 #ifdef WINDOWSNT
@@ -61,7 +62,7 @@ struct bc_thread_state {
 
 struct thread_state
 {
-  union vectorlike_header header;
+  struct vectorlike_header header;
 
   /* The buffer in which the last search was performed, or
      Qt if the last search was done in a string;
@@ -188,15 +189,26 @@ struct thread_state
      so that if more than one thread calls read_char, they don't
      clobber each other's getcjmp, which will cause
      quit_throw_to_read_char crash due to using a wrong stack.  */
+#ifdef HAVE_MPS
+  /* For MPS, we need to use an indirect setjmp buffer so we can mark it
+     conservatively.  */
+  sys_jmp_buf *m_getcjmp;
+#define getcjmp (*(current_thread->m_getcjmp))
+#else
   sys_jmp_buf m_getcjmp;
 #define getcjmp (current_thread->m_getcjmp)
+#endif
 
   /* The OS identifier for this thread.  */
   sys_thread_t thread_id;
 
+#ifdef HAVE_MPS
+  sys_cond_t *thread_condvar;
+#else
   /* The condition variable for this thread.  This is associated with
      the global lock.  This thread broadcasts to it when it exits.  */
-  sys_cond_t thread_condvar;
+  sys_cond_t thread_condvar[1];
+#endif
 
   /* This thread might be waiting for some condition.  If so, this
      points to the condition.  If the thread is interrupted, the
@@ -216,7 +228,14 @@ struct thread_state
   /* Threads are kept on a linked list.  */
   struct thread_state *next_thread;
 
-  struct bc_thread_state bc;
+#ifndef HAVE_MPS
+  struct bc_thread_state bc[1];
+#else
+  struct bc_thread_state *bc;
+  void *gc_info;
+  ptrdiff_t pin_index;
+#endif
+
 } GCALIGNED_STRUCT;
 
 INLINE bool
@@ -251,13 +270,17 @@ typedef struct
   /* The lock count.  */
   unsigned int count;
   /* The underlying system condition variable.  */
-  sys_cond_t condition;
+#ifdef HAVE_MPS
+  sys_cond_t *condition;
+#else
+  sys_cond_t condition[1];
+#endif
 } lisp_mutex_t;
 
 /* A mutex as a lisp object.  */
 struct Lisp_Mutex
 {
-  union vectorlike_header header;
+  struct vectorlike_header header;
 
   /* The name of the mutex, or nil.  */
   Lisp_Object name;
@@ -288,7 +311,7 @@ XMUTEX (Lisp_Object a)
 /* A condition variable as a lisp object.  */
 struct Lisp_CondVar
 {
-  union vectorlike_header header;
+  struct vectorlike_header header;
 
   /* The associated mutex.  */
   Lisp_Object mutex;
@@ -297,7 +320,11 @@ struct Lisp_CondVar
   Lisp_Object name;
 
   /* The lower-level condition variable object.  */
-  sys_cond_t cond;
+#ifdef HAVE_MPS
+  sys_cond_t *cond;
+#else
+  sys_cond_t cond[1];
+#endif
 } GCALIGNED_STRUCT;
 
 INLINE bool
@@ -340,6 +367,15 @@ int thread_select  (select_func *func, int max_fds, fd_set *rfds,
 		    sigset_t *sigmask);
 
 bool thread_check_current_buffer (struct buffer *);
+
+union aligned_thread_state
+{
+  struct thread_state s;
+  GCALIGNED_UNION_MEMBER
+};
+static_assert (GCALIGNED (union aligned_thread_state));
+
+extern union aligned_thread_state main_thread;
 
 void thread_all_before_buffer_killed (Lisp_Object buffer);
 

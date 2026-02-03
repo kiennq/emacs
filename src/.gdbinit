@@ -50,6 +50,13 @@ if defined_HAVE_PGTK
   handle SIGPIPE nostop noprint
 end
 
+# Pass on signals used by MPS to suspend threads.
+if defined_HAVE_MPS
+  handle SIGSEGV nostop noprint pass
+  handle SIGXFSZ nostop noprint pass
+  handle SIGXCPU nostop noprint pass
+end
+
 # Helper command to get the pointer to the C struct that holds the data
 # of a Lisp object given as argument, by removing the GC and type-tag bits.
 # Stores the result in $ptr.

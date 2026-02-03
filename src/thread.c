@@ -20,6 +20,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <config.h>
 #include <setjmp.h>
 #include "lisp.h"
+#include "igc.h"
 #include "character.h"
 #include "buffer.h"
 #include "process.h"
@@ -38,14 +39,12 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #define release_select_lock() do { } while (0)
 #endif
 
-union aligned_thread_state
-{
-  struct thread_state s;
-  GCALIGNED_UNION_MEMBER
-};
-static_assert (GCALIGNED (union aligned_thread_state));
+#ifdef HAVE_MPS
+static sys_jmp_buf main_thread_getcjmp;
+static sys_cond_t main_thread_condvar;
+#endif
 
-static union aligned_thread_state main_thread
+union aligned_thread_state main_thread
   = {{
       .header.size = PVECHEADERSIZE (PVEC_THREAD,
 				     PSEUDOVECSIZE (struct thread_state,
@@ -53,6 +52,10 @@ static union aligned_thread_state main_thread
 				     VECSIZE (struct thread_state)),
       .m_last_thing_searched = LISPSYM_INITIALLY (Qnil),
       .m_saved_last_thing_searched = LISPSYM_INITIALLY (Qnil),
+#ifdef HAVE_MPS
+      .m_getcjmp = &main_thread_getcjmp,
+      .thread_condvar = &main_thread_condvar,
+#endif
       .name = LISPSYM_INITIALLY (Qnil),
       .function = LISPSYM_INITIALLY (Qnil),
       .result = LISPSYM_INITIALLY (Qnil),
@@ -191,7 +194,10 @@ lisp_mutex_init (lisp_mutex_t *mutex)
 {
   mutex->owner = NULL;
   mutex->count = 0;
-  sys_cond_init (&mutex->condition);
+#ifdef HAVE_MPS
+  mutex->condition = xzalloc (sizeof (*mutex->condition));
+#endif
+  sys_cond_init (mutex->condition);
 }
 
 /* Lock MUTEX for thread LOCKER, setting its lock count to COUNT, if
@@ -228,10 +234,10 @@ lisp_mutex_lock_for_thread (lisp_mutex_t *mutex, struct thread_state *locker,
     }
 
   self = locker;
-  self->wait_condvar = &mutex->condition;
+  self->wait_condvar = mutex->condition;
   while (mutex->owner != NULL && (new_count != 0
 				  || NILP (self->error_symbol)))
-    sys_cond_wait (&mutex->condition, &global_lock);
+    sys_cond_wait (mutex->condition, &global_lock);
   self->wait_condvar = NULL;
 
   if (new_count == 0 && !NILP (self->error_symbol))
@@ -265,7 +271,7 @@ lisp_mutex_unlock (lisp_mutex_t *mutex)
     return 0;
 
   mutex->owner = NULL;
-  sys_cond_broadcast (&mutex->condition);
+  sys_cond_broadcast (mutex->condition);
 
   return 1;
 }
@@ -282,7 +288,7 @@ lisp_mutex_unlock_for_wait (lisp_mutex_t *mutex)
 
   mutex->count = 0;
   mutex->owner = NULL;
-  sys_cond_broadcast (&mutex->condition);
+  sys_cond_broadcast (mutex->condition);
 
   return result;
 }
@@ -290,7 +296,10 @@ lisp_mutex_unlock_for_wait (lisp_mutex_t *mutex)
 static void
 lisp_mutex_destroy (lisp_mutex_t *mutex)
 {
-  sys_cond_destroy (&mutex->condition);
+  sys_cond_destroy (mutex->condition);
+#ifdef HAVE_MPS
+  xfree (mutex->condition);
+#endif
 }
 
 static int
@@ -435,7 +444,10 @@ informational only.  */)
     = ALLOCATE_ZEROED_PSEUDOVECTOR (struct Lisp_CondVar, name, PVEC_CONDVAR);
   condvar->mutex = mutex;
   condvar->name = name;
-  sys_cond_init (&condvar->cond);
+#ifdef HAVE_MPS
+  condvar->cond = xzalloc (sizeof (*condvar->cond));
+#endif
+  sys_cond_init (condvar->cond);
 
   Lisp_Object result;
   XSETCONDVAR (result, condvar);
@@ -457,9 +469,9 @@ condition_wait_callback (void *arg)
   /* If signaled while unlocking, skip the wait but reacquire the lock.  */
   if (NILP (self->error_symbol))
     {
-      self->wait_condvar = &cvar->cond;
+      self->wait_condvar = cvar->cond;
       /* This call could switch to another thread.  */
-      sys_cond_wait (&cvar->cond, &global_lock);
+      sys_cond_wait (cvar->cond, &global_lock);
       self->wait_condvar = NULL;
     }
   self->event_object = Qnil;
@@ -522,9 +534,9 @@ condition_notify_callback (void *arg)
   XSETCONDVAR (cond, na->cvar);
   saved_count = lisp_mutex_unlock_for_wait (&mutex->mutex);
   if (na->all)
-    sys_cond_broadcast (&na->cvar->cond);
+    sys_cond_broadcast (na->cvar->cond);
   else
-    sys_cond_signal (&na->cvar->cond);
+    sys_cond_signal (na->cvar->cond);
   /* Calling lisp_mutex_lock might yield to other threads while this
      one waits for the mutex to become unlocked, so we need to
      announce us as the current thread by calling
@@ -592,7 +604,10 @@ If no name was given when COND was created, return nil.  */)
 void
 finalize_one_condvar (struct Lisp_CondVar *condvar)
 {
-  sys_cond_destroy (&condvar->cond);
+  sys_cond_destroy (condvar->cond);
+#ifdef HAVE_MPS
+  xfree (condvar->cond);
+#endif
 }
 
 
@@ -661,7 +676,7 @@ thread_select (select_func *func, int max_fds, fd_set *rfds,
 }
 
 
-
+#ifndef HAVE_MPS
 static void
 mark_one_thread (struct thread_state *thread)
 {
@@ -686,7 +701,7 @@ mark_one_thread (struct thread_state *thread)
       mark_object (tem);
     }
 
-  mark_bytecode (&thread->bc);
+  mark_bytecode (thread->bc);
 
   /* No need to mark Lisp_Object members like m_last_thing_searched,
      as mark_threads_callback does that by calling mark_object.  */
@@ -719,6 +734,7 @@ unmark_main_thread (void)
   main_thread.s.header.size &= ~ARRAY_MARK_FLAG;
 }
 
+#endif // not HAVE_MPS
 
 
 static void
@@ -807,7 +823,12 @@ run_thread (void *state)
   /* Put a dummy catcher at top-level so that handlerlist is never NULL.
      This is important since handlerlist->nextfree holds the freelist
      which would otherwise leak every time we unwind back to top-level.   */
+#ifdef HAVE_MPS
+  self->gc_info = igc_thread_add (self);
+  handlerlist_sentinel = igc_alloc_handler ();
+#else
   handlerlist_sentinel = xzalloc (sizeof (struct handler));
+#endif
   handlerlist = handlerlist_sentinel->nextfree = handlerlist_sentinel;
   struct handler *c = push_handler (Qunbound, CATCHER);
   eassert (c == handlerlist_sentinel);
@@ -823,20 +844,29 @@ run_thread (void *state)
   self->m_specpdl = NULL;
   self->m_specpdl_ptr = NULL;
   self->m_specpdl_end = NULL;
+#ifdef HAVE_MPS
+  igc_xfree (self->m_getcjmp);
+  self->m_getcjmp = NULL;
+#endif
 
-  {
-    struct handler *c, *c_next;
-    for (c = handlerlist_sentinel; c; c = c_next)
-      {
-	c_next = c->nextfree;
-	xfree (c);
-      }
-  }
+   for (struct handler *c = handlerlist_sentinel, *c_next; c; c = c_next)
+     {
+       c_next = c->nextfree;
+#ifndef HAVE_MPS
+       xfree (c);
+#else
+       igc_xfree (c);
+#endif
+     }
 
   xfree (self->thread_name);
 
+#ifdef HAVE_MPS
+  igc_thread_remove (&self->gc_info);
+#endif
+
   current_thread = NULL;
-  sys_cond_broadcast (&self->thread_condvar);
+  sys_cond_broadcast (self->thread_condvar);
 
 #ifdef HAVE_NS
   ns_release_autorelease_pool (pool);
@@ -878,8 +908,11 @@ finalize_one_thread (struct thread_state *state)
 {
   free_search_regs (&state->m_search_regs);
   free_search_regs (&state->m_saved_search_regs);
-  sys_cond_destroy (&state->thread_condvar);
-  free_bc_thread (&state->bc);
+  sys_cond_destroy (state->thread_condvar);
+#ifdef HAVE_MPS
+  xfree (state->thread_condvar);
+#endif
+  free_bc_thread (state->bc);
 }
 
 DEFUN ("make-thread", Fmake_thread, Smake_thread, 1, 3, 0,
@@ -907,18 +940,22 @@ will be signaled.  */)
 				    PVEC_THREAD);
   new_thread->function = function;
   new_thread->name = name;
+#ifdef HAVE_MPS
+  new_thread->m_getcjmp = igc_xzalloc_ambig (sizeof (*new_thread->m_getcjmp));
+  new_thread->thread_condvar = xzalloc (sizeof (*new_thread->thread_condvar));
+  new_thread->bc = xzalloc (sizeof (*new_thread->bc));
+#endif
   /* Perhaps copy m_last_thing_searched from parent?  */
   new_thread->m_current_buffer = current_thread->m_current_buffer;
 
   ptrdiff_t size = 50;
-  union specbinding *pdlvec = xmalloc ((1 + size) * sizeof (union specbinding));
+  union specbinding *pdlvec = xzalloc ((1 + size) * sizeof (union specbinding));
   new_thread->m_specpdl = pdlvec + 1;  /* Skip the dummy entry.  */
   new_thread->m_specpdl_end = new_thread->m_specpdl + size;
   new_thread->m_specpdl_ptr = new_thread->m_specpdl;
 
-  init_bc_thread (&new_thread->bc);
-
-  sys_cond_init (&new_thread->thread_condvar);
+  init_bc_thread (new_thread->bc);
+  sys_cond_init (new_thread->thread_condvar);
 
   /* We'll need locking here eventually.  */
   new_thread->next_thread = all_threads;
@@ -1106,7 +1143,7 @@ thread_join_callback (void *arg)
 
   XSETTHREAD (thread, tstate);
   self->event_object = thread;
-  self->wait_condvar = &tstate->thread_condvar;
+  self->wait_condvar = tstate->thread_condvar;
   while (thread_live_p (tstate) && NILP (self->error_symbol))
     sys_cond_wait (self->wait_condvar, &global_lock);
 
@@ -1245,7 +1282,7 @@ in_current_thread (void)
 void
 init_threads (void)
 {
-  sys_cond_init (&main_thread.s.thread_condvar);
+  sys_cond_init (main_thread.s.thread_condvar);
   sys_mutex_init (&global_lock);
   sys_mutex_lock (&global_lock);
   current_thread = &main_thread.s;
@@ -1255,7 +1292,14 @@ init_threads (void)
 
   main_thread.s.thread_id = sys_thread_self ();
   main_thread.s.buffer_disposition = Qnil;
-  init_bc_thread (&main_thread.s.bc);
+#ifdef HAVE_MPS
+  main_thread.s.bc = xzalloc (sizeof (*main_thread.s.bc));
+#endif
+  init_bc_thread (main_thread.s.bc);
+#ifdef HAVE_MPS
+  igc_on_alloc_main_thread_bc ();
+#endif
+  gc_init_header (&main_thread.s.header.gc_header, IGC_OBJ_VECTOR);
 }
 
 void

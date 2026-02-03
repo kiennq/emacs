@@ -345,6 +345,9 @@ FONT_OBJ=@FONT_OBJ@
 CM_OBJ=@CM_OBJ@
 
 LIBGPM = @LIBGPM@
+MPSOBJ = @MPSOBJ@
+IGCOBJ = @IGCOBJ@
+MPS_CONFIG= @MPS_CONFIG@
 
 LIBSELINUX_LIBS = @LIBSELINUX_LIBS@
 LIBSELINUX_CFLAGS = @LIBSELINUX_CFLAGS@
@@ -384,6 +387,7 @@ ANDROID_OBJ = @ANDROID_OBJ@
 ANDROID_LIBS = @ANDROID_LIBS@
 ANDROID_LDFLAGS = @ANDROID_LDFLAGS@
 ANDROID_BUILD_CFLAGS = @ANDROID_BUILD_CFLAGS@
+MPS_CFLAGS = @MPS_CFLAGS@
 
 LIBGMP_CFLAGS = @LIBGMP_CFLAGS@
 
@@ -431,7 +435,7 @@ EMACS_CFLAGS=-Demacs $(MYCPPFLAGS) -I. -I$(srcdir) \
   $(LIBGNUTLS_CFLAGS) $(NOTIFY_CFLAGS) $(CAIRO_CFLAGS) \
   $(WERROR_CFLAGS) $(HAIKU_CFLAGS) $(XCOMPOSITE_CFLAGS) $(XSHAPE_CFLAGS) \
   $(ANDROID_BUILD_CFLAGS) $(GIF_CFLAGS) $(JPEG_CFLAGS) $(SQLITE3_CFLAGS) \
-  $(LIBGMP_CFLAGS) $(TIFF_CFLAGS) $(LIBSELINUX_CFLAGS)
+  $(LIBGMP_CFLAGS) $(TIFF_CFLAGS) $(LIBSELINUX_CFLAGS) $(MPS_CFLAGS)
 ALL_CFLAGS = $(EMACS_CFLAGS) $(WARN_CFLAGS) $(CFLAGS)
 ALL_OBJC_CFLAGS = $(EMACS_CFLAGS) \
   $(filter-out $(NON_OBJC_CFLAGS),$(WARN_CFLAGS)) $(CFLAGS) \
@@ -461,9 +465,9 @@ base_obj = dispnew.o frame.o scroll.o xdisp.o menu.o $(XMENU_OBJ) window.o     \
 	region-cache.o sound.o timefns.o atimer.o			       \
 	doprnt.o intervals.o textprop.o composite.o xml.o lcms.o $(NOTIFY_OBJ) \
 	$(XWIDGETS_OBJ) 						       \
-	profiler.o decompress.o 					       \
+	profiler.o decompress.o $(IGCOBJ) 				       \
 	thread.o systhread.o sqlite.o  treesit.o			       \
-	itree.o json.o 							       \
+	itree.o json.o gc-handles.o					       \
 	$(MSDOS_OBJ) $(MSDOS_X_OBJ) $(NS_OBJ) $(CYGWIN_OBJ) $(FONT_OBJ)        \
 	$(W32_OBJ) $(WINDOW_SYSTEM_OBJ) $(XGSELOBJ)			       \
 	$(HAIKU_OBJ) $(PGTK_OBJ) $(ANDROID_OBJ)
@@ -496,7 +500,8 @@ VMLIMIT_OBJ=@VMLIMIT_OBJ@
 RALLOC_OBJ=@RALLOC_OBJ@
 
 ## List of object files that make-docfile should not be told about.
-otherobj= $(TERMCAP_OBJ) $(GMALLOC_OBJ) $(RALLOC_OBJ) $(WIDGET_OBJ) $(LIBOBJS)
+otherobj= $(TERMCAP_OBJ) $(GMALLOC_OBJ) $(RALLOC_OBJ) $(WIDGET_OBJ) \
+  $(LIBOBJS) $(MPSOBJ)
 
 ## All object files linked into temacs.  $(VMLIMIT_OBJ) should be first.
 ALLOBJS = $(VMLIMIT_OBJ) $(obj) $(otherobj)
@@ -513,7 +518,10 @@ endif
 .PHONY: all
 
 dmpstruct_headers=$(srcdir)/lisp.h $(srcdir)/buffer.h $(srcdir)/itree.h \
-	$(srcdir)/intervals.h $(srcdir)/charset.h $(srcdir)/bignum.h
+	$(srcdir)/intervals.h $(srcdir)/charset.h $(srcdir)/bignum.h \
+	$(srcdir)/coding.h $(srcdir)/comp.h $(srcdir)/dispextern.h \
+	$(srcdir)/frame.h $(srcdir)/termhooks.h $(srcdir)/thread.h \
+	$(srcdir)/treesit.h $(srcdir)/window.h $(srcdir)/xwidget.h
 ifeq ($(CHECK_STRUCTS),true)
 pdumper.o: dmpstruct.h
 endif
@@ -693,6 +701,10 @@ LIBEGNU_ARCHIVE = $(lib)/libgnu.a
 $(LIBEGNU_ARCHIVE): $(config_h)
 	$(MAKE) -C $(dir $@) all
 
+mps.o: $(config_h)
+	$(AM_V_CC)$(CC) $(CFLAGS) $(MPS_CONFIG) $(DEPFLAGS) \
+	-c $(top_srcdir)/mps/code/mps.c -o $@
+
 ifeq ($(HAVE_PDUMPER),yes)
 MAKE_PDUMPER_FINGERPRINT = $(libsrc)/make-fingerprint$(EXEEXT)
 else
@@ -833,7 +845,8 @@ ${ETAGS}: FORCE
 
 # Remove macuvs.h since it'd cause `src/emacs`
 # to be built before we can get TAGS.
-ctagsfiles1 = $(filter-out ${srcdir}/macuvs.h, $(wildcard ${srcdir}/*.[hc]))
+ctagsfiles1 = $(filter-out ${srcdir}/macuvs.h, \
+		$(wildcard ${srcdir}/*.[hc]) $(wildcard ../mps/code/*.[hc]))
 ctagsfiles2 = $(wildcard ${srcdir}/*.m)
 ctagsfiles3 = $(wildcard ${srcdir}/*.cc)
 

@@ -1307,9 +1307,19 @@
     (cl-loop for (k1 . v1) in expected
              for (k2 . v2) in actual
              do (ft--check-entry w k1 v1 k2 v2))
-    (should (= (length expected) (length actual)))))
+    (should (= (length expected) (length actual)))
+    (should (= (hash-table-count table) (length expected)))))
 
-(defun ft--gc () (garbage-collect))
+(defun ft--gc (weakness)
+  (cond ((fboundp 'igc--collect)
+         (igc--collect)
+         (cl-ecase weakness
+           (key-or-value
+            (igc--process-messages)
+            (igc--collect))
+           ((key value key-and-value))))
+        (t
+         (garbage-collect))))
 
 ;; Test that weakly held objects are no longer in a hash table after a
 ;; GC cycle.
@@ -1321,7 +1331,7 @@
          (table (make-hash-table :weakness weakness))
          (f (lambda () (ft--populate-hashtable table (ft--nentries))))
          (pairs (thread-join (make-thread f))))
-    (ft--gc)
+    (ft--gc weakness)
     (ft--check-entries table pairs)))
 
 (ert-deftest ft-weak-key-removal () (ft--test-weak-removal 'key))
@@ -1345,6 +1355,88 @@
   (dolist (w '(nil key value key-and-value key-or-value))
     (ft--test-puthash w)))
 
+(defun ft--test-puthash-types (weakness test)
+  (let ((objects
+         (list 0 1 0.0
+               (cons nil nil) '(nil . nil) '#1=(#1# . #1#)
+               (make-symbol "uninterned") 'ft--test-puthash-types
+               nil t 'error
+               [] [1] (vector 2) (ash 1 128)
+               "" "a" (string ?a) (make-string 10 255 t)))
+        (ht (make-hash-table :weakness weakness :test test)))
+    (dolist (key objects)
+      (dolist (value objects)
+        (puthash key value ht)
+        (should (eq (gethash key ht 'test) value))
+        (should (= (hash-table-count ht) 1))
+        (remhash key ht)
+        (should (eq (gethash key ht 'test) 'test))
+        (should (= (hash-table-count ht) 0))))))
+
+(ert-deftest ft-puthash-types-weak ()
+  (dolist (w '(nil key value key-and-value key-or-value))
+    (dolist (test '(eq eql equal))
+      (ft--test-puthash-types w test))))
+
+(defun ft--test-weak-fixnums (weakness test)
+  (let ((h (make-hash-table :weakness weakness :test test)))
+    (dotimes (i 32)
+      (puthash i (lognot 2) h))
+    (ft--gc weakness)))
+
+(ert-deftest ft-weak-fixnums ()
+  (dolist (w '(key value key-and-value key-or-value))
+    (dolist (test '(eq eql equal))
+      (ft--test-weak-fixnums w test))))
+
+(defun ft--test-weak-fixnums2 (weakness test)
+  (let ((h (make-hash-table :weakness weakness :test test)))
+    (dotimes (i 3)
+      (cl-ecase i
+        (#b00 (dotimes (i 10)
+                (puthash i (lognot i) h)))
+        (#b01 (dotimes (i 10)
+                (puthash i (cons nil nil) h)))
+        (#b10 (dotimes (i 10)
+                (puthash (cons nil nil) i h)))))
+    (ft--gc weakness)))
+
+(ert-deftest ft-weak-fixnums2 ()
+  (dolist (w '(key value key-and-value key-or-value))
+    (dolist (test '(eq eql equal))
+      (ft--test-weak-fixnums2 w test))))
+
+(defun ft--test-ephemeron-table (weakness)
+  (let* ((h (make-hash-table :weakness weakness :test 'eq))
+         (n 1000))
+    (dotimes (i n)
+      (let* ((obj (cons 'a i)))
+        (puthash obj obj h)))
+    (ft--gc weakness)
+    (should (< (length (ft--hash-table-entries h)) n))
+    (should (< (hash-table-count h) n))))
+
+(ert-deftest ft-ephemeron-table ()
+  :expected-result (if (fboundp 'igc--collect) :failed :passed)
+  (dolist (w '(key value key-and-value key-or-value))
+    (ft--test-ephemeron-table w)))
+
+(ert-deftest ft-weak-equal-table ()
+  :expected-result (if (fboundp 'igc--collect) :failed :passed)
+  (let* ((h (make-hash-table :weakness 'key-or-value :test #'equal))
+         (n 10)
+         (root nil))
+    (dotimes (i n)
+      (let* ((key (list 'key i))
+             (val (list 'val i)))
+        (puthash key val h)))
+    (should (= (hash-table-count h) n))
+    (ft--gc 'key)
+    (setq root (gethash '(key 0) h))
+    (ft--gc 'key-or-value)
+    (should (< (hash-table-count h) n))
+    (should (equal root (gethash '(key 0) h)))))
+
 
 
 (ert-deftest test-hash-function-that-mutates-hash-table ()
@@ -1366,6 +1458,8 @@
 	     (sxhash-equal (make-string 1000 ?a))))
   (should (= (sxhash-equal (point-marker))
 	     (sxhash-equal (point-marker))))
+  (should (= (sxhash-equal (make-marker))
+	     (sxhash-equal (make-marker))))
   (should (= (sxhash-equal (make-vector 1000 (make-string 10 ?a)))
 	     (sxhash-equal (make-vector 1000 (make-string 10 ?a)))))
   (should (= (sxhash-equal (make-bool-vector 1000 t))
