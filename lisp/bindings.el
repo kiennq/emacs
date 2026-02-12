@@ -514,6 +514,11 @@ are no active minor modes or non-empty lighters."
           (setq empty nil))))
     (and (not empty) menu)))
 
+(defvar mode-line--collapse-keymap nil
+  "Cached keymap for collapsed minor mode indicator in the mode line.
+Reused across redisplay cycles to avoid recreating the keymap
+via `define-keymap' on every call to `mode-line--minor-modes'.")
+
 (defun mode-line--minor-modes ()
   "Compute mode line constructs for minor mode lighters."
   (let (visible hidden)
@@ -557,10 +562,24 @@ mouse-3: Toggle minor modes"
                           (popup-menu m e)
                         (message "No menu available"))))
                    (keymap
-                    (define-keymap
-                      :parent mode-line-minor-mode-keymap
-                      "<mode-line> <down-mouse-1>" menu
-                      "<mode-line> <mouse-2>" #'describe-mode)))
+                    ;; Reuse the cached keymap to avoid calling
+                    ;; `define-keymap' (which parses key strings via
+                    ;; `key-parse' / `key-valid-p') on every redisplay.
+                    ;; Only the menu command changes between calls;
+                    ;; use `define-key' directly to bypass key string
+                    ;; parsing overhead.
+                    (if mode-line--collapse-keymap
+                        (progn
+                          (define-key mode-line--collapse-keymap
+                                     [mode-line down-mouse-1] menu)
+                          mode-line--collapse-keymap)
+                      (let ((map (make-sparse-keymap)))
+                        (set-keymap-parent map
+                                          mode-line-minor-mode-keymap)
+                        (define-key map [mode-line down-mouse-1] menu)
+                        (define-key map [mode-line mouse-2]
+                                    #'describe-mode)
+                        (setq mode-line--collapse-keymap map)))))
               `(:propertize mode-line-collapse-minor-modes-to
                             mouse-face mode-line-highlight
                             help-echo "Hidden minor modes\n\
