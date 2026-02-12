@@ -5244,13 +5244,20 @@ defvar_bool (struct Lisp_Fwd const *b_fwd, char const *namestring)
 /* Similar but define a variable whose value is the Lisp Object stored
    at address.  */
 void
-defvar_lisp (struct Lisp_Fwd const *o_fwd, char const *namestring)
+defvar_lisp_nopro (struct Lisp_Fwd const *o_fwd, char const *namestring)
 {
   eassert (o_fwd->type == Lisp_Fwd_Obj);
   Lisp_Object sym = intern_c_string (namestring);
   XBARE_SYMBOL (sym)->u.s.declared_special = true;
   XBARE_SYMBOL (sym)->u.s.redirect = SYMBOL_FORWARDED;
   SET_SYMBOL_FWD (XBARE_SYMBOL (sym), o_fwd);
+}
+
+void
+defvar_lisp (struct Lisp_Fwd const *o_fwd, char const *namestring)
+{
+  eassert (o_fwd->type == Lisp_Fwd_Obj);
+  defvar_lisp_nopro (o_fwd, namestring);
   staticpro (o_fwd->u.objvar);
 }
 
