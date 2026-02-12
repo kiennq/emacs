@@ -5540,10 +5540,26 @@ w32_wnd_proc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	      HFONT old_font;
 	      SIZE size;
 
-	      GetObject (menu_font, sizeof (menu_logfont), &menu_logfont);
-	      menu_logfont.lfWeight = FW_BOLD;
-	      menu_font = CreateFontIndirect (&menu_logfont);
-	      old_font = SelectObject (hdc, menu_font);
+	      /* Cache the bold variant of the menu font to avoid
+		 CreateFontIndirect/DeleteObject on every menu item.
+		 Invalidated when the source font handle changes
+		 (e.g. WM_SETTINGCHANGE).  */
+	      static HFONT cached_menu_bold_font;
+	      static HFONT cached_menu_source_font;
+
+	      if (menu_font != cached_menu_source_font
+		  || !cached_menu_bold_font)
+		{
+		  if (cached_menu_bold_font)
+		    DeleteObject (cached_menu_bold_font);
+		  GetObject (menu_font, sizeof (menu_logfont),
+			     &menu_logfont);
+		  menu_logfont.lfWeight = FW_BOLD;
+		  cached_menu_bold_font
+		    = CreateFontIndirect (&menu_logfont);
+		  cached_menu_source_font = menu_font;
+		}
+	      old_font = SelectObject (hdc, cached_menu_bold_font);
 
 	      pMis->itemHeight = GetSystemMetrics (SM_CYMENUSIZE);
 	      if (title)
@@ -5563,7 +5579,6 @@ w32_wnd_proc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		pMis->itemWidth = 0;
 
 	      SelectObject (hdc, old_font);
-	      DeleteObject (menu_font);
 	      ReleaseDC (hwnd, hdc);
 	      return TRUE;
 	    }
@@ -5587,10 +5602,25 @@ w32_wnd_proc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		  LOGFONT menu_logfont;
 		  HFONT old_font;
 
-		  GetObject (menu_font, sizeof (menu_logfont), &menu_logfont);
-		  menu_logfont.lfWeight = FW_BOLD;
-		  menu_font = CreateFontIndirect (&menu_logfont);
-		  old_font = SelectObject (hdc, menu_font);
+		  /* Cache the bold variant of the menu font to avoid
+		     CreateFontIndirect/DeleteObject on every draw.
+		     Same strategy as the WM_MEASUREITEM cache.  */
+		  static HFONT cached_draw_bold_font;
+		  static HFONT cached_draw_source_font;
+
+		  if (menu_font != cached_draw_source_font
+		      || !cached_draw_bold_font)
+		    {
+		      if (cached_draw_bold_font)
+			DeleteObject (cached_draw_bold_font);
+		      GetObject (menu_font, sizeof (menu_logfont),
+				 &menu_logfont);
+		      menu_logfont.lfWeight = FW_BOLD;
+		      cached_draw_bold_font
+			= CreateFontIndirect (&menu_logfont);
+		      cached_draw_source_font = menu_font;
+		    }
+		  old_font = SelectObject (hdc, cached_draw_bold_font);
 
 		  /* Always draw title as if not selected.  */
 		  if (unicode_append_menu)
@@ -5610,7 +5640,6 @@ w32_wnd_proc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				title, strlen (title), NULL);
 
 		  SelectObject (hdc, old_font);
-		  DeleteObject (menu_font);
 		}
 	      return TRUE;
 	    }

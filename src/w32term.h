@@ -908,6 +908,7 @@ extern Lisp_Object w32_popup_dialog (struct frame *, Lisp_Object, Lisp_Object);
 extern void w32_arrow_cursor (void);
 extern void w32_release_paint_buffer (struct frame *);
 extern void w32_flip_buffers_if_dirty (struct frame *);
+extern HBRUSH w32_get_brush (COLORREF);
 
 extern void syms_of_w32term (void);
 extern void syms_of_w32menu (void);
