@@ -2260,7 +2260,6 @@ killed."
 	(let (kill-buffer-query-functions kill-buffer-hook)
 	  (kill-buffer obuf))))))
 
-;; FIXME we really need to fold the uniquify stuff in here by default,
 (defun create-file-buffer (filename)
   "Create a suitably named buffer for visiting FILENAME, and return it.
 FILENAME (sans directory) is used unchanged if that name is free;
@@ -3115,6 +3114,8 @@ since only a single case-insensitive search through the alist is made."
     ;; Bash builtin 'fc' creates a temp file named "bash-fc.XXXXXX"
     ;; to edit shell commands from its history list.
     ("/bash-fc\\.[0-9A-Za-z]\\{6\\}\\'" . sh-mode)
+    ;; A login sh first attempts to read /etc/profile.
+    ("\\`/etc/profile\\'" . sh-mode)
     ("/PKGBUILD\\'" . sh-mode)
     ("\\(/\\|\\`\\)\\.\\(bash_\\(profile\\|history\\|log\\(in\\|out\\)\\)\\|z?log\\(in\\|out\\)\\)\\'" . sh-mode)
     ("\\(/\\|\\`\\)\\.\\(shrc\\|zshrc\\|m?kshrc\\|bashrc\\|t?cshrc\\|esrc\\)\\'" . sh-mode)

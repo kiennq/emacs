@@ -143,6 +143,12 @@ instead of its now-obsolete variable.
 
 ** Network Security Manager (NSM) is now more strict.
 
+---
+** New char-table 'special-mirror-table' for mirroring special glyphs.
+This char-table is used to mirror special glyphs (truncation and
+continuation) when the user has defined an alternative representation
+for those characters via display tables.
+
 *** NSM warns about TLS 1.1 by default.
 It has been deprecated by RFC 8996, published in 2021.
 
@@ -495,6 +501,27 @@ therefore advisable to use this function as part of a condition that
 determines whether to call 'delete-frame'.
 
 +++
+*** New function 'frame-use-time'.
+This function is the frame equivalent of the function 'window-use-time'
+for a window.  The result is the `window-use-time' of a frame's most
+recently used window.
+
++++
+*** New functions 'get-mru-frames' and 'get-mru-frame'.
+'get-mru-frames' returns a list of frames sorted by their most recent
+use time from among all frames, or those visible or iconified on the
+same terminal as the selected frame.  Child frames can be excluded.  A
+single frame can be excluded, for example, the selected frame.
+'get-mru-frame' returns the single most recently used frame.
+
+---
+*** After deleting, 'delete-frame' now selects the most recently used frame.
+Previously, after deleting a specified frame, 'delete-frame' would
+select the oldest visible frame on the same terminal.  To revert to the
+old behavior, set the new user option
+'after-delete-frame-select-mru-frame' to nil.
+
++++
 *** New value 'force' for user option 'frame-inhibit-implied-resize'.
 This will inhibit implied resizing while a new frame is made and can be
 useful on tiling window managers where the initial frame size should be
@@ -844,6 +871,18 @@ on graphical displays then when this option is enabled Emacs will use a
 purple bar cursor on compatible terminals as well.  See the Info node
 "(emacs) Cursor Display" for more information.
 
+---
+** New command 'copy-theme-options'
+You can use this command to copy options from a theme into your user
+configuration.
+
+---
+** New user option 'multiple-terminals-merge-keyboards'.
+Customizing this option to non-nil disables entering single-keyboard
+mode in most cases in which Emacs would by default enter that mode.
+This can make things work better for some cases of X forwarding; see the
+docstring for the new option.
+
 
 * Editing Changes in Emacs 31.1
 
@@ -995,6 +1034,10 @@ already did for 'undo'.
 This mode keeps modified lines centered horizontally according to the
 value of 'fill-column', by calling 'center-line' on each non-empty line
 of the modified region.
+
++++
+** New command 'unfill-paragraph'.
+This is the inverse of 'M-q' ('fill-paragraph').
 
 
 * Changes in Specialized Modes and Packages in Emacs 31.1
@@ -1215,6 +1258,19 @@ information.
 *** 'treesit-language-at-point-function' is now optional.
 Multi-language major modes can rely on the default return value from
 'treesit-language-at' that uses the new function 'treesit-parsers-at'.
+
++++
+*** Tree-sitter thing functions now work better with multiple parsers.
+The following functions now handle better the case when there are
+multiple parsers at point: 'treesit-thing-prev', 'treesit-thing-next',
+'treesit-navigate-thing', 'treesit-thing-at'.  When there are multiple
+parsers at point, instead of using whatever 'treesit-node-at' returns at
+point, these functions now try every relevant parser in descending order
+of relevance.  (Deeper-embedded parsers have higher relevance.)  These
+functions now also take an additional optional argument, PARSER, that
+allows caller to specify a parser or language to use.  That also means
+'treesit-beginning/end-of-defun' now can move across parsers.
+
 
 +++
 *** New command 'treesit-explore'.
@@ -1622,6 +1678,12 @@ to visit URLs by typing just 'RET' instead of 'C-c RET' in read-only buffers.
 Conkeror (obsolete since Emacs 28.1), gnome-moz-remote (obsolete since
 Emacs 25.1), and gnudoit (obsolete since Emacs 25.1).
 
+*** 'browse-url-firefox-program' now supports LibreWolf and Zen Browser.
+LibreWolf, Floorp and Zen Browser, three popular Firefox forks, have been
+added to the programs that are automatically recognizable as Firefox
+workalikes.  Emacs will set 'browse-url-firefox-program' to the first
+one of these found on your system.
+
 ** CL-Lib
 
 +++
@@ -1634,15 +1696,16 @@ the list of types to which a value belongs.
 These functions or macros have been added to Emacs Lisp, and the old
 names are now aliases for the built-in equivalents:
 
-- 'cl-incf'   renamed to 'incf'
-- 'cl-decf'   renamed to 'decf'
-- 'cl-oddp'   renamed to 'oddp'
-- 'cl-evenp'  renamed to 'evenp'
-- 'cl-plusp'  renamed to 'plusp'
-- 'cl-minusp' renamed to 'minusp'
+- 'cl-incf'      renamed to 'incf'
+- 'cl-decf'      renamed to 'decf'
+- 'cl-oddp'      renamed to 'oddp'
+- 'cl-evenp'     renamed to 'evenp'
+- 'cl-plusp'     renamed to 'plusp'
+- 'cl-minusp'    renamed to 'minusp'
+- 'cl-member-if' renamed to 'member-if'
 
-The old names are considered deprecated, and will be marked as obsolete
-in some future release.
+'cl-member-if' is marked obsolete.  The other names are deprecated too,
+and will be marked as obsolete in a future release.
 
 +++
 *** 'cl-labels' now also accepts '(FUNC EXP)' bindings, like 'cl-flet'.
@@ -1733,6 +1796,16 @@ between items in the "*Open Recent*" buffer likewise displays such
 messages.  To suppress these messages, customize the user option
 'recentf-suppress-open-file-help' to non-nil.  The default value of this
 option is nil.
+
+---
+*** New user option 'recentf-exclude-ignored-extensions'.
+Add the new predicate function 'recentf-exclude-file-by-extension-p' to
+the list that is the value of the user option 'recentf-exclude' to
+ignore files with certain extensions.  By default, adding this function
+to 'recentf-exclude' ignores files whose extensions are listed in
+'completion-ignored-extensions'; you can specify a different list of
+extensions by customizing the new user option
+'recentf-exclude-ignored-extensions'.
 
 ** Saveplace
 
@@ -1945,6 +2018,13 @@ only search in input history.  If you customize it to the symbol 'dwim',
 those commands search in input history only when the point is after the
 last prompt.
 
+---
+*** Eshell 'alias' command now sorts the alias list.
+When adding an alias interactively, Eshell now sorts the list of aliases
+before saving the alias file.  This maintains the stability of the
+list of aliases to make the diff between versions more readable if you
+store your aliases in version control.
+
 ** Mail Utils
 
 +++
@@ -1974,6 +2054,12 @@ to 'imap-open' for 'imap-authenticate' to use, or remove 'plain' from
 'mail-re-regexps' is a new user option that is easier to customize than
 'rmail-re-abbrevs'.  'rmail-re-abbrevs' is still honored if it was
 already set.
+
++++
+*** New user options for formatting Rmail summary lines.
+'rmail-summary-sender-function' and 'rmail-summary-recipient-function'
+control how the sender/recipient fields are displayed in the summary.
+'rmail-summary-address-width' controls the width of that field.
 
 +++
 *** New user option 'rmail-mime-save-action'.
@@ -2559,6 +2645,11 @@ To allow for finer-grained adjustment of timeout for
 'python-eldoc-function', 'python-eldoc-function-timeout' now accepts
 floating-point numbers as well as integers.
 
+---
+*** The default value of 'python-shell-completion-setup-code' is changed.
+A new function is added to the setup code.  Users who modify this option
+may need to update the value for the Python shell completion to work.
+
 ** Tmm Menubar
 
 ---
@@ -2757,6 +2848,12 @@ To restore the old, more limited behavior for VC Directory, you can do
 These correspond to the existing 'z p' to pop a stash and 'P' to pop the
 stash at point (deleting the stash at point is also bound to 'C-k').
 
++++
+*** New VC Directory command 'V' ('vc-dir-root-next-action').
+This is like 'v' ('vc-next-action') but applies to the whole VC-Dir
+buffer, ignoring the position of point and any marks.  This is useful to
+check in all local changes at once.
+
 ---
 *** VC Directory can now register files when checking in mixed filesets.
 Previously, if some files to be checked in were unregistered but others
@@ -2815,11 +2912,11 @@ current VC fileset.
 
 +++
 *** New commands to report information about outstanding changes.
-'C-x v T =' ('vc-diff-outgoing-base') and 'C-x v T D'
-('vc-root-diff-outgoing-base') report diffs of changes since the merge
+'C-x v T =' ('vc-diff-outstanding') and 'C-x v T D'
+('vc-root-diff-outstanding') report diffs of changes since the merge
 base with the remote branch, including uncommitted changes.
-'C-x v T l' ('vc-log-outgoing-base') and 'C-x v T L'
-('vc-root-log-outgoing-base') show the corresponding revision logs.
+'C-x v T l' ('vc-log-outstanding') and 'C-x v T L'
+('vc-root-log-outstanding') show the corresponding revision logs.
 These are useful to view all outstanding (unmerged, unpushed) changes on
 the current branch.  They are also available as 'T =', 'T D', 'T l' and
 'T L' in VC Directory buffers.
@@ -2844,6 +2941,11 @@ You can disable this by customizing 'vc-dir-show-outgoing-count' to nil.
 +++
 *** New user option 'vc-async-checkin' to enable async checkin operations.
 Currently only supported by the Git and Mercurial backends.
+
++++
+*** New user option 'vc-display-failed-async-commands'.
+If non-nil, displays the buffer with the output of the failed command
+when an asynchronous VC command (e.g. pulls and pushes) fails.
 
 ---
 *** New 'log-edit-hook' option to display diff of changes to commit.
@@ -2940,6 +3042,12 @@ To enable it again, use 'M-x enable-command'.
 *** 'C-x v !' has its own input history.
 
 ---
+*** 'C-x v +' for Git pulls from a configured push remote.
+If the current branch has a configured push remote, the default
+arguments to 'git pull' will cause a pull from the push remote.
+You can use 'C-u C-x v +' to preview or change the arguments.
+
+---
 *** 'C-u C-x v +' and 'C-u C-x v P' for Git have an input history.
 This was already in place for Mercurial.
 
@@ -3028,6 +3136,11 @@ those packages.  The default is to show a button on the mode line that
 can be used to install such packages, but you can customise the
 presentation style of these suggestions using
 'package-autosuggest-style'.
+
++++
+*** New user option 'package-retention-policy'.
+This user option controls what previous packages versions to keep on
+upgrade.  By default, this is set to nil, to keep the previous behavior.
 
 ** Rcirc
 
@@ -3298,6 +3411,14 @@ If non-nil, FFAP always finds remote files in buffers with remote
 'default-directory'.  If nil, FFAP finds local files first for absolute
 file names in above buffers.  The default is nil.
 
++++
+*** New theme 'newcomers-presets'
+This new theme configures user options and minor modes that might
+interest new users, but would otherwise be too invasive to enable by
+default.  Recall that an Emacs theme is a generic collection of
+settings, that doesn't have to affect the appearance.  See the Info node
+"(emacs) Newcomers Theme" for more information.
+
 ** Edebug
 
 +++
@@ -3422,6 +3543,20 @@ iCalendar.  It also adds the ability to include iCalendar files in the
 diary and display and mark their contents in the calendar without
 importing them to the diary file.  The library uses the new iCalendar
 library (see above) and makes diary import and export more customizable.
+
++++
+*** New commands to display more months in the calendar.
+'calendar-show-more-months' and 'calendar-show-fewer-months' display
+more or fewer months in the calendar, respectively.  The calendar shows
+at most 12 months and at least 3 months.
+
++++
+*** 'calendar-scroll-left-three-months' and its variants are obsolete aliases.
+Because the calendar can display more than three months now, commands
+'calendar-scroll-left-three-months' and
+'calendar-scroll-right-three-months' have been renamed to
+'calendar-scroll-calendar-left' and 'calendar-scroll-calendar-right'.
+The old names are kept as obsolete aliases.
 
 ** Calc
 
@@ -3677,6 +3812,18 @@ all versions, sleep events require Windows 8 or later).
 
 * Incompatible Lisp Changes in Emacs 31.1
 
+---
+** 'FOO-ts-mode-indent-offset' renamed to 'FOO-ts-indent-offset'.
+When the new TS modes were introduced, a mistake was made where those
+modes used 'FOO-mode-indent-offset' instead of the previous conventional
+'FOO-indent-offset'.  The following names are the new names:
+'toml-ts-indent-offset', 'mhtml-ts-js-css-indent-offset',
+'html-ts-indent-offset', 'typescript-ts-indent-offset',
+'php-ts-indent-offset', 'php-ts-html-indent-offset',
+'json-ts-indent-offset', 'java-ts-indent-offset',
+'go-ts-indent-offset', 'csharp-ts-indent-offset',
+'cmake-ts-indent-offset', 'c-ts-indent-offset'.
+
 ** Files loaded from '-x' and '--script' now use lexical binding.
 If you don't have time to adapt your script's code to the lexical
 binding dialect (see "(elisp) Converting to Lexical Binding"), you can
@@ -3835,12 +3982,15 @@ display time or even cause Emacs to hang trying to display such a face.
 Affected APIs include 'defface', 'set-face-attribute', their callers,
 and other similar functions.
 
-+++
-Original behavior of 'overlays-in' and 'overlays-at' has been restored.
-Before Emacs 29.1, the list of overlays returned by these two functions
-included overlays outside of the current narrowing of the buffer.  This
-behavior has been restored.  As result, 'remove-overlays' can now again
-remove overlays outside of the narrowing, as it did before Emacs 29.1.
++++ Original behavior of 'overlays-in' and 'overlays-at' has been
+restored.  Before Emacs 28.1, the list of overlays returned by these two
+functions included overlays outside of the current narrowing of the
+buffer, and there wasn't a special exception for including empty
+overlays at end of accessible portion of the buffer.  This behavior has
+been restored, and the special behavior for empty overlays is again
+reserved only to the actual end of buffer, disregarding the narrowing.
+As result, 'remove-overlays' can now again remove overlays outside of
+the narrowing, as it did before Emacs 28.1.
 
 ---
 ** 'help-setup-xref' now re-enables the major mode of the Help buffer.
@@ -3858,6 +4008,13 @@ that will provide an Xref backend when used.
 
 
 * Lisp Changes in Emacs 31.1
+
++++
+** 'secure-hash' now supports generating SHA-3 message digests.
+The list returned by 'secure-hash-algorithms' now contains the symbols
+'sha3-224', 'sha3-256', 'sha3-384', and 'sha3-512'.  These symbols can
+be used as the ALGORITHM argument of 'secure-hash' to generate SHA-3
+hashes.
 
 +++
 ** New function 'garbage-collect-heapsize'.
@@ -3929,9 +4086,14 @@ signal an error if they are given a non-integer.
 These work like 'drop' and 'take' but use a predicate instead of counting.
 
 +++
-** New functions 'any' and 'all'.
-These return non-nil for lists where any and all elements, respectively,
+** New function 'all' and function alias 'any'.
+These return non-nil for lists where all and any elements, respectively,
 satisfy a given predicate.
+
++++
+** 'equal' now compares circular lists without raising an error.
+Comparing very deeply nested objects will still fail, but 'equal'
+will no longer signal the 'circular-list' error.
 
 +++
 ** The 'defvar-local' macro second argument is now optional.
@@ -4217,6 +4379,18 @@ of an inherently asynchronous command such as 'compile'.
 These produce the binary representation of a number.
 '%#b' and '%#B' prefix the bits with '0b' and '0B', respectively.
 
+** 'pp-eval-expression' can now insert results into the current buffer
+With a prefix argument, 'pp-eval-expression' inserts the result into the
+current buffer, just like 'eval-expression' already did.
+
++++
+** New function 'multiple-command-partition-arguments'.
+This function partitions a list of command arguments that might be
+arbitrarily long.  It can be used in cases in which it's known to be
+safe to run the command multiple times on subsequent partitions of the
+list of arguments.  The variable 'command-line-max-length' controls the
+partitioning.
+
 
 * Changes in Emacs 31.1 on Non-Free Operating Systems
 
@@ -4304,6 +4478,11 @@ other free systems.
 Transformed images are smoothed using the bilinear interpolation by
 means of the GDI+ library.
 
+---
+** Emacs on MS-Windows is now capable of exporting frame screenshots to files.
+The new primitive 'w32-export-frame' can be used to export a screenshot
+of a specified frame to an image file in one of the supported image
+formats, such as JPEG or PNG.
 ---
 ** Emacs on MS-Windows now supports the ':data' keyword for 'play-sound'.
 In addition to ':file FILE' for playing a sound from a file, ':data

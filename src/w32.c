@@ -311,7 +311,7 @@ extern int sys_dup (int);
 
 /* Initialization states.
 
-     WARNING: If you add any more such variables for additional APIs,
+      WARNING: If you add any more such variables for additional APIs,
 	    you MUST add initialization for them to globals_of_w32
 	    below.  This is because these variables might get set
 	    to non-NULL values during dumping, but the dumped Emacs
@@ -1539,10 +1539,10 @@ get_user_default_ui_language (void)
 }
 
 /* Return 1 if P is a valid pointer to an object of size SIZE.  Return
-     0 if P is NOT a valid pointer.  Return -1 if we cannot validate
-   P.
+      0 if P is NOT a valid pointer.  Return -1 if we cannot validate
+    P.
 
-     This is called from alloc.c:valid_pointer_p.  */
+      This is called from alloc.c:valid_pointer_p.  */
 int
 w32_valid_pointer_p (void *p, int size)
 {
@@ -1563,111 +1563,111 @@ w32_valid_pointer_p (void *p, int size)
 }
 
 /* Here's an overview of how the Windows build supports file names
-     that cannot be encoded by the current system codepage.
+      that cannot be encoded by the current system codepage.
 
-     From the POV of Lisp and layers of C code above the functions
-    here, Emacs on Windows pretends that its file names are encoded in
-    UTF-8; see encode_file and decode_file on coding.c.  Any file name
-    that is passed as a unibyte string to C functions defined here is
-    assumed to be in UTF-8 encoding.  Any file name returned by
-    functions defined here must be in UTF-8 encoding, with only a few
-    exceptions reserved for a couple of special cases.  (Be sure to
-   use MAX_UTF8_PATH for char arrays that store UTF-8 encoded file
-   names, as they can be much longer than MAX_PATH!)
+      From the POV of Lisp and layers of C code above the functions
+     here, Emacs on Windows pretends that its file names are encoded
+   in UTF-8; see encode_file and decode_file on coding.c.  Any file
+   name that is passed as a unibyte string to C functions defined here
+   is assumed to be in UTF-8 encoding.  Any file name returned by
+     functions defined here must be in UTF-8 encoding, with only a few
+     exceptions reserved for a couple of special cases.  (Be sure to
+    use MAX_UTF8_PATH for char arrays that store UTF-8 encoded file
+    names, as they can be much longer than MAX_PATH!)
 
-     The UTF-8 encoded file names cannot be passed to system APIs, as
-     Windows does not support that.  Therefore, they are converted
-     either to UTF-16 or to the ANSI codepage, depending on the value
-    of w32-unicode-filenames, before calling any system APIs or CRT
-     library functions.  The default value of that variable is
-     determined by the OS on which Emacs runs: nil on Windows 9X and t
-     otherwise, but the user can change that default (although I don't
-     see why would she want to).
+      The UTF-8 encoded file names cannot be passed to system APIs, as
+      Windows does not support that.  Therefore, they are converted
+      either to UTF-16 or to the ANSI codepage, depending on the value
+     of w32-unicode-filenames, before calling any system APIs or CRT
+      library functions.  The default value of that variable is
+      determined by the OS on which Emacs runs: nil on Windows 9X and
+   t otherwise, but the user can change that default (although I don't
+      see why would she want to).
 
-     The 4 functions defined below, filename_to_utf16,
-    filename_to_ansi, filename_from_utf16, and filename_from_ansi, are
-    the workhorses of these conversions.  They rely on Windows native
-    APIs MultiByteToWideChar and WideCharToMultiByte; we cannot use
-     functions from coding.c here, because they allocate memory, which
-     is a bad idea on the level of libc, which is what the functions
-     here emulate.  (If you worry about performance due to constant
-     conversion back and forth from UTF-8 to UTF-16, then don't:
-   first, it was measured to take only a few microseconds on a
-   not-so-fast machine, and second, that's exactly what the ANSI APIs
-   we used before did anyway, because they are just thin wrappers
-   around the Unicode APIs.)
+      The 4 functions defined below, filename_to_utf16,
+     filename_to_ansi, filename_from_utf16, and filename_from_ansi,
+   are the workhorses of these conversions.  They rely on Windows
+   native APIs MultiByteToWideChar and WideCharToMultiByte; we cannot
+   use functions from coding.c here, because they allocate memory,
+   which is a bad idea on the level of libc, which is what the
+   functions here emulate.  (If you worry about performance due to
+   constant conversion back and forth from UTF-8 to UTF-16, then
+   don't: first, it was measured to take only a few microseconds on a
+    not-so-fast machine, and second, that's exactly what the ANSI APIs
+    we used before did anyway, because they are just thin wrappers
+    around the Unicode APIs.)
 
-     The variables file-name-coding-system and
-     default-file-name-coding-system still exist, but are actually
-   used only when a file name needs to be converted to the ANSI
-   codepage. This happens all the time when w32-unicode-filenames is
-   nil, but can also happen from time to time when it is t. Otherwise,
-   these variables have no effect on file-name encoding when
-     w32-unicode-filenames is t; this is similar to
-     selection-coding-system.
+      The variables file-name-coding-system and
+      default-file-name-coding-system still exist, but are actually
+    used only when a file name needs to be converted to the ANSI
+    codepage. This happens all the time when w32-unicode-filenames is
+    nil, but can also happen from time to time when it is t.
+   Otherwise, these variables have no effect on file-name encoding
+   when w32-unicode-filenames is t; this is similar to
+      selection-coding-system.
 
-     This arrangement works very well, but it has a few gotchas and
-     limitations:
+      This arrangement works very well, but it has a few gotchas and
+      limitations:
 
-     . Lisp code that encodes or decodes file names manually should
-       normally use 'utf-8' as the coding-system on Windows,
-       disregarding file-name-coding-system.  This is a somewhat
-       unpleasant consequence, but it cannot be avoided.  Fortunately,
-       very few Lisp packages need to do that.
+      . Lisp code that encodes or decodes file names manually should
+	normally use 'utf-8' as the coding-system on Windows,
+	disregarding file-name-coding-system.  This is a somewhat
+	unpleasant consequence, but it cannot be avoided. Fortunately,
+	very few Lisp packages need to do that.
 
-       More generally, passing to library functions (e.g., fopen or
-       opendir) file names already encoded in the ANSI codepage is
-       explicitly *verboten*, as all those functions, as shadowed and
-       emulated here, assume they will receive UTF-8 encoded file
-    names.
+	More generally, passing to library functions (e.g., fopen or
+	opendir) file names already encoded in the ANSI codepage is
+	explicitly *verboten*, as all those functions, as shadowed and
+	emulated here, assume they will receive UTF-8 encoded file
+     names.
 
-       For the same reasons, no CRT function or Win32 API can be
-   called directly in Emacs sources, without either converting the
-   file names from UTF-8 to UTF-16 or ANSI codepage, or going through
-       some shadowing function defined here.
+	For the same reasons, no CRT function or Win32 API can be
+    called directly in Emacs sources, without either converting the
+    file names from UTF-8 to UTF-16 or ANSI codepage, or going through
+	some shadowing function defined here.
 
-     . Environment variables stored in Vprocess_environment are
-   encoded in the ANSI codepage, so if getenv/egetenv is used for a
-    variable whose value is a file name or a list of directories, it
-    needs to be converted to UTF-8, before it is used as argument to
-    functions or decoded into a Lisp string.
+      . Environment variables stored in Vprocess_environment are
+    encoded in the ANSI codepage, so if getenv/egetenv is used for a
+     variable whose value is a file name or a list of directories, it
+     needs to be converted to UTF-8, before it is used as argument to
+     functions or decoded into a Lisp string.
 
-     . File names passed to external libraries, like the image
-    libraries and GnuTLS, need special handling.  These libraries
-    generally don't support UTF-16 or UTF-8 file names, so they must
-    get file names encoded in the ANSI codepage.  To facilitate using
-    these libraries with file names that are not encodable in the ANSI
-       codepage, use the function ansi_encode_filename, which will try
-       to use the short 8+3 alias of a file name if that file name is
-       not encodable in the ANSI codepage.  See image.c and gnutls.c
-    for examples of how this should be done.
+      . File names passed to external libraries, like the image
+     libraries and GnuTLS, need special handling.  These libraries
+     generally don't support UTF-16 or UTF-8 file names, so they must
+     get file names encoded in the ANSI codepage.  To facilitate using
+     these libraries with file names that are not encodable in the
+   ANSI codepage, use the function ansi_encode_filename, which will
+   try to use the short 8+3 alias of a file name if that file name is
+	not encodable in the ANSI codepage.  See image.c and gnutls.c
+     for examples of how this should be done.
 
-     . Running subprocesses in non-ASCII directories and with
-   non-ASCII file arguments is limited to the current codepage (even
-   though Emacs is perfectly capable of finding an executable program
-   file in a directory whose name cannot be encoded in the current
-       codepage).  This is because the command-line arguments are
-       encoded _before_ they get to the w32-specific level, and the
-       encoding is not known in advance (it doesn't have to be the
-       current ANSI codepage), so w32proc.c functions cannot re-encode
-       them in UTF-16.  This should be fixed, but will also require
-       changes in cmdproxy.  The current limitation is not terribly
-   bad anyway, since very few, if any, Windows console programs that
-    are likely to be invoked by Emacs support UTF-16 encoded command
-       lines.
+      . Running subprocesses in non-ASCII directories and with
+    non-ASCII file arguments is limited to the current codepage (even
+    though Emacs is perfectly capable of finding an executable program
+    file in a directory whose name cannot be encoded in the current
+	codepage).  This is because the command-line arguments are
+	encoded _before_ they get to the w32-specific level, and the
+	encoding is not known in advance (it doesn't have to be the
+	current ANSI codepage), so w32proc.c functions cannot
+   re-encode them in UTF-16.  This should be fixed, but will also
+   require changes in cmdproxy.  The current limitation is not
+   terribly bad anyway, since very few, if any, Windows console
+   programs that are likely to be invoked by Emacs support UTF-16
+   encoded command lines.
 
-     . For similar reasons, server.el and emacsclient are also limited
-       to the current ANSI codepage for now.
+      . For similar reasons, server.el and emacsclient are also
+   limited to the current ANSI codepage for now.
 
-     . Emacs itself can only handle command-line arguments encoded in
-       the current codepage.
+      . Emacs itself can only handle command-line arguments encoded in
+	the current codepage.
 
-     . Turning on w32-unicode-filename on Windows 9X (if it at all
-       works) requires UNICOWS.DLL, which is thus a requirement even
-   in non-GUI sessions, something that we previously avoided.  */
+      . Turning on w32-unicode-filename on Windows 9X (if it at all
+	works) requires UNICOWS.DLL, which is thus a requirement even
+    in non-GUI sessions, something that we previously avoided.  */
 
 /* Converting file names from UTF-8 to either UTF-16 or the ANSI
-     codepage defined by file-name-coding-system.  */
+      codepage defined by file-name-coding-system.  */
 
 /* Current codepage for encoding file names.  */
 static int file_name_codepage;
@@ -7055,9 +7055,9 @@ acl_errno_valid (int errnum)
 }
 
 /* MS-Windows version of careadlinkat (cf. ../lib/careadlinkat.c).  We
-     have a fixed max size for file names, so we don't need the kind
-   of alloc/malloc/realloc dance the gnulib version does.  We also
-   don't support FD-relative symlinks.  */
+      have a fixed max size for file names, so we don't need the kind
+    of alloc/malloc/realloc dance the gnulib version does.  We also
+    don't support FD-relative symlinks.  */
 char *
 careadlinkat (int fd, char const *filename, char *buffer,
 	      size_t buffer_size, struct allocator const *alloc,
@@ -7196,7 +7196,7 @@ w32_copy_file (const char *from, const char *to, int keep_time,
 }
 
 /* Support for browsing other processes and their attributes.  See
-     process.c for the Lisp bindings.  */
+      process.c for the Lisp bindings.  */
 
 /* Helper wrapper functions.  */
 
@@ -7934,12 +7934,12 @@ w32_memory_info (unsigned long long *totalram,
 }
 
 /* Wrappers for  winsock functions to map between our file descriptors
-     and winsock's handles; also set h_errno for convenience.
+      and winsock's handles; also set h_errno for convenience.
 
-     To allow Emacs to run on systems which don't have winsock support
-     installed, we dynamically link to winsock on startup if present,
-     and otherwise provide the minimum necessary functionality (eg.
-     gethostname). */
+      To allow Emacs to run on systems which don't have winsock
+   support installed, we dynamically link to winsock on startup if
+   present, and otherwise provide the minimum necessary functionality
+   (eg. gethostname). */
 
 /* function pointers for relevant socket functions */
 static int (PASCAL *pfn_WSAStartup) (WORD wVersionRequired,
@@ -8503,25 +8503,38 @@ sys_inet_addr (const char *cp)
   return (winsock_lib != NULL) ? pfn_inet_addr (cp) : INADDR_NONE;
 }
 
+/* Wrapper for gethostname.  Note: NAMELEN is the space available in
+   NAME excluding the terminating null.  */
 int
 sys_gethostname (char *name, int namelen)
 {
+  int retval;
+  int nlen = namelen;
+  char sname[256 + 1];
+
   if (winsock_lib != NULL)
     {
-      int retval;
-
       check_errno ();
-      retval = pfn_gethostname (name, namelen);
+      retval = pfn_gethostname (sname, sizeof (sname));
       if (retval == SOCKET_ERROR)
 	set_errno ();
-      return retval;
     }
-
-  if (namelen > MAX_COMPUTERNAME_LENGTH)
-    return !GetComputerName (name, (DWORD *) &namelen);
-
-  errno = EFAULT;
-  return SOCKET_ERROR;
+  else if (sizeof (sname) > MAX_COMPUTERNAME_LENGTH)
+    retval = !GetComputerNameA (sname, (DWORD *) &nlen);
+  else
+    {
+      retval = SOCKET_ERROR;
+      errno = EFAULT;
+    }
+  /* The rest of the code wants the name in UTF-8.  The host name is
+     not a file name, but it's encoded in the ANSI codepage and its
+     size must be at most 256 characters.  So treating it as a file
+     name should be okay.  */
+  char hostname[MAX_UTF8_PATH];
+  filename_from_ansi (sname, hostname);
+  strncpy (name, hostname, namelen);
+  name[namelen] = '\0';
+  return retval;
 }
 
 struct hostent *
@@ -10605,7 +10618,7 @@ w32_read_registry (HKEY rootkey, Lisp_Object lkey, Lisp_Object lname)
 }
 
 /* mingw.org's MinGW doesn't declare _dstbias.  MinGW64 defines it as
-     a macro.  */
+      a macro.  */
 #ifndef _dstbias
 __MINGW_IMPORT int _dstbias;
 #endif
@@ -10673,14 +10686,14 @@ sys_clock (void)
 }
 
 /* Try loading LIBRARY_ID from the file(s) specified in
-     Vdynamic_library_alist.  If the library is loaded successfully,
-     return the handle of the DLL, and record the filename in the
-     property :loaded-from of LIBRARY_ID.  If the library could not be
-     found, or when it was already loaded (because the handle is not
-     recorded anywhere, and so is lost after use), return NULL.
+      Vdynamic_library_alist.  If the library is loaded successfully,
+      return the handle of the DLL, and record the filename in the
+      property :loaded-from of LIBRARY_ID.  If the library could not
+   be found, or when it was already loaded (because the handle is not
+      recorded anywhere, and so is lost after use), return NULL.
 
-     We could also save the handle in :loaded-from, but currently
-     there's no use case for it.  */
+      We could also save the handle in :loaded-from, but currently
+      there's no use case for it.  */
 HMODULE
 w32_delayed_load (Lisp_Object library_id)
 {
