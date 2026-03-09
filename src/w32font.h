@@ -21,6 +21,8 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 
 #include "font.h"
 
+struct w32_output;
+
 /* Bit 17 of ntmFlags in NEWTEXTMETRIC is set for PostScript OpenType
    fonts, bit 18 for TrueType OpenType fonts, bit 20 for Type1 fonts.
  */
@@ -114,8 +116,10 @@ Lisp_Object intern_font_name (char *);
 /* Function prototypes for DirectWrite.  */
 void w32_initialize_direct_write (void);
 bool w32_use_direct_write (struct w32font_info *w32font);
-bool w32_dwrite_draw (HDC hdc, int x, int y, unsigned *glyphs,
-		      int len, COLORREF color, struct font *font);
+bool w32_dwrite_draw (struct w32_output *output, HDC hdc, int x,
+		      int y, unsigned *glyphs, int len,
+		      COLORREF color, COLORREF bg_color,
+		      struct font *font);
 bool w32_dwrite_text_extents (struct font *font, const unsigned *code,
 			      int nglyphs,
 			      struct font_metrics *metrics);
@@ -126,6 +130,7 @@ bool w32_dwrite_glyph_metrics_batch (struct font *font,
 unsigned w32_dwrite_encode_char (struct font *font, int c);
 void w32_dwrite_free_cached_face (void *cache);
 void syms_of_w32dwrite (void);
+void syms_of_w32d3d (void);
 
 extern void globals_of_w32font (void);
 

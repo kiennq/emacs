@@ -18,14 +18,19 @@ You should have received a copy of the GNU General Public License
 along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 
 #include <config.h>
+#include "w32term.h"
+/* PROPID may be missing from MinGW-w64 headers; define it before
+   gdiplus.h which needs it.  */
+#ifndef PROPID
+typedef ULONG PROPID;
+#endif
+#include <gdiplus.h>
 #include <signal.h>
 #include <stdio.h>
+#include <wtypes.h>
 #include "lisp.h"
 #include "blockinput.h"
-#include "w32term.h"
 #include "w32common.h" /* for OS version info */
-#include <wtypes.h>
-#include <gdiplus.h>
 #include "w32gdiplus.h"
 
 #include <ctype.h>
@@ -60,6 +65,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 #include <shellapi.h>
 
 #include "font.h"
+#include "w32d3d.h"
 #include "w32font.h"
 
 #if 0 /* TODO: stipple */
@@ -101,7 +107,6 @@ w32_get_brush (COLORREF color)
   brush_cache_index = (brush_cache_index + 1) % BRUSH_CACHE_SIZE;
   return brush_cache[i].brush;
 }
-
 
 /* GDI pen cache to avoid repeated CreatePen/DeleteObject calls.
    Uses a simple ring buffer keyed on (style, thickness, color).  */
@@ -396,14 +401,77 @@ w32_show_back_buffer (struct frame *f)
   HDC raw_dc;
 
   output = FRAME_OUTPUT_DATA (f);
+  output->d2d_stat_show_back_buffer_calls++;
 
   if (!output->want_paint_buffer || w32_disable_double_buffering)
     return;
 
   enter_crit ();
 
-  if (output->paint_buffer)
+  if (!output->paint_buffer)
     {
+      leave_crit ();
+      return;
+    }
+
+  /* Pure D2D path (no swapchain surface DC interop).  Only valid
+     when this frame is actively using a DXGI swap chain target.  */
+  if (output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc)
+    {
+      /* Prefer stable presentation in pure D2D mode; tearing here can
+	 leave visible scanline artifacts during incremental
+	 redisplay.  */
+      if (output->d2d_drawing)
+	w32_d2d_end_frame (output);
+
+      if (!w32_d2d_present (output, false))
+	{
+	  w32_d3d_disable (output);
+	  SET_FRAME_GARBAGED (f);
+	  leave_crit ();
+	  return;
+	}
+
+      output->has_dirty_rect = 0;
+      output->paint_buffer_dirty = 0;
+      leave_crit ();
+      return;
+    }
+
+  /* D3D11/DXGI GPU-accelerated presentation.  Two sub-paths:
+     1. d3d_direct_dc: paint_dc IS the swap chain surface DC.
+	Release it, Present the back buffer, then re-acquire a
+	fresh DC so drawing can continue for the next frame.
+     2. GDI bitmap + D3D present: BitBlt from GDI memory bitmap
+	into the swap chain's DC, then Present.  */
+  if (output->use_d3d && output->dxgi_swap_chain)
+    {
+      if (output->d3d_direct_dc)
+	{
+	  /* Direct-DC interop path is disabled; force redraw via
+	     pure D2D path instead of GDI/DC interop.  */
+	  w32_d3d_disable (output);
+	  SET_FRAME_GARBAGED (f);
+	  leave_crit ();
+	  return;
+	}
+      else
+	{
+	  /* No direct-DC interop.  D3D frames must present through
+	     the D2D target path; if that is unavailable, force full
+	     redraw instead of falling back to GDI BitBlt.  */
+	  output->use_d3d = 0;
+	  w32_d3d_release_swap_chain (output);
+	  SET_FRAME_GARBAGED (f);
+	  leave_crit ();
+	  return;
+	}
+    }
+  else
+    {
+      /* GDI back buffer BitBlt path.  */
       raw_dc = GetDC (output->window_desc);
 
       if (!raw_dc)
@@ -412,10 +480,12 @@ w32_show_back_buffer (struct frame *f)
       BitBlt (raw_dc, 0, 0, FRAME_PIXEL_WIDTH (f),
 	      FRAME_PIXEL_HEIGHT (f), output->paint_dc, 0, 0,
 	      SRCCOPY);
-      ReleaseDC (output->window_desc, raw_dc);
 
-      output->paint_buffer_dirty = 0;
+      ReleaseDC (output->window_desc, raw_dc);
     }
+
+  output->has_dirty_rect = 0;
+  output->paint_buffer_dirty = 0;
 
   leave_crit ();
 }
@@ -423,25 +493,43 @@ w32_show_back_buffer (struct frame *f)
 void
 w32_release_paint_buffer (struct frame *f)
 {
+  struct w32_output *output = FRAME_OUTPUT_DATA (f);
+
   /* Delete the back buffer so it gets created
      again the next time we ask for the DC.  */
 
   enter_crit ();
-  if (FRAME_OUTPUT_DATA (f)->paint_buffer)
+
+  /* Release D3D11 swap chain if active.  When d3d_direct_dc is set,
+     paint_dc is the swap chain surface DC (not a GDI memory DC), so
+     release it back to the surface before destroying the chain.  */
+  if (output->use_d3d)
     {
-      deselect_palette (f,
-			FRAME_OUTPUT_DATA (f)->paint_buffer_handle);
+      if (output->d3d_direct_dc && output->paint_dc)
+	{
+	  w32_d3d_release_dc (output);
+	  output->paint_dc = NULL;
+	}
+      w32_d3d_release_swap_chain (output);
+      output->use_d3d = 0;
+      output->d3d_direct_dc = 0;
+      /* paint_buffer may be the (HBITMAP)1 sentinel in direct DC
+	 mode; clear it without calling DeleteObject.  */
+      output->paint_buffer = NULL;
+      output->paint_buffer_handle = NULL;
+    }
+  else if (output->paint_buffer)
+    {
+      deselect_palette (f, output->paint_buffer_handle);
 
-      SelectObject (FRAME_OUTPUT_DATA (f)->paint_dc,
-		    FRAME_OUTPUT_DATA (f)->paint_dc_object);
-      ReleaseDC (FRAME_OUTPUT_DATA (f)->window_desc,
-		 FRAME_OUTPUT_DATA (f)->paint_buffer_handle);
-      DeleteDC (FRAME_OUTPUT_DATA (f)->paint_dc);
-      DeleteObject (FRAME_OUTPUT_DATA (f)->paint_buffer);
+      SelectObject (output->paint_dc, output->paint_dc_object);
+      ReleaseDC (output->window_desc, output->paint_buffer_handle);
+      DeleteDC (output->paint_dc);
+      DeleteObject (output->paint_buffer);
 
-      FRAME_OUTPUT_DATA (f)->paint_buffer = NULL;
-      FRAME_OUTPUT_DATA (f)->paint_dc = NULL;
-      FRAME_OUTPUT_DATA (f)->paint_buffer_handle = NULL;
+      output->paint_buffer = NULL;
+      output->paint_dc = NULL;
+      output->paint_buffer_handle = NULL;
     }
   leave_crit ();
 }
@@ -539,6 +627,7 @@ static void
 w32_draw_underwave (struct glyph_string *s, COLORREF color)
 {
   struct w32_display_info *dpyinfo = FRAME_DISPLAY_INFO (s->f);
+  struct w32_output *output = FRAME_OUTPUT_DATA (s->f);
 
   int scale_x, scale_y;
   w32_get_scale_factor (dpyinfo, &scale_x, &scale_y);
@@ -570,11 +659,6 @@ w32_draw_underwave (struct glyph_string *s, COLORREF color)
   if (!gui_intersect_rectangles (&wave_clip, &string_clip,
 				 &final_clip))
     return;
-
-  hp = w32_get_pen (PS_SOLID, thickness, color);
-  oldhp = SelectObject (s->hdc, hp);
-  CONVERT_FROM_EMACS_RECT (final_clip, w32_final_clip);
-  w32_set_clip_rectangle (s->hdc, &w32_final_clip);
 
   /* Draw the waves using a single Polyline call instead of
      per-segment MoveToEx/LineTo to reduce GDI call overhead.  */
@@ -621,24 +705,72 @@ w32_draw_underwave (struct glyph_string *s, COLORREF color)
 	odd = !odd;
       }
 
+    if (output->use_d3d && output->dxgi_swap_chain
+	&& output->d2d_context && output->d2d_target
+	&& !output->d3d_direct_dc
+	&& w32_d2d_draw_polyline_dc (output, pts, pi, color,
+				     (float) thickness, final_clip.x,
+				     final_clip.y, final_clip.width,
+				     final_clip.height))
+      {
+	if (pts != stack_pts)
+	  xfree (pts);
+	return;
+      }
+
+    if (output->use_d3d && output->dxgi_swap_chain
+	&& output->d2d_context && output->d2d_target
+	&& !output->d3d_direct_dc)
+      {
+	if (pts != stack_pts)
+	  xfree (pts);
+	SET_FRAME_GARBAGED (s->f);
+	return;
+      }
+
+    hp = w32_get_pen (PS_SOLID, thickness, color);
+    oldhp = SelectObject (s->hdc, hp);
+    CONVERT_FROM_EMACS_RECT (final_clip, w32_final_clip);
+    w32_set_clip_rectangle (s->hdc, &w32_final_clip);
+
     Polyline (s->hdc, pts, pi);
+
+    /* Restore previous pen and clipping rectangle(s) */
+    w32_restore_glyph_string_clip (s);
+    SelectObject (s->hdc, oldhp);
 
     if (pts != stack_pts)
       xfree (pts);
   }
-
-  /* Restore previous pen and clipping rectangle(s) */
-  w32_restore_glyph_string_clip (s);
-  SelectObject (s->hdc, oldhp);
 }
 
 /* Draw a hollow rectangle at the specified position.  */
 static void
-w32_draw_rectangle (HDC hdc, Emacs_GC *gc, int x, int y, int width,
-		    int height)
+w32_draw_rectangle (struct frame *f, HDC hdc, Emacs_GC *gc, int x,
+		    int y, int width, int height)
 {
   HBRUSH oldhb;
   HPEN hp, oldhp;
+  struct w32_output *output = NULL;
+
+  if (f)
+    output = FRAME_OUTPUT_DATA (f);
+
+  if (output && output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc
+      && w32_d2d_draw_rect_dc (output, x, y, width, height,
+			       gc->foreground, gc->background))
+    return;
+
+  if (output && output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc)
+    {
+      if (f)
+	SET_FRAME_GARBAGED (f);
+      return;
+    }
 
   hp = w32_get_pen (PS_SOLID, 0, gc->foreground);
   oldhb = SelectObject (hdc, w32_get_brush (gc->background));
@@ -656,10 +788,59 @@ w32_draw_rectangle (HDC hdc, Emacs_GC *gc, int x, int y, int width,
   SelectObject (hdc, oldhp);
 }
 
+/* Record a drawn rectangle for partial back buffer flips.  */
+void
+w32_note_drawn_rect (struct frame *f, int x, int y, int w, int h)
+{
+  struct w32_output *output = FRAME_OUTPUT_DATA (f);
+  if (!output->paint_buffer)
+    return;
+  RECT r;
+  r.left = x;
+  r.top = y;
+  r.right = x + w;
+  r.bottom = y + h;
+  if (output->has_dirty_rect)
+    UnionRect (&output->dirty_rect, &output->dirty_rect, &r);
+  else
+    {
+      output->dirty_rect = r;
+      output->has_dirty_rect = 1;
+    }
+  output->paint_buffer_dirty = 1;
+}
+
 /* Draw a filled rectangle at the specified position. */
 void
 w32_fill_rect (struct frame *f, HDC hdc, COLORREF pix, RECT *lprect)
 {
+  int x = lprect->left;
+  int y = lprect->top;
+  int w = lprect->right - lprect->left;
+  int h = lprect->bottom - lprect->top;
+
+  w32_note_drawn_rect (f, x, y, w, h);
+
+  struct w32_output *output = FRAME_OUTPUT_DATA (f);
+
+  if (output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc
+      && w32_d2d_fill_rect_dc (output, x, y, w, h, pix))
+    return;
+
+  if (output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc)
+    {
+      SET_FRAME_GARBAGED (f);
+      return;
+    }
+
+  if (w32_d2d_available_p ()
+      && w32_d2d_fill_rect (hdc, x, y, w, h, pix))
+    return;
+
   FillRect (hdc, lprect, w32_get_brush (pix));
 }
 
@@ -766,6 +947,7 @@ static void
 w32_update_begin (struct frame *f)
 {
   struct w32_display_info *display_info = FRAME_DISPLAY_INFO (f);
+  struct w32_output *output;
 
   if (!FRAME_W32_P (f))
     return;
@@ -776,6 +958,43 @@ w32_update_begin (struct frame *f)
     {
       w32_regenerate_palette (f);
       display_info->regen_palette = FALSE;
+    }
+
+  output = FRAME_OUTPUT_DATA (f);
+  if (output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc)
+    {
+      struct face *bg_face
+	= FACE_FROM_ID_OR_NULL (f, DEFAULT_FACE_ID);
+      COLORREF bg
+	= bg_face ? bg_face->background : FRAME_BACKGROUND_PIXEL (f);
+
+      if (FRAME_TOOLTIP_P (f))
+	bg = FRAME_BACKGROUND_PIXEL (f);
+
+      if (FRAME_PARENT_FRAME (f))
+	{
+	  struct frame *parent = FRAME_PARENT_FRAME (f);
+	  struct face *parent_bg_face
+	    = FACE_FROM_ID_OR_NULL (parent, DEFAULT_FACE_ID);
+	  bg = parent_bg_face ? parent_bg_face->background
+			      : FRAME_BACKGROUND_PIXEL (parent);
+	}
+
+      output->d2d_stat_update_begin++;
+
+      w32_d2d_begin_frame (output);
+
+      /* Clear on full redraw cycles only.  With flip-sequential the
+	 back buffer contents are preserved between presents, so
+	 incremental redraws need only paint the changed regions.  */
+      if (f->garbaged)
+	{
+	  output->d2d_stat_update_begin_clear++;
+	  w32_d2d_fill_rect_dc (output, 0, 0, FRAME_PIXEL_WIDTH (f),
+				FRAME_PIXEL_HEIGHT (f), bg);
+	}
     }
 }
 
@@ -899,8 +1118,25 @@ w32_update_window_end (struct window *w, bool cursor_on_p,
 static void
 w32_update_end (struct frame *f)
 {
+  struct w32_output *output;
+
   if (!FRAME_W32_P (f))
     return;
+
+  output = FRAME_OUTPUT_DATA (f);
+
+  /* In pure D2D mode, present at update_end.  With NULL hdc from
+     get_frame_dc, all drawing goes through D2D so presenting here
+     is safe — no GDI draws contaminate the window DC.
+     paint_buffer_dirty is cleared after the first present, so
+     subsequent update_end calls in the same cycle are no-ops.  */
+  if (output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc && output->paint_buffer_dirty)
+    {
+      output->d2d_stat_update_end_flush++;
+      w32_show_back_buffer (f);
+    }
 
   /* Mouse highlight may be displayed again.  */
   MOUSE_HL_INFO (f)->mouse_face_defer = false;
@@ -912,18 +1148,39 @@ w32_update_end (struct frame *f)
 static void
 w32_frame_up_to_date (struct frame *f)
 {
+  struct w32_output *output = FRAME_OUTPUT_DATA (f);
+
   FRAME_MOUSE_UPDATE (f);
 
-  if (!buffer_flipping_blocked_p ()
-      && FRAME_OUTPUT_DATA (f)->paint_buffer_dirty)
-    w32_show_back_buffer (f);
+  /* Pure D2D: already presented at update_end.  */
+  if (output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc)
+    return;
+
+  if (!buffer_flipping_blocked_p () && output->paint_buffer_dirty)
+    {
+      output->d2d_stat_up_to_date_flush++;
+      w32_show_back_buffer (f);
+    }
 }
 
 static void
 w32_buffer_flipping_unblocked_hook (struct frame *f)
 {
-  if (FRAME_OUTPUT_DATA (f)->paint_buffer_dirty)
-    w32_show_back_buffer (f);
+  struct w32_output *output = FRAME_OUTPUT_DATA (f);
+
+  /* Pure D2D: already presented at update_end.  */
+  if (output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc)
+    return;
+
+  if (output->paint_buffer_dirty)
+    {
+      output->d2d_stat_unblocked_flush++;
+      w32_show_back_buffer (f);
+    }
 }
 
 /* Flip buffers on F if drawing has happened.  This function is not
@@ -933,11 +1190,15 @@ w32_buffer_flipping_unblocked_hook (struct frame *f)
 void
 w32_flip_buffers_if_dirty (struct frame *f)
 {
+  struct w32_output *output = FRAME_OUTPUT_DATA (f);
+
   if (FRAME_W32_P (f) /* do nothing in TTY frames */
-      && FRAME_OUTPUT_DATA (f)->paint_buffer
-      && FRAME_OUTPUT_DATA (f)->paint_buffer_dirty && !f->garbaged
+      && output->paint_buffer_dirty && !f->garbaged
       && !buffer_flipping_blocked_p ())
-    w32_show_back_buffer (f);
+    {
+      output->d2d_stat_flip_if_dirty_flush++;
+      w32_show_back_buffer (f);
+    }
 }
 
 /* Draw truncation mark bitmaps, continuation mark bitmaps, overlay
@@ -1010,8 +1271,19 @@ w32_draw_fringe_bitmap (struct window *w, struct glyph_row *row,
 			struct draw_fringe_bitmap_params *p)
 {
   struct frame *f = XFRAME (WINDOW_FRAME (w));
+  struct w32_output *output = FRAME_OUTPUT_DATA (f);
   HDC hdc;
   struct face *face = p->face;
+
+  if (output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc)
+    {
+      if (p->bx >= 0 && !p->overlay_p)
+	w32_d2d_fill_rect_dc (output, p->bx, p->by, p->nx, p->ny,
+			      face->background);
+      return;
+    }
 
   hdc = get_frame_dc (f);
 
@@ -1026,8 +1298,6 @@ w32_draw_fringe_bitmap (struct window *w, struct glyph_row *row,
       && p->which < max_used_fringe_bitmap)
     {
       HBITMAP pixmap = fringe_bmp[p->which];
-      HDC compat_hdc;
-      HANDLE horig_obj;
 
       if (!fringe_bmp[p->which])
 	{
@@ -1038,54 +1308,235 @@ w32_draw_fringe_bitmap (struct window *w, struct glyph_row *row,
 	     that define fringe bitmaps are loaded by a daemon Emacs.
 	     Create the missing HBITMAP now.  */
 	  gui_define_fringe_bitmap (f, p->which);
+	  pixmap = fringe_bmp[p->which];
 	}
 
-      /* Reuse a cached compatible DC to avoid CreateCompatibleDC /
-	 DeleteDC overhead on every fringe bitmap draw.  */
-      static HDC fringe_compat_hdc;
-      if (!fringe_compat_hdc)
-	fringe_compat_hdc = CreateCompatibleDC (hdc);
+      {
+	struct w32_output *output = FRAME_OUTPUT_DATA (f);
 
-      compat_hdc = fringe_compat_hdc;
+	/* In pure D2D mode, convert monochrome fringe bitmap to a
+	   color bitmap and draw via D2D.  Monochrome bitmaps use
+	   BkColor for 0-bits and TextColor for 1-bits on BitBlt
+	   SRCCOPY — replicate that colorization here.  */
+	if (output->use_d3d && output->dxgi_swap_chain
+	    && output->d2d_context && output->d2d_target
+	    && !output->d3d_direct_dc && pixmap)
+	  {
+	    COLORREF fg_color, bg_color;
 
-      SaveDC (hdc);
+	    if (p->overlay_p)
+	      {
+		fg_color = face->foreground;
+		bg_color = face->background;
+	      }
+	    else
+	      {
+		bg_color = face->background;
+		fg_color
+		  = (p->cursor_p ? f->output_data.w32->cursor_pixel
+				 : face->foreground);
+	      }
 
-      horig_obj = SelectObject (compat_hdc, pixmap);
+	    /* Create a color HBITMAP from the monochrome fringe
+	       bitmap.  In monochrome→color BitBlt: 0-bits map to
+	       BkColor and 1-bits map to TextColor.  We replicate
+	       this by reading the monochrome bits and writing
+	       colored pixels.  */
+	    {
+	      BITMAP bm;
+	      GetObject (pixmap, sizeof bm, &bm);
+	      if (bm.bmWidth > 0 && bm.bmHeight > 0)
+		{
+		  int src_w = bm.bmWidth;
+		  int src_h = bm.bmHeight;
+		  int draw_w = p->wd;
+		  int draw_h = p->h;
+		  int src_y_off = p->dh;
 
-      /* Paint overlays transparently.  */
-      if (p->overlay_p)
-	{
-	  HBRUSH h_brush, h_orig_brush;
+		  /* Create a 32-bit color bitmap.  */
+		  BITMAPINFO bi;
+		  memset (&bi, 0, sizeof bi);
+		  bi.bmiHeader.biSize = sizeof (BITMAPINFOHEADER);
+		  bi.bmiHeader.biWidth = draw_w;
+		  bi.bmiHeader.biHeight = -draw_h; /* top-down */
+		  bi.bmiHeader.biPlanes = 1;
+		  bi.bmiHeader.biBitCount = 32;
+		  bi.bmiHeader.biCompression = BI_RGB;
 
-	  SetTextColor (hdc, BLACK_PIX_DEFAULT (f));
-	  SetBkColor (hdc, WHITE_PIX_DEFAULT (f));
-	  h_brush = w32_get_brush (face->foreground);
-	  h_orig_brush = SelectObject (hdc, h_brush);
+		  uint32_t *color_bits = NULL;
+		  HDC screen_dc = GetDC (NULL);
+		  HBITMAP color_bmp
+		    = CreateDIBSection (screen_dc, &bi,
+					DIB_RGB_COLORS,
+					(void **) &color_bits, NULL,
+					0);
+		  ReleaseDC (NULL, screen_dc);
 
-	  BitBlt (hdc, p->x, p->y, p->wd, p->h, compat_hdc, 0, p->dh,
-		  DSTINVERT);
-	  BitBlt (hdc, p->x, p->y, p->wd, p->h, compat_hdc, 0, p->dh,
-		  0x2E064A);
-	  BitBlt (hdc, p->x, p->y, p->wd, p->h, compat_hdc, 0, p->dh,
-		  DSTINVERT);
+		  if (color_bmp && color_bits)
+		    {
+		      /* Read monochrome bitmap bits.  */
+		      int mono_stride = ((src_w + 15) / 16) * 2;
+		      int mono_size = mono_stride * src_h;
+		      unsigned char *mono_bits = alloca (mono_size);
+		      GetBitmapBits (pixmap, mono_size, mono_bits);
 
-	  SelectObject (hdc, h_orig_brush);
-	  /* h_brush is cached via w32_get_brush, don't delete */
-	}
-      else
-	{
-	  SetTextColor (hdc, face->background);
-	  SetBkColor (hdc,
-		      (p->cursor_p ? f->output_data.w32->cursor_pixel
-				   : face->foreground));
+		      /* Convert fg/bg COLORREF to BGRA uint32.  */
+		      uint32_t fg32 = (GetRValue (fg_color)
+				       | (GetGValue (fg_color) << 8)
+				       | (GetBValue (fg_color) << 16)
+				       | 0xFF000000u);
+		      uint32_t bg32 = (GetRValue (bg_color)
+				       | (GetGValue (bg_color) << 8)
+				       | (GetBValue (bg_color) << 16)
+				       | 0xFF000000u);
 
-	  BitBlt (hdc, p->x, p->y, p->wd, p->h, compat_hdc, 0, p->dh,
-		  SRCCOPY);
-	}
+		      for (int y = 0; y < draw_h; y++)
+			{
+			  int src_row = y + src_y_off;
+			  if (src_row < 0 || src_row >= src_h)
+			    {
+			      for (int x = 0; x < draw_w; x++)
+				color_bits[y * draw_w + x] = bg32;
+			      continue;
+			    }
+			  unsigned char *row_bits
+			    = mono_bits + src_row * mono_stride;
+			  for (int x = 0; x < draw_w; x++)
+			    {
+			      int bit;
+			      if (x < src_w)
+				bit
+				  = (row_bits[x / 8] >> (7 - (x % 8)))
+				    & 1;
+			      else
+				bit = 0;
+			      /* Monochrome: 1-bit = TextColor (fg),
+				 0-bit = BkColor (bg).  */
+			      color_bits[y * draw_w + x]
+				= bit ? fg32 : bg32;
+			    }
+			}
 
-      SelectObject (compat_hdc, horig_obj);
-      /* compat_hdc is cached, don't delete */
-      RestoreDC (hdc, -1);
+		      /* For overlay mode, use the mask to make
+			 background pixels transparent.  */
+		      HBITMAP mask_bmp = NULL;
+		      if (p->overlay_p)
+			{
+			  /* Create a mask where bg pixels are black
+			     (transparent) and fg pixels are white. */
+			  BITMAPINFO mbi;
+			  memset (&mbi, 0, sizeof mbi);
+			  mbi.bmiHeader.biSize
+			    = sizeof (BITMAPINFOHEADER);
+			  mbi.bmiHeader.biWidth = draw_w;
+			  mbi.bmiHeader.biHeight = -draw_h;
+			  mbi.bmiHeader.biPlanes = 1;
+			  mbi.bmiHeader.biBitCount = 32;
+			  mbi.bmiHeader.biCompression = BI_RGB;
+
+			  uint32_t *mask_bits = NULL;
+			  HDC mdc = GetDC (NULL);
+			  mask_bmp
+			    = CreateDIBSection (mdc, &mbi,
+						DIB_RGB_COLORS,
+						(void **) &mask_bits,
+						NULL, 0);
+			  ReleaseDC (NULL, mdc);
+
+			  if (mask_bmp && mask_bits)
+			    {
+			      for (int y = 0; y < draw_h; y++)
+				{
+				  int src_row = y + src_y_off;
+				  for (int x = 0; x < draw_w; x++)
+				    {
+				      int bit = 0;
+				      if (src_row >= 0
+					  && src_row < src_h
+					  && x < src_w)
+					{
+					  unsigned char *rb
+					    = mono_bits
+					      + src_row * mono_stride;
+					  bit = (rb[x / 8]
+						 >> (7 - (x % 8)))
+						& 1;
+					}
+				      mask_bits[y * draw_w + x]
+					= bit ? 0xFFFFFFFF
+					      : 0x00000000;
+				    }
+				}
+			    }
+			}
+
+		      w32_d2d_draw_bitmap_dc (output, color_bmp,
+					      mask_bmp, 0, 0, draw_w,
+					      draw_h, p->x, p->y,
+					      draw_w, draw_h, false,
+					      0, 0, 0, 0);
+		      w32_note_drawn_rect (f, p->x, p->y, draw_w,
+					   draw_h);
+		      DeleteObject (color_bmp);
+		      if (mask_bmp)
+			DeleteObject (mask_bmp);
+		    }
+		  else if (color_bmp)
+		    DeleteObject (color_bmp);
+		}
+	    }
+	  }
+	else if (pixmap)
+	  {
+	    /* GDI path for non-D2D frames.  */
+	    HDC compat_hdc;
+	    HANDLE horig_obj;
+
+	    static HDC fringe_compat_hdc;
+	    if (!fringe_compat_hdc)
+	      fringe_compat_hdc = CreateCompatibleDC (hdc);
+
+	    compat_hdc = fringe_compat_hdc;
+
+	    SaveDC (hdc);
+
+	    horig_obj = SelectObject (compat_hdc, pixmap);
+
+	    if (p->overlay_p)
+	      {
+		HBRUSH h_brush, h_orig_brush;
+
+		SetTextColor (hdc, BLACK_PIX_DEFAULT (f));
+		SetBkColor (hdc, WHITE_PIX_DEFAULT (f));
+		h_brush = w32_get_brush (face->foreground);
+		h_orig_brush = SelectObject (hdc, h_brush);
+
+		BitBlt (hdc, p->x, p->y, p->wd, p->h, compat_hdc, 0,
+			p->dh, DSTINVERT);
+		BitBlt (hdc, p->x, p->y, p->wd, p->h, compat_hdc, 0,
+			p->dh, 0x2E064A);
+		BitBlt (hdc, p->x, p->y, p->wd, p->h, compat_hdc, 0,
+			p->dh, DSTINVERT);
+
+		SelectObject (hdc, h_orig_brush);
+		w32_note_drawn_rect (f, p->x, p->y, p->wd, p->h);
+	      }
+	    else
+	      {
+		SetTextColor (hdc, face->background);
+		SetBkColor (hdc, (p->cursor_p
+				    ? f->output_data.w32->cursor_pixel
+				    : face->foreground));
+
+		BitBlt (hdc, p->x, p->y, p->wd, p->h, compat_hdc, 0,
+			p->dh, SRCCOPY);
+		w32_note_drawn_rect (f, p->x, p->y, p->wd, p->h);
+	      }
+
+	    SelectObject (compat_hdc, horig_obj);
+	    RestoreDC (hdc, -1);
+	  }
+      }
     }
 
   w32_set_clip_rectangle (hdc, NULL);
@@ -1146,6 +1597,7 @@ static void w32_setup_relief_color (struct frame *, struct relief *,
 static void w32_setup_relief_colors (struct glyph_string *);
 static void w32_draw_image_glyph_string (struct glyph_string *);
 static void w32_draw_image_relief (struct glyph_string *);
+static bool w32_draw_image_foreground_d2d (struct glyph_string *);
 static void w32_draw_image_foreground (struct glyph_string *);
 static void w32_draw_image_foreground_1 (struct glyph_string *,
 					 HBITMAP);
@@ -1426,6 +1878,18 @@ w32_fill_stipple_pattern (HDC hdc, struct glyph_string *s,
 			  Emacs_GC *gc, int x, int y,
 			  unsigned int width, unsigned int height)
 {
+  struct w32_output *output = FRAME_OUTPUT_DATA (s->f);
+
+  if (output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc)
+    {
+      /* Stipple brush fill is GDI-only today.  */
+      w32_d2d_fill_rect_dc (output, x, y, width, height,
+			    gc->background);
+      return;
+    }
+
   SetTextColor (hdc, gc->foreground);
   SetBkColor (hdc, gc->background);
 
@@ -1458,6 +1922,12 @@ static void
 w32_draw_glyph_string_background (struct glyph_string *s,
 				  bool force_p)
 {
+  struct w32_output *output = FRAME_OUTPUT_DATA (s->f);
+  bool pure_d2d_mode
+    = (output && output->use_d3d && output->dxgi_swap_chain
+       && output->d2d_context && output->d2d_target
+       && !output->d3d_direct_dc);
+
   /* Nothing to do if background has already been drawn or if it
      shouldn't be drawn in the first place.  */
   if (!s->background_filled_p)
@@ -1465,7 +1935,7 @@ w32_draw_glyph_string_background (struct glyph_string *s,
       int box_line_width
 	= max (s->face->box_horizontal_line_width, 0);
 
-      if (s->stippled_p)
+      if (s->stippled_p && !pure_d2d_mode)
 	{
 	  /* Fill background with a stipple pattern.  */
 	  w32_fill_stipple_pattern (s->hdc, s, s->gc, s->x,
@@ -1517,7 +1987,7 @@ w32_draw_glyph_string_foreground (struct glyph_string *s)
 	{
 	  struct glyph *g = s->first_glyph + i;
 
-	  w32_draw_rectangle (s->hdc, s->gc, x, s->y,
+	  w32_draw_rectangle (s->f, s->hdc, s->gc, x, s->y,
 			      g->pixel_width - 1, s->height - 1);
 	  x += g->pixel_width;
 	}
@@ -1577,8 +2047,8 @@ w32_draw_composite_glyph_string_foreground (struct glyph_string *s)
   if (s->font_not_found_p)
     {
       if (s->cmp_from == 0)
-	w32_draw_rectangle (s->hdc, s->gc, x, s->y, s->width - 1,
-			    s->height - 1);
+	w32_draw_rectangle (s->f, s->hdc, s->gc, x, s->y,
+			    s->width - 1, s->height - 1);
     }
   else if (!s->first_glyph->u.cmp.automatic)
     {
@@ -1702,7 +2172,7 @@ w32_draw_glyphless_glyph_string_foreground (struct glyph_string *s)
 	}
 
       if (glyph->u.glyphless.method != GLYPHLESS_DISPLAY_THIN_SPACE)
-	w32_draw_rectangle (s->hdc, s->gc, x,
+	w32_draw_rectangle (s->f, s->hdc, s->gc, x,
 			    s->ybase - glyph->ascent,
 			    glyph->pixel_width - 1,
 			    glyph->ascent + glyph->descent - 1);
@@ -1932,7 +2402,6 @@ w32_draw_relief_rect (struct frame *f, int left_x, int top_y,
 		      int vwidth, int raised_p, int top_p, int bot_p,
 		      int left_p, int right_p, RECT *clip_rect)
 {
-  int i;
   Emacs_GC gc;
   HDC hdc = get_frame_dc (f);
 
@@ -1945,19 +2414,14 @@ w32_draw_relief_rect (struct frame *f, int left_x, int top_y,
 
   /* Top.  */
   if (top_p)
-    for (i = 0; i < hwidth; ++i)
-      w32_fill_area (f, hdc, gc.foreground, left_x + i * left_p,
-		     top_y + i,
-		     right_x - left_x - i * (left_p + right_p) + 1,
-		     1);
+    w32_fill_area (f, hdc, gc.foreground, left_x, top_y,
+		   right_x - left_x + 1, hwidth);
 
   /* Left.  */
   if (left_p)
-    for (i = 0; i < vwidth; ++i)
-      w32_fill_area (f, hdc, gc.foreground, left_x + i,
-		     top_y + (i + 1) * top_p, 1,
-		     bottom_y - top_y - (i + 1) * (bot_p + top_p)
-		       + 1);
+    w32_fill_area (f, hdc, gc.foreground, left_x,
+		   top_y + top_p * hwidth, vwidth,
+		   bottom_y - top_y - (bot_p + top_p) * hwidth + 1);
 
   if (raised_p)
     gc.foreground = f->output_data.w32->black_relief.gc->foreground;
@@ -1966,19 +2430,15 @@ w32_draw_relief_rect (struct frame *f, int left_x, int top_y,
 
   /* Bottom.  */
   if (bot_p)
-    for (i = 0; i < hwidth; ++i)
-      w32_fill_area (f, hdc, gc.foreground, left_x + i * left_p,
-		     bottom_y - i,
-		     right_x - left_x - i * (left_p + right_p) + 1,
-		     1);
+    w32_fill_area (f, hdc, gc.foreground, left_x,
+		   bottom_y - hwidth + 1, right_x - left_x + 1,
+		   hwidth);
 
   /* Right.  */
   if (right_p)
-    for (i = 0; i < vwidth; ++i)
-      w32_fill_area (f, hdc, gc.foreground, right_x - i,
-		     top_y + (i + 1) * top_p, 1,
-		     bottom_y - top_y - (i + 1) * (bot_p + top_p)
-		       + 1);
+    w32_fill_area (f, hdc, gc.foreground, right_x - vwidth + 1,
+		   top_y + top_p * hwidth, vwidth,
+		   bottom_y - top_y - (bot_p + top_p) * hwidth + 1);
 
   w32_set_clip_rectangle (hdc, NULL);
 
@@ -2331,7 +2791,7 @@ w32_draw_image_foreground (struct glyph_string *s)
 	      int r = s->img->relief;
 	      if (r < 0)
 		r = -r;
-	      w32_draw_rectangle (s->hdc, s->gc, x - r, y - r,
+	      w32_draw_rectangle (s->f, s->hdc, s->gc, x - r, y - r,
 				  s->slice.width + r * 2 - 1,
 				  s->slice.height + r * 2 - 1);
 	    }
@@ -2344,10 +2804,90 @@ w32_draw_image_foreground (struct glyph_string *s)
       DeleteDC (compat_hdc);
     }
   else
-    w32_draw_rectangle (s->hdc, s->gc, x, y, s->slice.width - 1,
+    w32_draw_rectangle (s->f, s->hdc, s->gc, x, y, s->slice.width - 1,
 			s->slice.height - 1);
 
   RestoreDC (s->hdc, -1);
+}
+
+static bool
+w32_draw_image_foreground_d2d (struct glyph_string *s)
+{
+  struct w32_output *output = FRAME_OUTPUT_DATA (s->f);
+  BITMAP bm;
+  RECT clip_rect;
+  int x = s->x;
+  int y = s->ybase - image_ascent (s->img, s->face, &s->slice);
+  int src_x = s->slice.x;
+  int src_y = s->slice.y;
+  int src_w = s->slice.width;
+  int src_h = s->slice.height;
+
+  if (!output || !output->use_d3d || !output->dxgi_swap_chain
+      || !output->d2d_context || !output->d2d_target
+      || output->d3d_direct_dc)
+    return false;
+
+  /* Keep transformed-image path on legacy fallback for now.  */
+  if (s->img->xform.eM12 != 0 || s->img->xform.eM21 != 0
+      || s->img->xform.eDx != 0 || s->img->xform.eDy != 0)
+    return false;
+
+  if (s->face->box != FACE_NO_BOX && s->first_glyph->left_box_line_p
+      && s->slice.x == 0)
+    x += max (s->face->box_vertical_line_width, 0);
+
+  if (s->slice.x == 0)
+    x += s->img->hmargin;
+  if (s->slice.y == 0)
+    y += s->img->vmargin;
+
+  if (!s->img->pixmap)
+    {
+      w32_draw_rectangle (s->f, s->hdc, s->gc, x, y,
+			  max (1, s->slice.width) - 1,
+			  max (1, s->slice.height) - 1);
+      return true;
+    }
+
+  if (GetObject (s->img->pixmap, sizeof (bm), &bm) > 0
+      && (s->img->width != bm.bmWidth
+	  || s->img->height != bm.bmHeight))
+    {
+      double w_factor = (double) bm.bmWidth / (double) s->img->width;
+      double h_factor
+	= (double) bm.bmHeight / (double) s->img->height;
+
+      src_w = s->slice.width * w_factor + 0.5;
+      src_h = s->slice.height * h_factor + 0.5;
+      src_x = s->slice.x * w_factor + 0.5;
+      src_y = s->slice.y * h_factor + 0.5;
+    }
+
+  get_glyph_string_clip_rect (s, &clip_rect);
+
+  if (!w32_d2d_draw_bitmap_dc (output, s->img->pixmap, s->img->mask,
+			       src_x, src_y, src_w, src_h, x, y,
+			       s->slice.width, s->slice.height,
+			       s->img->smoothing, clip_rect.left,
+			       clip_rect.top,
+			       clip_rect.right - clip_rect.left,
+			       clip_rect.bottom - clip_rect.top))
+    return false;
+
+  if (!s->img->mask && s->hl == DRAW_CURSOR)
+    {
+      int r = s->img->relief;
+      if (r < 0)
+	r = -r;
+      return w32_d2d_draw_rect_dc (output, x - r, y - r,
+				   s->slice.width + r * 2 - 1,
+				   s->slice.height + r * 2 - 1,
+				   s->gc->foreground,
+				   s->gc->background);
+    }
+
+  return true;
 }
 
 size_t
@@ -2521,7 +3061,7 @@ w32_draw_image_foreground_1 (struct glyph_string *s, HBITMAP pixmap)
 	      int r = s->img->relief;
 	      if (r < 0)
 		r = -r;
-	      w32_draw_rectangle (hdc, s->gc, x - r, y - r,
+	      w32_draw_rectangle (NULL, hdc, s->gc, x - r, y - r,
 				  s->slice.width + r * 2 - 1,
 				  s->slice.height + r * 2 - 1);
 	    }
@@ -2532,7 +3072,7 @@ w32_draw_image_foreground_1 (struct glyph_string *s, HBITMAP pixmap)
       DeleteDC (compat_hdc);
     }
   else
-    w32_draw_rectangle (hdc, s->gc, x, y, s->slice.width - 1,
+    w32_draw_rectangle (NULL, hdc, s->gc, x, y, s->slice.width - 1,
 			s->slice.height - 1);
 
   SelectObject (hdc, orig_hdc_obj);
@@ -2572,6 +3112,12 @@ w32_draw_glyph_string_bg_rect (struct glyph_string *s, int x, int y,
 static void
 w32_draw_image_glyph_string (struct glyph_string *s)
 {
+  struct w32_output *output = FRAME_OUTPUT_DATA (s->f);
+  bool pure_d2d_mode
+    = (output && output->use_d3d && output->dxgi_swap_chain
+       && output->d2d_context && output->d2d_target
+       && !output->d3d_direct_dc);
+
   int x, y;
   int box_line_hwidth = max (s->face->box_vertical_line_width, 0);
   int box_line_vwidth = max (s->face->box_horizontal_line_width, 0);
@@ -2650,7 +3196,16 @@ w32_draw_image_glyph_string (struct glyph_string *s)
     }
 
   /* Draw the foreground.  */
-  if (pixmap != 0)
+  if (pure_d2d_mode)
+    {
+      if (!w32_draw_image_foreground_d2d (s))
+	{
+	  w32_d3d_disable (output);
+	  SET_FRAME_GARBAGED (s->f);
+	  return;
+	}
+    }
+  else if (pixmap != 0)
     {
       w32_draw_image_foreground_1 (s, pixmap);
       w32_set_glyph_string_clipping (s);
@@ -3208,10 +3763,29 @@ static void
 w32_shift_glyphs_for_insert (struct frame *f, int x, int y, int width,
 			     int height, int shift_by)
 {
+  struct w32_output *output = FRAME_OUTPUT_DATA (f);
+
+  if (output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc)
+    {
+      /* Use D2D copy instead of GDI BitBlt.  */
+      if (!w32_d2d_copy_area_dc (output, x, y, width, height,
+				 x + shift_by, y))
+	{
+	  SET_FRAME_GARBAGED (f);
+	  return;
+	}
+      w32_note_drawn_rect (f, x, y, width + shift_by, height);
+      output->paint_buffer_dirty = 1;
+      return;
+    }
+
   HDC hdc;
 
   hdc = get_frame_dc (f);
   BitBlt (hdc, x + shift_by, y, width, height, hdc, x, y, SRCCOPY);
+  w32_note_drawn_rect (f, x, y, width + shift_by, height);
 
   release_frame_dc (f, hdc);
 }
@@ -3298,6 +3872,7 @@ static void
 w32_scroll_run (struct window *w, struct run *run)
 {
   struct frame *f = XFRAME (w->frame);
+  struct w32_output *output = FRAME_OUTPUT_DATA (f);
   int x, y, width, height, from_y, to_y, bottom_y;
   HDC hdc;
   HWND hwnd = FRAME_W32_WINDOW (f);
@@ -3312,6 +3887,15 @@ w32_scroll_run (struct window *w, struct run *run)
      without mode lines.  Include in this box the left and right
      fringes of W.  */
   window_box (w, ANY_AREA, &x, &y, &width, &height);
+
+  if (output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc)
+    {
+      /* Disable GDI scrolling shortcuts in pure D2D mode.  */
+      SET_FRAME_GARBAGED (f);
+      return;
+    }
 
   from_y = WINDOW_TO_FRAME_PIXEL_Y (w, run->current_y);
   to_y = WINDOW_TO_FRAME_PIXEL_Y (w, run->desired_y);
@@ -3366,9 +3950,40 @@ w32_scroll_run (struct window *w, struct run *run)
 
   if (!w32_disable_double_buffering)
     {
-      hdc = get_frame_dc (f);
-      BitBlt (hdc, x, to_y, width, height, hdc, x, from_y, SRCCOPY);
-      release_frame_dc (f, hdc);
+      struct w32_output *output = FRAME_OUTPUT_DATA (f);
+
+      /* In pure D2D mode, use D2D copy instead of GDI BitBlt.  */
+      if (output->use_d3d && output->dxgi_swap_chain
+	  && output->d2d_context && output->d2d_target
+	  && !output->d3d_direct_dc)
+	{
+	  if (!w32_d2d_copy_area_dc (output, x, from_y, width, height,
+				     x, to_y))
+	    {
+	      SET_FRAME_GARBAGED (f);
+	    }
+	  else
+	    {
+	      int min_y = min (from_y, to_y);
+	      int max_y = max (from_y, to_y);
+	      w32_note_drawn_rect (f, x, min_y, width,
+				   max_y + height - min_y);
+	    }
+	  output->paint_buffer_dirty = 1;
+	}
+      else
+	{
+	  hdc = get_frame_dc (f);
+	  BitBlt (hdc, x, to_y, width, height, hdc, x, from_y,
+		  SRCCOPY);
+	  {
+	    int min_y = min (from_y, to_y);
+	    int max_y = max (from_y, to_y);
+	    w32_note_drawn_rect (f, x, min_y, width,
+				 max_y + height - min_y);
+	  }
+	  release_frame_dc (f, hdc);
+	}
     }
   else
     {
@@ -5345,6 +5960,8 @@ w32_read_socket (struct terminal *terminal,
 {
   int count = 0;
   int check_visibility = 0;
+  bool pure_d2d_dirty_flush_needed = false;
+  struct frame *pure_d2d_dirty_frame = NULL;
   W32Msg msg;
   struct frame *f;
   struct w32_display_info *dpyinfo = &one_w32_display_info;
@@ -6670,7 +7287,39 @@ w32_read_socket (struct terminal *terminal,
       if (f && !w32_disable_double_buffering
 	  && FRAME_OUTPUT_DATA (f)->paint_buffer_dirty && !f->garbaged
 	  && !ignore_dirty_back_buffer)
-	w32_show_back_buffer (f);
+	{
+	  struct w32_output *output = FRAME_OUTPUT_DATA (f);
+
+	  if (output->use_d3d && output->dxgi_swap_chain
+	      && output->d2d_context && output->d2d_target
+	      && !output->d3d_direct_dc)
+	    {
+	      pure_d2d_dirty_flush_needed = true;
+	      pure_d2d_dirty_frame = f;
+	    }
+	  else
+	    w32_show_back_buffer (f);
+	}
+    }
+
+  /* For pure D2D frames, flush at most once per input-batch.  Cursor
+     and other event-driven drawing can happen outside redisplay, but
+     per-event presents are too expensive.  */
+  if (pure_d2d_dirty_flush_needed && pure_d2d_dirty_frame
+      && !buffer_flipping_blocked_p ())
+    {
+      struct w32_output *output;
+
+      if (FRAME_W32_P (pure_d2d_dirty_frame))
+	{
+	  output = FRAME_OUTPUT_DATA (pure_d2d_dirty_frame);
+	  if (output->use_d3d && output->dxgi_swap_chain
+	      && output->d2d_context && output->d2d_target
+	      && !output->d3d_direct_dc && !output->d2d_drawing
+	      && output->paint_buffer_dirty
+	      && !pure_d2d_dirty_frame->garbaged)
+	    w32_show_back_buffer (pure_d2d_dirty_frame);
+	}
     }
 
   /* If the focus was just given to an autoraising frame,
@@ -6776,11 +7425,9 @@ static void
 w32_draw_hollow_cursor (struct window *w, struct glyph_row *row)
 {
   struct frame *f = XFRAME (WINDOW_FRAME (w));
-  HDC hdc;
-  RECT rect;
   int left, top, h;
   struct glyph *cursor_glyph;
-  HBRUSH hb = w32_get_brush (f->output_data.w32->cursor_pixel);
+  COLORREF cursor_color = f->output_data.w32->cursor_pixel;
 
   /* Get the glyph the cursor is on.  If we can't tell because
      the current matrix is invalid or such, give up.  */
@@ -6790,23 +7437,55 @@ w32_draw_hollow_cursor (struct window *w, struct glyph_row *row)
 
   /* Compute frame-relative coordinates for phys cursor.  */
   get_phys_cursor_geometry (w, row, cursor_glyph, &left, &top, &h);
-  rect.left = left;
+
   /* When on R2L character, show cursor at the right edge of the
      glyph, unless the cursor box is as wide as the glyph or wider
      (the latter happens when x-stretch-cursor is non-nil).  */
   if ((cursor_glyph->resolved_level & 1) != 0
       && cursor_glyph->pixel_width > w->phys_cursor_width)
-    rect.left += cursor_glyph->pixel_width - w->phys_cursor_width;
-  rect.top = top;
-  rect.bottom = rect.top + h;
-  rect.right = rect.left + w->phys_cursor_width;
+    left += cursor_glyph->pixel_width - w->phys_cursor_width;
 
-  hdc = get_frame_dc (f);
-  /* Set clipping, draw the rectangle, and reset clipping again.  */
-  w32_clip_to_row (w, row, TEXT_AREA, hdc);
-  FrameRect (hdc, &rect, hb);
-  w32_set_clip_rectangle (hdc, NULL);
-  release_frame_dc (f, hdc);
+  {
+    struct w32_output *output = FRAME_OUTPUT_DATA (f);
+    int cw = w->phys_cursor_width;
+
+    /* In pure D2D mode, draw the hollow box cursor via D2D.  Draw
+       4 edges of the rectangle (1 pixel wide each side).  */
+    if (output->use_d3d && output->dxgi_swap_chain
+	&& output->d2d_context && output->d2d_target
+	&& !output->d3d_direct_dc)
+      {
+	/* Top edge.  */
+	w32_d2d_fill_rect_dc (output, left, top, cw, 1, cursor_color);
+	/* Bottom edge.  */
+	w32_d2d_fill_rect_dc (output, left, top + h - 1, cw, 1,
+			      cursor_color);
+	/* Left edge.  */
+	w32_d2d_fill_rect_dc (output, left, top, 1, h, cursor_color);
+	/* Right edge.  */
+	w32_d2d_fill_rect_dc (output, left + cw - 1, top, 1, h,
+			      cursor_color);
+	w32_note_drawn_rect (f, left, top, cw, h);
+      }
+    else
+      {
+	RECT rect;
+	HDC hdc;
+	HBRUSH hb = w32_get_brush (cursor_color);
+
+	rect.left = left;
+	rect.top = top;
+	rect.bottom = top + h;
+	rect.right = left + cw;
+
+	hdc = get_frame_dc (f);
+	w32_clip_to_row (w, row, TEXT_AREA, hdc);
+	FrameRect (hdc, &rect, hb);
+	w32_note_drawn_rect (f, left, top, cw, h);
+	w32_set_clip_rectangle (hdc, NULL);
+	release_frame_dc (f, hdc);
+      }
+  }
 }
 
 /* Draw a bar cursor on window W in glyph row ROW.
@@ -6845,7 +7524,6 @@ w32_draw_bar_cursor (struct window *w, struct glyph_row *row,
       COLORREF cursor_color = f->output_data.w32->cursor_pixel;
       struct face *face = FACE_FROM_ID (f, cursor_glyph->face_id);
       int x;
-      HDC hdc;
 
       /* If the glyph's background equals the color we normally draw
 	 the bar cursor in, the bar cursor in its normal color is
@@ -6856,9 +7534,6 @@ w32_draw_bar_cursor (struct window *w, struct glyph_row *row,
 	cursor_color = face->foreground;
 
       x = WINDOW_TEXT_TO_FRAME_PIXEL_X (w, w->phys_cursor.x);
-
-      hdc = get_frame_dc (f);
-      w32_clip_to_row (w, row, TEXT_AREA, hdc);
 
       if (kind == BAR_CURSOR)
 	{
@@ -6873,11 +7548,6 @@ w32_draw_bar_cursor (struct window *w, struct glyph_row *row,
 	     left.  */
 	  if ((cursor_glyph->resolved_level & 1) != 0)
 	    x += cursor_glyph->pixel_width - width;
-
-	  w32_fill_area (f, hdc, cursor_color, x,
-			 WINDOW_TO_FRAME_PIXEL_Y (w,
-						  w->phys_cursor.y),
-			 width, row->height);
 	}
       else /* HBAR_CURSOR */
 	{
@@ -6893,15 +7563,48 @@ w32_draw_bar_cursor (struct window *w, struct glyph_row *row,
 	  if ((cursor_glyph->resolved_level & 1) != 0
 	      && cursor_glyph->pixel_width > w->phys_cursor_width)
 	    x += cursor_glyph->pixel_width - w->phys_cursor_width;
-	  w32_fill_area (f, hdc, cursor_color, x,
-			 WINDOW_TO_FRAME_PIXEL_Y (w, w->phys_cursor.y
-						       + row->height
-						       - width),
-			 w->phys_cursor_width, width);
 	}
 
-      w32_set_clip_rectangle (hdc, NULL);
-      release_frame_dc (f, hdc);
+      {
+	struct w32_output *output = FRAME_OUTPUT_DATA (f);
+	int fill_x, fill_y, fill_w, fill_h;
+
+	if (kind == BAR_CURSOR)
+	  {
+	    fill_x = x;
+	    fill_y = WINDOW_TO_FRAME_PIXEL_Y (w, w->phys_cursor.y);
+	    fill_w = width;
+	    fill_h = row->height;
+	  }
+	else /* HBAR_CURSOR */
+	  {
+	    fill_x = x;
+	    fill_y
+	      = WINDOW_TO_FRAME_PIXEL_Y (w, w->phys_cursor.y
+					      + row->height - width);
+	    fill_w = w->phys_cursor_width;
+	    fill_h = width;
+	  }
+
+	/* In pure D2D mode, draw cursor via D2D directly into the
+	   swapchain back buffer.  */
+	if (output->use_d3d && output->dxgi_swap_chain
+	    && output->d2d_context && output->d2d_target
+	    && !output->d3d_direct_dc)
+	  {
+	    w32_d2d_fill_rect_dc (output, fill_x, fill_y, fill_w,
+				  fill_h, cursor_color);
+	  }
+	else
+	  {
+	    HDC hdc = get_frame_dc (f);
+	    w32_clip_to_row (w, row, TEXT_AREA, hdc);
+	    w32_fill_area (f, hdc, cursor_color, fill_x, fill_y,
+			   fill_w, fill_h);
+	    w32_set_clip_rectangle (hdc, NULL);
+	    release_frame_dc (f, hdc);
+	  }
+      }
     }
 }
 
@@ -6934,6 +7637,8 @@ w32_draw_window_cursor (struct window *w, struct glyph_row *glyph_row,
 			enum text_cursor_kinds cursor_type,
 			int cursor_width, bool on_p, bool active_p)
 {
+  struct frame *f = XFRAME (WINDOW_FRAME (w));
+
   if (on_p)
     {
       /* If the user wants to use the system caret, make sure our
@@ -6962,7 +7667,6 @@ w32_draw_window_cursor (struct window *w, struct glyph_row *glyph_row,
        */
       if (active_p)
 	{
-	  struct frame *f = XFRAME (WINDOW_FRAME (w));
 	  HWND hwnd = FRAME_W32_WINDOW (f);
 
 	  w32_system_caret_x
@@ -8687,8 +9391,10 @@ the cursor have no effect.  */);
   w32_use_native_image_api = 0;
 #endif
 
-  DEFVAR_BOOL ("w32-yes-no-dialog-show-cancel", w32_yes_no_dialog_show_cancel,
-    doc:/* If non-nil, show Cancel button in MS-Windows GUI Yes/No dialogs. */);
+  DEFVAR_BOOL ("w32-yes-no-dialog-show-cancel",
+	       w32_yes_no_dialog_show_cancel, doc:
+	       /* If non-nil, show Cancel button in MS-Windows
+GUI Yes/No dialogs.  */);
   w32_yes_no_dialog_show_cancel = 1;
 
   /* FIXME: The following variable will be (hopefully) removed

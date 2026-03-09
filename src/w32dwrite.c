@@ -47,6 +47,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 
 #include "frame.h"
 #include "w32common.h"
+#include "w32d3d.h"
 #include "w32font.h"
 #include "w32term.h"
 
@@ -1260,11 +1261,16 @@ w32_initialize_direct_write (void)
 }
 
 bool
-w32_dwrite_draw (HDC hdc, int x, int y, unsigned *glyphs, int len,
-		 COLORREF color, struct font *font)
+w32_dwrite_draw (struct w32_output *output, HDC hdc, int x, int y,
+		 unsigned *glyphs, int len, COLORREF color,
+		 COLORREF bg_color, struct font *font)
 {
   HRESULT hr;
   IDWriteFontFace *dwrite_font_face;
+  bool pure_d2d_mode
+    = (output && output->use_d3d && output->dxgi_swap_chain
+       && output->d2d_context && output->d2d_target
+       && !output->d3d_direct_dc);
 
   USE_SAFE_ALLOCA;
 
@@ -1295,6 +1301,74 @@ w32_dwrite_draw (HDC hdc, int x, int y, unsigned *glyphs, int len,
 
   int bitmap_width = left_margin + metrics.width + metrics.rbearing;
   int bitmap_height = font->ascent + font->descent;
+  int clip_x = x - left_margin;
+  int clip_y = y;
+  int clip_w = bitmap_width;
+  int clip_h = bitmap_height;
+
+  if (output && output->paint_buffer_width > 0
+      && output->paint_buffer_height > 0)
+    {
+      clip_x = 0;
+      clip_y = 0;
+      clip_w = output->paint_buffer_width;
+      clip_h = output->paint_buffer_height;
+    }
+
+  /* Convert glyph indices from unsigned int to UINT16 once, shared
+     by both the D2D fast path and the bitmap fallback path.  */
+  UINT16 *indices = SAFE_ALLOCA (len * sizeof (UINT16));
+  for (int i = 0; i < len; i++)
+    indices[i] = glyphs[i];
+
+  /* In pure D2D mode, always render glyphs directly to the frame
+     device context target and never use the bitmap BitBlt fallback.
+     This keeps D3D frames free from GDI text blits.  */
+  if (pure_d2d_mode)
+    {
+      bool ok
+	= w32_d2d_draw_glyphs_dc (output, x - left_margin,
+				  y + font->ascent, dwrite_font_face,
+				  font_size, indices, advances, len,
+				  color, clip_x, clip_y, clip_w,
+				  clip_h);
+
+      if (!ok)
+	/* Keep fallback inside D2D in pure mode.  */
+	ok = w32_d2d_draw_glyphs (hdc, x - left_margin,
+				  y + font->ascent, dwrite_font_face,
+				  font_size, indices, advances, len,
+				  color, x - left_margin, y,
+				  bitmap_width, bitmap_height);
+
+      SAFE_FREE ();
+      return ok;
+    }
+
+  /* Try the Direct2D fast path for non-color glyphs.  This
+     eliminates the double-BitBlt through IDWriteBitmapRenderTarget
+     by drawing directly on the target HDC via a D2D DC render
+     target.  Color glyphs still use the bitmap path below.  */
+  if (output && output->use_d3d && output->dxgi_swap_chain
+      && output->d2d_context && output->d2d_target
+      && !output->d3d_direct_dc
+      && uniscribe_font->dwrite_has_color <= 0)
+    {
+      bool ok
+	= w32_d2d_draw_glyphs_dc (output, x - left_margin,
+				  y + font->ascent, dwrite_font_face,
+				  font_size, indices, advances, len,
+				  color, clip_x, clip_y, clip_w,
+				  clip_h);
+      if (ok)
+	{
+	  SAFE_FREE ();
+	  return true;
+	}
+      /* D2D failed -- fall through to bitmap path.  */
+    }
+
+bitmap_path:
 
   /* We never release this, get_bitmap_render_target reuses it.  */
   IDWriteBitmapRenderTarget *bitmap_render_target
@@ -1312,14 +1386,11 @@ w32_dwrite_draw (HDC hdc, int x, int y, unsigned *glyphs, int len,
   HDC text_dc = bitmap_render_target->lpVtbl->GetMemoryDC (
     bitmap_render_target);
 
-  /* Copy the background pixel to the render target bitmap.  */
+  /* Copy the background from the frame's paint DC into the render
+     target bitmap.  This preserves whatever was drawn behind the
+     text area (faces, overlapping glyphs, images, etc.).  */
   BitBlt (text_dc, 0, 0, bitmap_width, bitmap_height, hdc,
 	  x - left_margin, y, SRCCOPY);
-
-  UINT16 *indices = SAFE_ALLOCA (len * sizeof (UINT16));
-
-  for (int i = 0; i < len; i++)
-    indices[i] = glyphs[i];
 
   DWRITE_GLYPH_RUN glyph_run;
   glyph_run.fontFace = dwrite_font_face;
@@ -1441,9 +1512,7 @@ w32_use_direct_write (struct w32font_info *w32font)
 {
 #ifdef HAVE_HARFBUZZ
   return (
-    direct_write_available
-    && w32font->font.driver == &harfbuzz_font_driver
-    && !w32_inhibit_dwrite
+    direct_write_available && w32font != NULL && !w32_inhibit_dwrite
     && !((struct uniscribe_font_info *) w32font)->dwrite_skip_font);
 #else
   return false;

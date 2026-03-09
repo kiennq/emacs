@@ -56,6 +56,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "w32select.h"
 #include "w32font.h"
 #include "w32common.h"
+#include "w32d3d.h"
 #endif
 
 #if defined CYGWIN
@@ -2559,6 +2560,9 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 
   init_keyboard ();	/* This too must precede init_sys_modes.  */
   init_display ();	/* Determine terminal type.  Calls init_sys_modes.  */
+#ifdef HAVE_NTGUI
+      init_w32d3d ();
+#endif
 #if HAVE_W32NOTIFY
   if (noninteractive)
     init_crit ();	/* w32notify.c needs this in batch mode.  */

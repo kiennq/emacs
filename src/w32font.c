@@ -18,14 +18,15 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 
 #include <config.h>
 #include <windows.h>
+#include <commdlg.h>
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
-#include <commdlg.h>
 
 #include "lisp.h"
 #include "coding.h" /* for ENCODE_SYSTEM, DECODE_SYSTEM */
 #include "frame.h"
+#include "w32d3d.h"
 #include "w32font.h"
 #include "w32term.h"
 #ifdef WINDOWSNT
@@ -636,6 +637,11 @@ w32font_draw (struct glyph_string *s, int from, int to, int x, int y,
   UINT options;
   int len = to - from;
   struct w32font_info *w32font = (struct w32font_info *) s->font;
+  struct w32_output *output = FRAME_OUTPUT_DATA (s->f);
+  bool pure_d2d_mode
+    = (output && output->use_d3d && output->dxgi_swap_chain
+       && output->d2d_context && output->d2d_target
+       && !output->d3d_direct_dc);
 
   /* Reusable clip regions to avoid CreateRectRgnIndirect/DeleteObject
      per call.  */
@@ -707,7 +713,25 @@ w32font_draw (struct glyph_string *s, int from, int to, int x, int y,
       rect.top = y - ascent;
       rect.right = x + s->width;
       rect.bottom = y + descent;
-      FillRect (s->hdc, &rect, brush);
+
+      if (!(output->use_d3d && output->dxgi_swap_chain
+	    && output->d2d_context && output->d2d_target
+	    && w32_d2d_fill_rect_dc (output, rect.left, rect.top,
+				     rect.right - rect.left,
+				     rect.bottom - rect.top,
+				     s->gc->background))
+	  && (!pure_d2d_mode
+	      && (!w32_d2d_available_p ()
+		  || !w32_d2d_fill_rect (s->hdc, rect.left, rect.top,
+					 rect.right - rect.left,
+					 rect.bottom - rect.top,
+					 s->gc->background))))
+	{
+	  if (!pure_d2d_mode)
+	    FillRect (s->hdc, &rect, brush);
+	  else
+	    SET_FRAME_GARBAGED (s->f);
+	}
       /* brush is cached, don't delete */
     }
 
@@ -716,32 +740,56 @@ w32font_draw (struct glyph_string *s, int from, int to, int x, int y,
       int i;
 
       for (i = 0; i < len; i++)
-	if (!w32_use_direct_write (w32font)
-	    || !w32_dwrite_draw (s->hdc, x, y, s->char2b + from + i,
-				 1, GetTextColor (s->hdc), s->font))
+	if ((!pure_d2d_mode && !w32_use_direct_write (w32font))
+	    || !w32_dwrite_draw (FRAME_OUTPUT_DATA (s->f), s->hdc, x,
+				 y, s->char2b + from + i, 1,
+				 GetTextColor (s->hdc),
+				 s->gc->background, s->font))
 	  {
-	    WCHAR c = s->char2b[from + i] & 0xFFFF;
-	    ExtTextOutW (s->hdc, x + i, y, options, NULL, &c, 1,
-			 NULL);
+	    if (!pure_d2d_mode)
+	      {
+		WCHAR c = s->char2b[from + i] & 0xFFFF;
+		ExtTextOutW (s->hdc, x + i, y, options, NULL, &c, 1,
+			     NULL);
+	      }
+	    else
+	      SET_FRAME_GARBAGED (s->f);
 	  }
     }
   else
     {
-      if (!w32_use_direct_write (w32font)
-	  || !w32_dwrite_draw (s->hdc, x, y, s->char2b + from, len,
-			       GetTextColor (s->hdc), s->font))
+      if ((!pure_d2d_mode && !w32_use_direct_write (w32font))
+	  || !w32_dwrite_draw (FRAME_OUTPUT_DATA (s->f), s->hdc, x, y,
+			       s->char2b + from, len,
+			       GetTextColor (s->hdc),
+			       s->gc->background, s->font))
 	{
-	  /* The number of glyphs in a glyph_string cannot be larger
-	     than the maximum value of the 'used' member of a
-	     glyph_row, so we are OK using alloca here.  */
-	  eassert (len <= SHRT_MAX);
-	  WCHAR *chars = alloca (len * sizeof (WCHAR));
-	  int j;
-	  for (j = 0; j < len; j++)
-	    chars[j] = s->char2b[from + j] & 0xFFFF;
-	  ExtTextOutW (s->hdc, x, y, options, NULL, chars, len, NULL);
+	  if (!pure_d2d_mode)
+	    {
+	      /* The number of glyphs in a glyph_string cannot be
+		 larger than the maximum value of the 'used' member of
+		 a glyph_row, so we are OK using alloca here.  */
+	      eassert (len <= SHRT_MAX);
+	      WCHAR *chars = alloca (len * sizeof (WCHAR));
+	      int j;
+	      for (j = 0; j < len; j++)
+		chars[j] = s->char2b[from + j] & 0xFFFF;
+	      ExtTextOutW (s->hdc, x, y, options, NULL, chars, len,
+			   NULL);
+	    }
+	  else
+	    SET_FRAME_GARBAGED (s->f);
 	}
     }
+
+  /* Track the drawn area for dirty rectangle optimization.  This
+     covers text drawn without background fill (e.g., cursor erase)
+     that bypasses w32_fill_rect.  */
+  {
+    struct font *font = s->font;
+    w32_note_drawn_rect (s->f, x, y - font->ascent, s->width,
+			 font->ascent + font->descent);
+  }
 
   /* Restore clip region.  */
   if (s->num_clips > 0)

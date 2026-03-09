@@ -1,5 +1,5 @@
-/* Definitions and headers for communication on the Microsoft Windows API.
-   Copyright (C) 1995, 2001-2026 Free Software Foundation, Inc.
+/* Definitions and headers for communication on the Microsoft Windows
+API. Copyright (C) 1995, 2001-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -14,13 +14,21 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
+along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 
 /* Added by Kevin Gallo */
 
-#include "w32gui.h"
-#include "frame.h"
 #include "atimer.h"
+#include "frame.h"
+#include "w32gui.h"
+
+/* Forward declarations for D3D11/DXGI/D2D COM interfaces.  */
+typedef struct IDXGISwapChain1 IDXGISwapChain1;
+typedef struct IDXGISurface1 IDXGISurface1;
+typedef struct ID2D1DeviceContext ID2D1DeviceContext;
+typedef struct ID2D1Bitmap ID2D1Bitmap;
+typedef struct ID2D1Bitmap1 ID2D1Bitmap1;
+typedef struct ID2D1SolidColorBrush ID2D1SolidColorBrush;
 
 /* Stack alignment stuff.  Every CALLBACK and thread function should
    have the ALIGN_STACK attribute if it manipulates Lisp objects,
@@ -31,17 +39,16 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
    about this can be found in
    https://www.peterstock.co.uk/games/mingw_sse/.  */
 #ifdef __GNUC__
-# if USE_STACK_LISP_OBJECTS && !defined _WIN64 && !defined __x86_64__	\
-  && __GNUC__ + (__GNUC_MINOR__ > 1) >= 5
-#  define ALIGN_STACK __attribute__((force_align_arg_pointer))
+# if USE_STACK_LISP_OBJECTS && !defined _WIN64 \
+   && !defined __x86_64__ && __GNUC__ + (__GNUC_MINOR__ > 1) >= 5
+#  define ALIGN_STACK __attribute__ ((force_align_arg_pointer))
 # else
 #  define ALIGN_STACK
-# endif	 /* USE_STACK_LISP_OBJECTS */
+# endif /* USE_STACK_LISP_OBJECTS */
 #endif
-
 
-#define BLACK_PIX_DEFAULT(f) PALETTERGB(0,0,0)
-#define WHITE_PIX_DEFAULT(f) PALETTERGB(255,255,255)
+#define BLACK_PIX_DEFAULT(f) PALETTERGB (0, 0, 0)
+#define WHITE_PIX_DEFAULT(f) PALETTERGB (255, 255, 255)
 
 #define CP_DEFAULT 1004
 
@@ -65,8 +72,9 @@ struct w32_bitmap_record
   int height, width, depth;
 };
 
-struct w32_palette_entry {
-  struct w32_palette_entry * next;
+struct w32_palette_entry
+{
+  struct w32_palette_entry *next;
   PALETTEENTRY entry;
 #if 0
   unsigned refcount;
@@ -75,17 +83,18 @@ struct w32_palette_entry {
 
 extern void w32_regenerate_palette (struct frame *f);
 extern void w32_fullscreen_rect (HWND hwnd, int fsmode, RECT normal,
-                                 RECT *rect);
+				 RECT *rect);
 
-/* For each display (currently only one on w32), we have a structure that
-   records information about it.  */
+/* For each display (currently only one on w32), we have a structure
+	that records information about it.  */
 
 struct w32_display_info
 {
   /* Chain of all w32_display_info structures.  */
   struct w32_display_info *next;
 
-  /* The generic display parameters corresponding to this w32 display.  */
+  /* The generic display parameters corresponding to this w32 display.
+   */
   struct terminal *terminal;
 
   /* This is a cons cell of the form (NAME . FONT-LIST-CACHE).  */
@@ -124,7 +133,7 @@ struct w32_display_info
 
   /* color palette information.  */
   int has_palette;
-  struct w32_palette_entry * color_list;
+  struct w32_palette_entry *color_list;
   unsigned num_colors;
   HPALETTE palette;
 
@@ -141,7 +150,8 @@ struct w32_display_info
   /* Minimum font height over all fonts in font_table.  */
   int smallest_font_height;
 
-  /* Reusable Graphics Context for drawing a cursor in a non-default face. */
+  /* Reusable Graphics Context for drawing a cursor in a non-default
+   * face. */
   Emacs_GC *scratch_cursor_gc;
 
   /* Information about the range of text currently shown in
@@ -165,9 +175,9 @@ struct w32_display_info
   ptrdiff_t bitmaps_last;
 
   /* The frame (if any) which has the window that has keyboard focus.
-     Zero if none.  This is examined by Ffocus_frame in w32fns.c.  Note
-     that a mere EnterNotify event can set this; if you need to know the
-     last frame specified in a FocusIn or FocusOut event, use
+     Zero if none.  This is examined by Ffocus_frame in w32fns.c. Note
+     that a mere EnterNotify event can set this; if you need to know
+     the last frame specified in a FocusIn or FocusOut event, use
      w32_focus_event_frame.  */
   struct frame *w32_focus_frame;
 
@@ -177,9 +187,9 @@ struct w32_display_info
      received a FocusIn event for it.  */
   struct frame *w32_focus_event_frame;
 
-  /* The frame which currently has the visual highlight, and should get
-     keyboard input (other sorts of input have the frame encoded in the
-     event).  It points to the focus frame's selected window's
+  /* The frame which currently has the visual highlight, and should
+     get keyboard input (other sorts of input have the frame encoded
+     in the event).  It points to the focus frame's selected window's
      frame.  It differs from w32_focus_frame when we're using a global
      minibuffer.  */
   struct frame *highlight_frame;
@@ -187,13 +197,16 @@ struct w32_display_info
   /* The frame waiting to be auto-raised in w32_read_socket.  */
   struct frame *w32_pending_autoraise_frame;
 
-  /* The frame where the mouse was last time we reported a mouse event.  */
+  /* The frame where the mouse was last time we reported a mouse
+   * event.  */
   struct frame *last_mouse_frame;
 
-  /* The frame where the mouse was last time we reported a mouse motion.  */
+  /* The frame where the mouse was last time we reported a mouse
+   * motion.  */
   struct frame *last_mouse_motion_frame;
 
-  /* The frame where the mouse was last time we reported a mouse position.  */
+  /* The frame where the mouse was last time we reported a mouse
+   * position.  */
   struct frame *last_mouse_glyph_frame;
 
   /* Position where the mouse was last time we reported a motion.
@@ -219,7 +232,8 @@ struct w32_display_info
   int cursor_display_counter;
 };
 
-/* This is a chain of structures for all the displays currently in use.  */
+/* This is a chain of structures for all the displays currently in
+ * use.  */
 extern struct w32_display_info *x_display_list;
 extern struct w32_display_info one_w32_display_info;
 
@@ -227,29 +241,31 @@ extern struct w32_display_info one_w32_display_info;
 extern HMENU current_popup_menu;
 extern int menubar_in_use;
 
-extern struct frame *w32_window_to_frame (struct w32_display_info *, HWND);
+extern struct frame *w32_window_to_frame (struct w32_display_info *,
+					  HWND);
 
-extern void w32_real_positions (struct frame *f, int *xptr, int *yptr);
+extern void w32_real_positions (struct frame *f, int *xptr,
+				int *yptr);
 
 extern void w32_clear_under_internal_border (struct frame *);
 
 extern void w32_change_tab_bar_height (struct frame *, int);
 extern void w32_change_tool_bar_height (struct frame *, int);
-extern void w32_implicitly_set_name (struct frame *, Lisp_Object, Lisp_Object);
+extern void w32_implicitly_set_name (struct frame *, Lisp_Object,
+				     Lisp_Object);
 extern void w32_set_scroll_bar_default_width (struct frame *);
 extern void w32_set_scroll_bar_default_height (struct frame *);
 
-
-extern struct w32_display_info *w32_term_init (Lisp_Object,
-					       char *, char *);
-extern bool w32_defined_color (struct frame *, const char *, Emacs_Color *,
-                               bool, bool);
+extern struct w32_display_info *w32_term_init (Lisp_Object, char *,
+					       char *);
+extern bool w32_defined_color (struct frame *, const char *,
+			       Emacs_Color *, bool, bool);
 extern int w32_display_pixel_height (struct w32_display_info *);
 extern int w32_display_pixel_width (struct w32_display_info *);
 extern void initialize_frame_menubar (struct frame *);
 extern void w32_dialog_in_progress (Lisp_Object in_progress);
 extern void w32_query_frame_background_color (struct frame *f,
-                                              Emacs_Color *bgcolor);
+					      Emacs_Color *bgcolor);
 
 extern void w32_make_frame_visible (struct frame *f);
 extern void w32_make_frame_invisible (struct frame *f);
@@ -267,29 +283,29 @@ extern void w32con_show_cursor (void);
 
 /* w32reg.c */
 extern const char *w32_get_string_resource (void *v_rdb,
-                                            const char *name,
-                                            const char *class);
+					    const char *name,
+					    const char *class);
 
 /* w32fns.c */
 extern frame_parm_handler w32_frame_parm_handlers[];
-extern void w32_default_font_parameter (struct frame* f, Lisp_Object parms);
+extern void w32_default_font_parameter (struct frame *f,
+					Lisp_Object parms);
 extern Lisp_Object w32_process_dnd_data (int format, void *pDataObj);
 extern void w32_register_for_sleep_notifications (void);
-
 
 #define PIX_TYPE COLORREF
 
 /* Each W32 frame object points to its own struct w32_display object
-   in the output_data.w32 field.  The w32_display structure contains all
-   the information that is specific to W32 windows.  */
+   in the output_data.w32 field.  The w32_display structure contains
+   all the information that is specific to W32 windows.  */
 
 /* Put some things in x_output for compatibility.
    NTEMACS_TODO: Move all common things here to eliminate unnecessary
    diffs between X and w32 code.  */
 struct x_output
 {
-  /* Keep track of focus.  May be EXPLICIT if we received a FocusIn for this
-     frame, or IMPLICIT if we received an EnterNotify.
+  /* Keep track of focus.  May be EXPLICIT if we received a FocusIn
+     for this frame, or IMPLICIT if we received an EnterNotify.
      FocusOut and LeaveNotify clears EXPLICIT/IMPLICIT. */
   int focus_state;
 };
@@ -297,11 +313,11 @@ struct x_output
 enum
 {
   /* Values for focus_state, used as bit mask.
-     EXPLICIT means we received a FocusIn for the frame and know it has
-     the focus.  IMPLICIT means we received an EnterNotify and the frame
-     may have the focus if no window manager is running.
+     EXPLICIT means we received a FocusIn for the frame and know it
+     has the focus.  IMPLICIT means we received an EnterNotify and the
+     frame may have the focus if no window manager is running.
      FocusOut and LeaveNotify clears EXPLICIT/IMPLICIT. */
-  FOCUS_NONE     = 0,
+  FOCUS_NONE = 0,
   FOCUS_IMPLICIT = 1,
   FOCUS_EXPLICIT = 2
 };
@@ -318,7 +334,7 @@ struct w32_output
   HPALETTE old_palette;
 
   /* Here are the Graphics Contexts for the default font.  */
-  Emacs_GC *cursor_gc;			/* cursor drawing */
+  Emacs_GC *cursor_gc; /* cursor drawing */
 
   /* The window used for this frame.
      May be zero while the frame object is being created
@@ -404,11 +420,10 @@ struct w32_output
   {
     Emacs_GC *gc;
     unsigned long pixel;
-  }
-  black_relief, white_relief;
+  } black_relief, white_relief;
 
   /* The background for which the above relief GCs were set up.
-     They are changed only when a different background is involved.  */
+     They are changed only when a different background is involved. */
   unsigned long relief_background;
 
   /* Frame geometry and full-screen mode before it was resized by
@@ -438,6 +453,65 @@ struct w32_output
   /* Whether or not this frame should be double buffered.  */
   unsigned want_paint_buffer : 1;
 
+  /* Dirty rectangle tracking for partial back buffer flips.  */
+  unsigned has_dirty_rect : 1;
+  RECT dirty_rect;
+
+  /* D3D11/DXGI GPU-accelerated swap chain.  */
+  IDXGISwapChain1 *dxgi_swap_chain;
+  IDXGISurface1 *dxgi_surface;
+  unsigned use_d3d : 1;
+  unsigned allow_tearing : 1;
+
+  /* D2D device context and target bitmap for D2D-only rendering.  */
+  ID2D1DeviceContext *d2d_context;
+  ID2D1Bitmap1 *d2d_target;
+
+  /* Cache one converted source bitmap per output to avoid repeated
+     HBITMAP -> D2D bitmap conversions in image-heavy redraw loops. */
+  ID2D1Bitmap *d2d_cached_bitmap;
+  HBITMAP d2d_cached_pixmap;
+  HBITMAP d2d_cached_mask;
+  int d2d_cached_width, d2d_cached_height;
+
+  /* Cache one solid brush per output; most draw operations use a
+     single color, so reusing a brush reduces per-glyph overhead.  */
+  ID2D1SolidColorBrush *d2d_cached_brush;
+  COLORREF d2d_cached_brush_color;
+  unsigned d2d_cached_brush_valid : 1;
+
+  unsigned d2d_drawing : 1;
+
+  /* Runtime counters to diagnose redisplay/present sequencing in
+     pure D2D/D3D mode.  */
+  unsigned long d2d_stat_show_back_buffer_calls;
+  unsigned long d2d_stat_update_begin;
+  unsigned long d2d_stat_update_begin_clear;
+  unsigned long d2d_stat_update_end_flush;
+  unsigned long d2d_stat_up_to_date_flush;
+  unsigned long d2d_stat_unblocked_flush;
+  unsigned long d2d_stat_flip_if_dirty_flush;
+  unsigned long d2d_stat_begin_frame_calls;
+  unsigned long d2d_stat_end_frame_calls;
+  unsigned long d2d_stat_present_ok;
+  unsigned long d2d_stat_present_fail;
+
+  /* When set, paint_dc is the swap chain surface DC (acquired via
+     IDXGISurface1::GetDC).  Drawing goes directly to the swap chain
+     back buffer — no intermediate GDI bitmap, no BitBlt at present
+     time.  Cleared when paint_dc is a GDI memory bitmap DC.  */
+  unsigned d3d_direct_dc : 1;
+
+  /* When set, a GDI DC has been temporarily acquired from the
+     swapchain surface (via IDXGISurface1::GetDC) for legacy GDI
+     drawing into the D2D back buffer.  The D2D session is suspended
+     while this is active.  Cleared by release_frame_dc.  */
+  unsigned d3d_surface_dc_active : 1;
+
+  /* HDC acquired from the swapchain surface for GDI interop.
+     Valid only when d3d_surface_dc_active is set.  */
+  HDC d3d_surface_hdc;
+
 #define MAX_TOUCH_POINTS 10
   /* Array of dwIDs of presently active touch points, or -1 when
      unpopulated.  */
@@ -450,8 +524,8 @@ struct w32_output
      frame.  */
   EMACS_INT touch_base;
 
-  /* Windows identifier of any touch point reserved for the tool bar, or
-     -1.  */
+  /* Windows identifier of any touch point reserved for the tool bar,
+     or -1.  */
   DWORD tool_bar_dwID;
 };
 
@@ -466,14 +540,16 @@ extern struct w32_output w32term_display;
 
 #define FRAME_FONT(f) ((f)->output_data.w32->font)
 #define FRAME_FONTSET(f) ((f)->output_data.w32->fontset)
-#define FRAME_BASELINE_OFFSET(f) ((f)->output_data.w32->baseline_offset)
+#define FRAME_BASELINE_OFFSET(f) \
+  ((f)->output_data.w32->baseline_offset)
 
-/* This gives the w32_display_info structure for the display F is on.  */
+/* This gives the w32_display_info structure for the display F is on.
+ */
 #define FRAME_DISPLAY_INFO(f) ((void) (f), (&one_w32_display_info))
 
-#define FRAME_NORMAL_PLACEMENT(F) ((F)->output_data.w32->normal_placement)
-#define FRAME_PREV_FSMODE(F)      ((F)->output_data.w32->prev_fsmode)
-
+#define FRAME_NORMAL_PLACEMENT(F) \
+  ((F)->output_data.w32->normal_placement)
+#define FRAME_PREV_FSMODE(F) ((F)->output_data.w32->prev_fsmode)
 
 /* W32-specific scroll bar stuff.  */
 
@@ -485,15 +561,16 @@ extern struct w32_output w32term_display;
    We use struct scroll_bar as a template for accessing fields of the
    vector.  */
 
-struct scroll_bar {
-
+struct scroll_bar
+{
   /* This field is shared by all vectors.  */
   struct vectorlike_header header;
 
   /* The window we're a scroll bar for.  */
   Lisp_Object window;
 
-  /* The next and previous in the chain of scroll bars in this frame.  */
+  /* The next and previous in the chain of scroll bars in this frame.
+   */
   Lisp_Object next, prev;
 
   /* The window representing this scroll bar.  Since this is a full
@@ -503,8 +580,8 @@ struct scroll_bar {
   /* Same as above for the widget.  */
   Lisp_Object w32_widget_low, w32_widget_high;
 
-  /* The position and size of the scroll bar in pixels, relative to the
-     frame.  */
+  /* The position and size of the scroll bar in pixels, relative to
+     the frame.  */
   int top, left, width, height;
 
   /* The starting and ending positions of the handle, relative to the
@@ -515,8 +592,8 @@ struct scroll_bar {
      These are not actually the locations where the beginning and end
      are drawn; in order to keep handles from becoming invisible when
      editing large files, we establish a minimum height by always
-     drawing handle bottoms VERTICAL_SCROLL_BAR_MIN_HANDLE pixels below
-     where they would be normally; the bottom and top are in a
+     drawing handle bottoms VERTICAL_SCROLL_BAR_MIN_HANDLE pixels
+     below where they would be normally; the bottom and top are in a
      different coordinate system.  */
   int start, end;
 
@@ -530,40 +607,48 @@ struct scroll_bar {
   bool horizontal;
 };
 
-/* Turning a lisp vector value into a pointer to a struct scroll_bar.  */
+/* Turning a lisp vector value into a pointer to a struct scroll_bar.
+ */
 #define XSCROLL_BAR(vec) ((struct scroll_bar *) XVECTOR (vec))
 
 #ifdef _WIN64
 /* Building a 64-bit C integer from two 32-bit lisp integers.  */
-#define SCROLL_BAR_PACK(low, high) (XFIXNUM (high) << 32 | XFIXNUM (low))
+# define SCROLL_BAR_PACK(low, high) \
+   (XFIXNUM (high) << 32 | XFIXNUM (low))
 
-/* Setting two lisp integers to the low and high words of a 64-bit C int.  */
-#define SCROLL_BAR_UNPACK(low, high, int64) \
-  (XSETINT ((low),   ((DWORDLONG)(int64))        & 0xffffffff), \
-   XSETINT ((high), ((DWORDLONG)(int64) >> 32) & 0xffffffff))
-#else  /* not _WIN64 */
-/* Building a 32-bit C unsigned integer from two 16-bit lisp integers.  */
-#define SCROLL_BAR_PACK(low, high) ((UINT_PTR)(XFIXNUM (high) << 16 | XFIXNUM (low)))
+/* Setting two lisp integers to the low and high words of a 64-bit C
+ * int.  */
+# define SCROLL_BAR_UNPACK(low, high, int64)             \
+   (XSETINT ((low), ((DWORDLONG) (int64)) & 0xffffffff), \
+    XSETINT ((high), ((DWORDLONG) (int64) >> 32) & 0xffffffff))
+#else /* not _WIN64 */
+/* Building a 32-bit C unsigned integer from two 16-bit lisp integers.
+ */
+# define SCROLL_BAR_PACK(low, high) \
+   ((UINT_PTR) (XFIXNUM (high) << 16 | XFIXNUM (low)))
 
-/* Setting two lisp integers to the low and high words of a 32-bit C int.  */
-#define SCROLL_BAR_UNPACK(low, high, int32) \
-  (XSETINT ((low),   (int32)        & 0xffff), \
-   XSETINT ((high), ((int32) >> 16) & 0xffff))
-#endif	/* not _WIN64 */
+/* Setting two lisp integers to the low and high words of a 32-bit C
+ * int.  */
+# define SCROLL_BAR_UNPACK(low, high, int32) \
+   (XSETINT ((low), (int32) & 0xffff),       \
+    XSETINT ((high), ((int32) >> 16) & 0xffff))
+#endif /* not _WIN64 */
 
-/* Extract the window id of the scroll bar from a struct scroll_bar.  */
-#define SCROLL_BAR_W32_WINDOW(ptr) \
-  ((Window) SCROLL_BAR_PACK ((ptr)->w32_window_low, (ptr)->w32_window_high))
+/* Extract the window id of the scroll bar from a struct scroll_bar.
+ */
+#define SCROLL_BAR_W32_WINDOW(ptr)                  \
+  ((Window) SCROLL_BAR_PACK ((ptr)->w32_window_low, \
+			     (ptr)->w32_window_high))
 
 /* Store a window id in a struct scroll_bar.  */
-#define SET_SCROLL_BAR_W32_WINDOW(ptr, id) \
-  (SCROLL_BAR_UNPACK ((ptr)->w32_window_low, (ptr)->w32_window_high, (intptr_t) id))
+#define SET_SCROLL_BAR_W32_WINDOW(ptr, id)                           \
+  (SCROLL_BAR_UNPACK ((ptr)->w32_window_low, (ptr)->w32_window_high, \
+		      (intptr_t) id))
 
 /* Return the inside width of a vertical scroll bar, given the outside
    width.  */
-#define VERTICAL_SCROLL_BAR_INSIDE_WIDTH(f,width)	\
-  ((width)						\
-   - VERTICAL_SCROLL_BAR_LEFT_BORDER			\
+#define VERTICAL_SCROLL_BAR_INSIDE_WIDTH(f, width) \
+  ((width) - VERTICAL_SCROLL_BAR_LEFT_BORDER       \
    - VERTICAL_SCROLL_BAR_RIGHT_BORDER)
 
 /* Return the length of the rectangle within which the top of the
@@ -573,19 +658,20 @@ struct scroll_bar {
    This is the real range of motion for the scroll bar, so when we're
    scaling buffer positions to scroll bar positions, we use this, not
    VERTICAL_SCROLL_BAR_INSIDE_HEIGHT.  */
-#define VERTICAL_SCROLL_BAR_TOP_RANGE(f,height)				\
-  (VERTICAL_SCROLL_BAR_INSIDE_HEIGHT (f, height) - VERTICAL_SCROLL_BAR_MIN_HANDLE)
+#define VERTICAL_SCROLL_BAR_TOP_RANGE(f, height) \
+  (VERTICAL_SCROLL_BAR_INSIDE_HEIGHT (f, height) \
+   - VERTICAL_SCROLL_BAR_MIN_HANDLE)
 
 /* Return the inside height of vertical scroll bar, given the outside
    height.  See VERTICAL_SCROLL_BAR_TOP_RANGE too.  */
-#define VERTICAL_SCROLL_BAR_INSIDE_HEIGHT(f,height)			\
-  ((height) - VERTICAL_SCROLL_BAR_TOP_BORDER - VERTICAL_SCROLL_BAR_BOTTOM_BORDER)
+#define VERTICAL_SCROLL_BAR_INSIDE_HEIGHT(f, height) \
+  ((height) - VERTICAL_SCROLL_BAR_TOP_BORDER         \
+   - VERTICAL_SCROLL_BAR_BOTTOM_BORDER)
 
 /* Return the inside height of a horizontal scroll bar, given the
    outside height.  */
-#define HORIZONTAL_SCROLL_BAR_INSIDE_HEIGHT(f,height) \
-  ((height)					      \
-   - HORIZONTAL_SCROLL_BAR_TOP_BORDER		      \
+#define HORIZONTAL_SCROLL_BAR_INSIDE_HEIGHT(f, height) \
+  ((height) - HORIZONTAL_SCROLL_BAR_TOP_BORDER         \
    - HORIZONTAL_SCROLL_BAR_BOTTOM_BORDER)
 
 /* Return the length of the rectangle within which the left of the
@@ -595,14 +681,15 @@ struct scroll_bar {
    This is the real range of motion for the scroll bar, so when we're
    scaling buffer positions to scroll bar positions, we use this, not
    HORIZONTAL_SCROLL_BAR_INSIDE_WIDTH.  */
-#define HORIZONTAL_SCROLL_BAR_LEFT_RANGE(f,width)			\
-  (HORIZONTAL_SCROLL_BAR_INSIDE_WIDTH (f, width) - HORIZONTAL_SCROLL_BAR_MIN_HANDLE)
+#define HORIZONTAL_SCROLL_BAR_LEFT_RANGE(f, width) \
+  (HORIZONTAL_SCROLL_BAR_INSIDE_WIDTH (f, width)   \
+   - HORIZONTAL_SCROLL_BAR_MIN_HANDLE)
 
 /* Return the inside width of horizontal scroll bar, given the outside
    width.  See HORIZONTAL_SCROLL_BAR_LEFT_RANGE too.  */
-#define HORIZONTAL_SCROLL_BAR_INSIDE_WIDTH(f,width)			\
-  ((width) - HORIZONTAL_SCROLL_BAR_LEFT_BORDER - HORIZONTAL_SCROLL_BAR_RIGHT_BORDER)
-
+#define HORIZONTAL_SCROLL_BAR_INSIDE_WIDTH(f, width) \
+  ((width) - HORIZONTAL_SCROLL_BAR_LEFT_BORDER       \
+   - HORIZONTAL_SCROLL_BAR_RIGHT_BORDER)
 
 /* Border widths for scroll bars.
 
@@ -617,126 +704,138 @@ struct scroll_bar {
    inset the handle boundaries from the scroll bar edges.  */
 #define VERTICAL_SCROLL_BAR_LEFT_BORDER (0)
 #define VERTICAL_SCROLL_BAR_RIGHT_BORDER (0)
-#define VERTICAL_SCROLL_BAR_TOP_BORDER (vertical_scroll_bar_top_border)
-#define VERTICAL_SCROLL_BAR_BOTTOM_BORDER (vertical_scroll_bar_bottom_border)
+#define VERTICAL_SCROLL_BAR_TOP_BORDER \
+  (vertical_scroll_bar_top_border)
+#define VERTICAL_SCROLL_BAR_BOTTOM_BORDER \
+  (vertical_scroll_bar_bottom_border)
 
-#define HORIZONTAL_SCROLL_BAR_LEFT_BORDER (horizontal_scroll_bar_left_border)
-#define HORIZONTAL_SCROLL_BAR_RIGHT_BORDER (horizontal_scroll_bar_right_border)
+#define HORIZONTAL_SCROLL_BAR_LEFT_BORDER \
+  (horizontal_scroll_bar_left_border)
+#define HORIZONTAL_SCROLL_BAR_RIGHT_BORDER \
+  (horizontal_scroll_bar_right_border)
 #define HORIZONTAL_SCROLL_BAR_TOP_BORDER (0)
 #define HORIZONTAL_SCROLL_BAR_BOTTOM_BORDER (0)
 
 /* Minimum lengths for scroll bar handles, in pixels.  */
-#define VERTICAL_SCROLL_BAR_MIN_HANDLE (vertical_scroll_bar_min_handle)
-#define HORIZONTAL_SCROLL_BAR_MIN_HANDLE (horizontal_scroll_bar_min_handle)
+#define VERTICAL_SCROLL_BAR_MIN_HANDLE \
+  (vertical_scroll_bar_min_handle)
+#define HORIZONTAL_SCROLL_BAR_MIN_HANDLE \
+  (horizontal_scroll_bar_min_handle)
 
-struct frame;  /* from frame.h */
+struct frame; /* from frame.h */
 
 extern void w32_fill_rect (struct frame *, HDC, COLORREF, RECT *);
+extern void w32_note_drawn_rect (struct frame *, int, int, int, int);
 extern void w32_clear_window (struct frame *);
 
-#define w32_fill_area(f,hdc,pix,x,y,nx,ny) \
-do { \
-    RECT rect; \
-    rect.left = x; \
-    rect.top = y; \
-    rect.right = x + nx; \
-    rect.bottom = y + ny; \
-    w32_fill_rect (f,hdc,pix,&rect); \
-} while (0)
+#define w32_fill_area(f, hdc, pix, x, y, nx, ny) \
+  do                                             \
+    {                                            \
+      RECT rect;                                 \
+      rect.left = x;                             \
+      rect.top = y;                              \
+      rect.right = x + nx;                       \
+      rect.bottom = y + ny;                      \
+      w32_fill_rect (f, hdc, pix, &rect);        \
+    }                                            \
+  while (0)
 
-#define w32_fill_area_abs(f,hdc,pix,x0,y0,x1,y1) \
-do { \
-    RECT rect; \
-    rect.left = x0; \
-    rect.top = y0; \
-    rect.right = x1; \
-    rect.bottom = y1; \
-    w32_fill_rect (f,hdc,pix,&rect); \
-} while (0)
+#define w32_fill_area_abs(f, hdc, pix, x0, y0, x1, y1) \
+  do                                                   \
+    {                                                  \
+      RECT rect;                                       \
+      rect.left = x0;                                  \
+      rect.top = y0;                                   \
+      rect.right = x1;                                 \
+      rect.bottom = y1;                                \
+      w32_fill_rect (f, hdc, pix, &rect);              \
+    }                                                  \
+  while (0)
 
-#define w32_clear_rect(f,hdc,lprect) \
+#define w32_clear_rect(f, hdc, lprect) \
   w32_fill_rect (f, hdc, FRAME_BACKGROUND_PIXEL (f), lprect)
 
-#define w32_clear_area(f,hdc,px,py,nx,ny) \
+#define w32_clear_area(f, hdc, px, py, nx, ny) \
   w32_fill_area (f, hdc, FRAME_BACKGROUND_PIXEL (f), px, py, nx, ny)
 
 /* Define for earlier versions of Visual C */
 #ifndef WM_MOUSEWHEEL
-#define WM_MOUSEWHEEL 		       (WM_MOUSELAST + 1)
+# define WM_MOUSEWHEEL (WM_MOUSELAST + 1)
 #endif /* WM_MOUSEWHEEL */
 #ifndef MSH_MOUSEWHEEL
-#define MSH_MOUSEWHEEL		       "MSWHEEL_ROLLMSG"
+# define MSH_MOUSEWHEEL "MSWHEEL_ROLLMSG"
 #endif /* MSH_MOUSEWHEEL */
 #ifndef WM_XBUTTONDOWN
-#define WM_XBUTTONDOWN                 (WM_MOUSEWHEEL + 1)
-#define WM_XBUTTONUP                   (WM_MOUSEWHEEL + 2)
+# define WM_XBUTTONDOWN (WM_MOUSEWHEEL + 1)
+# define WM_XBUTTONUP (WM_MOUSEWHEEL + 2)
 #endif /* WM_XBUTTONDOWN */
 #ifndef WM_MOUSEHWHEEL
-#define WM_MOUSEHWHEEL                 (WM_MOUSEWHEEL + 4)
+# define WM_MOUSEHWHEEL (WM_MOUSEWHEEL + 4)
 #endif /* WM_MOUSEHWHEEL  */
 #ifndef WM_APPCOMMAND
-#define WM_APPCOMMAND 0x319
-#define GET_APPCOMMAND_LPARAM(lParam)  (HIWORD(lParam) & 0x7fff)
+# define WM_APPCOMMAND 0x319
+# define GET_APPCOMMAND_LPARAM(lParam) (HIWORD (lParam) & 0x7fff)
 #endif
 #ifndef WM_UNICHAR
-#define WM_UNICHAR 0x109
+# define WM_UNICHAR 0x109
 #endif
 #ifndef UNICODE_NOCHAR
-#define UNICODE_NOCHAR 0xFFFF
+# define UNICODE_NOCHAR 0xFFFF
 #endif
 
-#define WM_EMACS_START                 (WM_USER + 1)
-#define WM_EMACS_KILL                  (WM_EMACS_START + 0)
-#define WM_EMACS_CREATEWINDOW          (WM_EMACS_START + 1)
-#define WM_EMACS_DONE                  (WM_EMACS_START + 2)
-#define WM_EMACS_CREATEVSCROLLBAR      (WM_EMACS_START + 3)
-#define WM_EMACS_CREATEHSCROLLBAR      (WM_EMACS_START + 4)
-#define WM_EMACS_SHOWWINDOW            (WM_EMACS_START + 5)
-#define WM_EMACS_SETWINDOWPOS          (WM_EMACS_START + 6)
-#define WM_EMACS_DESTROYWINDOW         (WM_EMACS_START + 7)
-#define WM_EMACS_TRACKPOPUPMENU        (WM_EMACS_START + 8)
-#define WM_EMACS_SETFOCUS              (WM_EMACS_START + 9)
-#define WM_EMACS_SETFOREGROUND         (WM_EMACS_START + 10)
-#define WM_EMACS_SETLOCALE             (WM_EMACS_START + 11)
-#define WM_EMACS_SETKEYBOARDLAYOUT     (WM_EMACS_START + 12)
-#define WM_EMACS_REGISTER_HOT_KEY      (WM_EMACS_START + 13)
-#define WM_EMACS_UNREGISTER_HOT_KEY    (WM_EMACS_START + 14)
-#define WM_EMACS_TOGGLE_LOCK_KEY       (WM_EMACS_START + 15)
-#define WM_EMACS_TRACK_CARET           (WM_EMACS_START + 16)
-#define WM_EMACS_DESTROY_CARET         (WM_EMACS_START + 17)
-#define WM_EMACS_SHOW_CARET            (WM_EMACS_START + 18)
-#define WM_EMACS_HIDE_CARET            (WM_EMACS_START + 19)
-#define WM_EMACS_SETCURSOR             (WM_EMACS_START + 20)
-#define WM_EMACS_SHOWCURSOR            (WM_EMACS_START + 21)
-#define WM_EMACS_PAINT                 (WM_EMACS_START + 22)
-#define WM_EMACS_BRINGTOTOP            (WM_EMACS_START + 23)
-#define WM_EMACS_INPUT_READY           (WM_EMACS_START + 24)
-#define WM_EMACS_FILENOTIFY            (WM_EMACS_START + 25)
-#define WM_EMACS_IME_STATUS            (WM_EMACS_START + 26)
-#define WM_EMACS_DRAGOVER              (WM_EMACS_START + 27)
-#define WM_EMACS_DROP                  (WM_EMACS_START + 28)
-#define WM_EMACS_END                   (WM_EMACS_START + 29)
-#define WM_EMACS_SET_TOOLKIT_THEME     (WM_EMACS_START + 30)
+#define WM_EMACS_START (WM_USER + 1)
+#define WM_EMACS_KILL (WM_EMACS_START + 0)
+#define WM_EMACS_CREATEWINDOW (WM_EMACS_START + 1)
+#define WM_EMACS_DONE (WM_EMACS_START + 2)
+#define WM_EMACS_CREATEVSCROLLBAR (WM_EMACS_START + 3)
+#define WM_EMACS_CREATEHSCROLLBAR (WM_EMACS_START + 4)
+#define WM_EMACS_SHOWWINDOW (WM_EMACS_START + 5)
+#define WM_EMACS_SETWINDOWPOS (WM_EMACS_START + 6)
+#define WM_EMACS_DESTROYWINDOW (WM_EMACS_START + 7)
+#define WM_EMACS_TRACKPOPUPMENU (WM_EMACS_START + 8)
+#define WM_EMACS_SETFOCUS (WM_EMACS_START + 9)
+#define WM_EMACS_SETFOREGROUND (WM_EMACS_START + 10)
+#define WM_EMACS_SETLOCALE (WM_EMACS_START + 11)
+#define WM_EMACS_SETKEYBOARDLAYOUT (WM_EMACS_START + 12)
+#define WM_EMACS_REGISTER_HOT_KEY (WM_EMACS_START + 13)
+#define WM_EMACS_UNREGISTER_HOT_KEY (WM_EMACS_START + 14)
+#define WM_EMACS_TOGGLE_LOCK_KEY (WM_EMACS_START + 15)
+#define WM_EMACS_TRACK_CARET (WM_EMACS_START + 16)
+#define WM_EMACS_DESTROY_CARET (WM_EMACS_START + 17)
+#define WM_EMACS_SHOW_CARET (WM_EMACS_START + 18)
+#define WM_EMACS_HIDE_CARET (WM_EMACS_START + 19)
+#define WM_EMACS_SETCURSOR (WM_EMACS_START + 20)
+#define WM_EMACS_SHOWCURSOR (WM_EMACS_START + 21)
+#define WM_EMACS_PAINT (WM_EMACS_START + 22)
+#define WM_EMACS_BRINGTOTOP (WM_EMACS_START + 23)
+#define WM_EMACS_INPUT_READY (WM_EMACS_START + 24)
+#define WM_EMACS_FILENOTIFY (WM_EMACS_START + 25)
+#define WM_EMACS_IME_STATUS (WM_EMACS_START + 26)
+#define WM_EMACS_DRAGOVER (WM_EMACS_START + 27)
+#define WM_EMACS_DROP (WM_EMACS_START + 28)
+#define WM_EMACS_END (WM_EMACS_START + 29)
+#define WM_EMACS_SET_TOOLKIT_THEME (WM_EMACS_START + 30)
 
-#define WND_FONTWIDTH_INDEX    (0)
-#define WND_LINEHEIGHT_INDEX   (4)
-#define WND_BORDER_INDEX       (8)
-#define WND_VSCROLLBAR_INDEX   (12)
-#define WND_HSCROLLBAR_INDEX   (16)
-#define WND_BACKGROUND_INDEX   (20)
-#define WND_LAST_INDEX         (24)
+#define WND_FONTWIDTH_INDEX (0)
+#define WND_LINEHEIGHT_INDEX (4)
+#define WND_BORDER_INDEX (8)
+#define WND_VSCROLLBAR_INDEX (12)
+#define WND_HSCROLLBAR_INDEX (16)
+#define WND_BACKGROUND_INDEX (20)
+#define WND_LAST_INDEX (24)
 
-#define WND_EXTRA_BYTES     (WND_LAST_INDEX)
+#define WND_EXTRA_BYTES (WND_LAST_INDEX)
 
 extern DWORD dwWindowsThreadId;
 extern HANDLE hWindowsThread;
 extern DWORD dwMainThreadId;
 extern HANDLE hMainThread;
 
-typedef struct W32Msg {
-    MSG msg;
-    DWORD dwModifiers;
-    RECT rect;
+typedef struct W32Msg
+{
+  MSG msg;
+  DWORD dwModifiers;
+  RECT rect;
 } W32Msg;
 
 extern BOOL prepend_msg (W32Msg *lpmsg);
@@ -746,10 +845,10 @@ extern BOOL prepend_msg (W32Msg *lpmsg);
    complete deferred messages out of order.  */
 typedef struct deferred_msg
 {
-  struct deferred_msg * next;
-  W32Msg                w32msg;
-  LRESULT               result;
-  int                   completed;
+  struct deferred_msg *next;
+  W32Msg w32msg;
+  LRESULT result;
+  int completed;
 } deferred_msg;
 
 extern CRITICAL_SECTION critsect;
@@ -762,16 +861,17 @@ extern void signal_quit (void);
 #define enter_crit() EnterCriticalSection (&critsect)
 #define leave_crit() LeaveCriticalSection (&critsect)
 
-extern void select_palette (struct frame * f, HDC hdc);
-extern void deselect_palette (struct frame * f, HDC hdc);
-extern HDC get_frame_dc (struct frame * f);
-extern int release_frame_dc (struct frame * f, HDC hDC);
+extern void select_palette (struct frame *f, HDC hdc);
+extern void deselect_palette (struct frame *f, HDC hdc);
+extern HDC get_frame_dc (struct frame *f);
+extern int release_frame_dc (struct frame *f, HDC hDC);
 
 extern int drain_message_queue (void);
 
 extern BOOL get_next_msg (W32Msg *, BOOL);
 extern BOOL post_msg (W32Msg *);
-extern void complete_deferred_msg (HWND hwnd, UINT msg, LRESULT result);
+extern void complete_deferred_msg (HWND hwnd, UINT msg,
+				   LRESULT result);
 
 extern BOOL parse_button (int, int, int *, int *);
 
@@ -783,7 +883,8 @@ extern void w32_delete_display (struct w32_display_info *dpyinfo);
 /* Notifications come in sets.  We use a doubly linked list with a
    sentinel to communicate those sets from the watching threads to the
    main thread.  */
-struct notifications_set {
+struct notifications_set
+{
   LPBYTE notifications;
   DWORD size;
   void *desc;
@@ -806,50 +907,50 @@ extern void setup_w32_kbdhook (HWND);
 extern void remove_w32_kbdhook (void);
 extern void reset_w32_kbdhook_state (void);
 extern int check_w32_winkey_state (int);
-#define w32_kbdhook_active (os_subtype != OS_SUBTYPE_9X)
+# define w32_kbdhook_active (os_subtype != OS_SUBTYPE_9X)
 #else
-#define w32_kbdhook_active 0
+# define w32_kbdhook_active 0
 #endif
 
 /* Keypad command key support.  W32 doesn't have virtual keys defined
-   for the function keys on the keypad (they are mapped to the standard
-   function keys), so we define our own.  */
-#define VK_NUMPAD_BEGIN		0x92
-#define VK_NUMPAD_CLEAR		(VK_NUMPAD_BEGIN + 0)
-#define VK_NUMPAD_ENTER		(VK_NUMPAD_BEGIN + 1)
-#define VK_NUMPAD_PRIOR		(VK_NUMPAD_BEGIN + 2)
-#define VK_NUMPAD_NEXT		(VK_NUMPAD_BEGIN + 3)
-#define VK_NUMPAD_END		(VK_NUMPAD_BEGIN + 4)
-#define VK_NUMPAD_HOME		(VK_NUMPAD_BEGIN + 5)
-#define VK_NUMPAD_LEFT		(VK_NUMPAD_BEGIN + 6)
-#define VK_NUMPAD_UP		(VK_NUMPAD_BEGIN + 7)
-#define VK_NUMPAD_RIGHT		(VK_NUMPAD_BEGIN + 8)
-#define VK_NUMPAD_DOWN		(VK_NUMPAD_BEGIN + 9)
-#define VK_NUMPAD_INSERT	(VK_NUMPAD_BEGIN + 10)
-#define VK_NUMPAD_DELETE	(VK_NUMPAD_BEGIN + 11)
+   for the function keys on the keypad (they are mapped to the
+   standard function keys), so we define our own.  */
+#define VK_NUMPAD_BEGIN 0x92
+#define VK_NUMPAD_CLEAR (VK_NUMPAD_BEGIN + 0)
+#define VK_NUMPAD_ENTER (VK_NUMPAD_BEGIN + 1)
+#define VK_NUMPAD_PRIOR (VK_NUMPAD_BEGIN + 2)
+#define VK_NUMPAD_NEXT (VK_NUMPAD_BEGIN + 3)
+#define VK_NUMPAD_END (VK_NUMPAD_BEGIN + 4)
+#define VK_NUMPAD_HOME (VK_NUMPAD_BEGIN + 5)
+#define VK_NUMPAD_LEFT (VK_NUMPAD_BEGIN + 6)
+#define VK_NUMPAD_UP (VK_NUMPAD_BEGIN + 7)
+#define VK_NUMPAD_RIGHT (VK_NUMPAD_BEGIN + 8)
+#define VK_NUMPAD_DOWN (VK_NUMPAD_BEGIN + 9)
+#define VK_NUMPAD_INSERT (VK_NUMPAD_BEGIN + 10)
+#define VK_NUMPAD_DELETE (VK_NUMPAD_BEGIN + 11)
 
 #ifndef VK_LWIN
 /* Older compiler environments don't have these defined.  */
-#define VK_LWIN			0x5B
-#define VK_RWIN			0x5C
-#define VK_APPS			0x5D
+# define VK_LWIN 0x5B
+# define VK_RWIN 0x5C
+# define VK_APPS 0x5D
 #endif
 
 /* Support for treating Windows and Apps keys as modifiers.  These
-   constants must not overlap with any of the dwControlKeyState flags in
-   KEY_EVENT_RECORD.  */
-#define LEFT_WIN_PRESSED       0x8000
-#define RIGHT_WIN_PRESSED      0x4000
-#define APPS_PRESSED           0x2000
+   constants must not overlap with any of the dwControlKeyState flags
+   in KEY_EVENT_RECORD.  */
+#define LEFT_WIN_PRESSED 0x8000
+#define RIGHT_WIN_PRESSED 0x4000
+#define APPS_PRESSED 0x2000
 
 /* The current ANSI input codepage for GUI sessions.  */
 extern int w32_keyboard_codepage;
 
-/* When compiling on Windows 9x/ME and NT 3.x, the following are not defined
-   (even though they are supported on 98 and ME.  */
+/* When compiling on Windows 9x/ME and NT 3.x, the following are not
+   defined (even though they are supported on 98 and ME.  */
 #ifndef WM_MOUSELEAVE
-#define WM_MOUSELEAVE 0x02A3
-#define TME_LEAVE 0x00000002;
+# define WM_MOUSELEAVE 0x02A3
+# define TME_LEAVE 0x00000002;
 
 typedef struct tagTRACKMOUSEEVENT
 {
@@ -865,12 +966,9 @@ struct face;
 
 Emacs_GC *XCreateGC (void *, HWND, unsigned long, Emacs_GC *);
 
-typedef DWORD (WINAPI * ClipboardSequence_Proc) (void);
-typedef BOOL (WINAPI * AppendMenuW_Proc) (
-    IN HMENU,
-    IN UINT,
-    IN UINT_PTR,
-    IN LPCWSTR);
+typedef DWORD (WINAPI *ClipboardSequence_Proc) (void);
+typedef BOOL (WINAPI *AppendMenuW_Proc) (IN HMENU, IN UINT,
+					 IN UINT_PTR, IN LPCWSTR);
 
 extern HWND w32_system_caret_hwnd;
 extern int w32_system_caret_height;
@@ -883,28 +981,28 @@ extern int w32_system_caret_mode_height;
 extern Window tip_window;
 
 #if EMACSDEBUG
-extern const char*
-w32_name_of_message (UINT msg);
+extern const char *w32_name_of_message (UINT msg);
 #endif /* EMACSDEBUG */
 
 #ifdef NTGUI_UNICODE
 extern Lisp_Object ntgui_encode_system (Lisp_Object str);
-#define GUISTR(x) (L ## x)
-#define GUI_ENCODE_FILE GUI_ENCODE_SYSTEM
-#define GUI_ENCODE_SYSTEM(x) ntgui_encode_system (x)
-#define GUI_FN(fn) fn ## W
+# define GUISTR(x) (L##x)
+# define GUI_ENCODE_FILE GUI_ENCODE_SYSTEM
+# define GUI_ENCODE_SYSTEM(x) ntgui_encode_system (x)
+# define GUI_FN(fn) fn##W
 typedef wchar_t guichar_t;
 #else /* !NTGUI_UNICODE */
-#define GUISTR(x) x
-#define GUI_ENCODE_FILE ENCODE_FILE
-#define GUI_ENCODE_SYSTEM ENCODE_SYSTEM
-#define GUI_FN(fn) fn
+# define GUISTR(x) x
+# define GUI_ENCODE_FILE ENCODE_FILE
+# define GUI_ENCODE_SYSTEM ENCODE_SYSTEM
+# define GUI_FN(fn) fn
 typedef char guichar_t;
 #endif /* NTGUI_UNICODE */
 
-#define GUI_SDATA(x) ((guichar_t*) SDATA (x))
+#define GUI_SDATA(x) ((guichar_t *) SDATA (x))
 
-extern Lisp_Object w32_popup_dialog (struct frame *, Lisp_Object, Lisp_Object);
+extern Lisp_Object w32_popup_dialog (struct frame *, Lisp_Object,
+				     Lisp_Object);
 extern void w32_arrow_cursor (void);
 extern void w32_release_paint_buffer (struct frame *);
 extern void w32_flip_buffers_if_dirty (struct frame *);

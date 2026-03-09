@@ -1,6 +1,6 @@
-/* Functions taken directly from X sources for use with the Microsoft Windows API.
-   Copyright (C) 1989, 1992-1995, 1999, 2001-2026 Free Software
-   Foundation, Inc.
+/* Functions taken directly from X sources for use with the Microsoft
+Windows API. Copyright (C) 1989, 1992-1995, 1999, 2001-2026 Free
+Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -15,7 +15,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
+along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 
 #include <config.h>
 #include <signal.h>
@@ -29,16 +29,18 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 # define _WIN32_WINNT 0x0501
 /* mingw.org's MinGW headers mistakenly omit this enumeration: */
 # ifndef MINGW_W64
-typedef enum _WTS_VIRTUAL_CLASS {
+typedef enum _WTS_VIRTUAL_CLASS
+{
   WTSVirtualClientData,
   WTSVirtualFileHandle
 } WTS_VIRTUAL_CLASS;
 # endif
-#include <wtsapi32.h>	/* for WM_WTSSESSION_CHANGE, WTS_SESSION_LOCK */
-#endif	/* WINDOWSNT */
+# include <wtsapi32.h> /* for WM_WTSSESSION_CHANGE, WTS_SESSION_LOCK */
+#endif		       /* WINDOWSNT */
 
 #include "lisp.h"
 #include "frame.h"
+#include "w32d3d.h"
 #include "w32term.h"
 
 #define myalloc(cb) GlobalAllocPtr (GPTR, cb)
@@ -60,22 +62,25 @@ init_crit (void)
   InitializeCriticalSection (&critsect);
 
   /* For safety, input_available should only be reset by get_next_msg
-     when the input queue is empty, so make it a manual reset event. */
+     when the input queue is empty, so make it a manual reset event.
+   */
   input_available = CreateEvent (NULL, TRUE, FALSE, NULL);
 
 #if HAVE_W32NOTIFY
   /* Initialize the linked list of notifications sets that will be
      used to communicate between the watching worker threads and the
      main thread.  */
-  notifications_set_head = malloc (sizeof(struct notifications_set));
+  notifications_set_head = malloc (sizeof (struct notifications_set));
   if (notifications_set_head)
     {
-      memset (notifications_set_head, 0, sizeof(struct notifications_set));
-      notifications_set_head->next
-	= notifications_set_head->prev = notifications_set_head;
+      memset (notifications_set_head, 0,
+	      sizeof (struct notifications_set));
+      notifications_set_head->next = notifications_set_head->prev
+	= notifications_set_head;
     }
   else
-    DebPrint(("Out of memory: can't initialize notifications sets."));
+    DebPrint (
+      ("Out of memory: can't initialize notifications sets."));
 #endif
 
 #ifdef WINDOWSNT
@@ -85,9 +90,10 @@ init_crit (void)
   /* interrupt_handle is signaled when quit (C-g) is detected, so that
      blocking system calls can be interrupted.  We make it a manual
      reset event, so that if we should ever have multiple threads
-     performing system calls, they will all be interrupted (I'm guessing
-     that would the right response).  Note that we use PulseEvent to
-     signal this event, so that it never remains signaled.  */
+     performing system calls, they will all be interrupted (I'm
+     guessing that would the right response).  Note that we use
+     PulseEvent to signal this event, so that it never remains
+     signaled.  */
   interrupt_handle = CreateEvent (NULL, TRUE, FALSE, NULL);
 }
 
@@ -110,7 +116,8 @@ delete_crit (void)
 #if HAVE_W32NOTIFY
   if (notifications_set_head)
     {
-      /* Free any remaining notifications set that could be left over.  */
+      /* Free any remaining notifications set that could be left over.
+       */
       while (notifications_set_head->next != notifications_set_head)
 	{
 	  struct notifications_set *ns = notifications_set_head->next;
@@ -145,8 +152,8 @@ select_palette (struct frame *f, HDC hdc)
     return;
 
   if (!NILP (Vw32_enable_palette))
-    f->output_data.w32->old_palette =
-      SelectPalette (hdc, display_info->palette, FALSE);
+    f->output_data.w32->old_palette
+      = SelectPalette (hdc, display_info->palette, FALSE);
   else
     f->output_data.w32->old_palette = NULL;
 
@@ -154,9 +161,9 @@ select_palette (struct frame *f, HDC hdc)
     {
       Lisp_Object frame, framelist;
       FOR_EACH_FRAME (framelist, frame)
-	{
-	  SET_FRAME_GARBAGED (XFRAME (frame));
-	}
+      {
+	SET_FRAME_GARBAGED (XFRAME (frame));
+      }
     }
 }
 
@@ -167,8 +174,8 @@ deselect_palette (struct frame *f, HDC hdc)
     SelectPalette (hdc, f->output_data.w32->old_palette, FALSE);
 }
 
-/* Get a DC for frame and select palette for drawing; force an update of
-   all frames if palette's mapping changes.  */
+/* Get a DC for frame and select palette for drawing; force an update
+   of all frames if palette's mapping changes.  */
 HDC
 get_frame_dc (struct frame *f)
 {
@@ -182,6 +189,48 @@ get_frame_dc (struct frame *f)
 
   enter_crit ();
   output = FRAME_OUTPUT_DATA (f);
+
+  /* Popup frames (tooltips/child frames) are still unstable in pure
+     D3D/D2D mode.  Keep them on the stable GDI buffered path for now.
+   */
+  if ((FRAME_TOOLTIP_P (f) || FRAME_PARENT_FRAME (f))
+      && output->use_d3d)
+    {
+      w32_d3d_disable (output);
+      SET_FRAME_GARBAGED (f);
+    }
+
+  /* Hard-disable legacy swapchain surface-DC interop.  */
+  if (output->d3d_direct_dc)
+    {
+      w32_d3d_disable (output);
+      SET_FRAME_GARBAGED (f);
+    }
+
+  /* If D3D11 swap chain is active and needs resize, handle it.  */
+  if (output->use_d3d)
+    {
+      int width = FRAME_PIXEL_WIDTH (f);
+      int height = FRAME_PIXEL_HEIGHT (f);
+
+      if (output->paint_buffer_width != width
+	  || output->paint_buffer_height != height)
+	{
+	  if (w32_d3d_resize (output, width, height))
+	    {
+	      output->paint_buffer_width = width;
+	      output->paint_buffer_height = height;
+	      output->paint_buffer_dirty = 1;
+	      SET_FRAME_GARBAGED (f);
+	    }
+	  else
+	    {
+	      /* Resize failed; release everything and fall through
+		 to recreate.  */
+	      w32_d3d_disable (output);
+	    }
+	}
+    }
 
   if (output->paint_dc)
     {
@@ -204,9 +253,64 @@ get_frame_dc (struct frame *f)
     {
       select_palette (f, hdc);
 
+      /* Pure D2D-on-swapchain mode: return the window DC for any
+	 legacy code that needs a valid HDC (font metrics, palette,
+	 GDI state queries).  Drawing that goes through w32_fill_rect
+	 and w32_dwrite_draw is redirected to D2D automatically.
+	 GDI draws to this DC hit the window surface but are
+	 overwritten by the next D2D present.  */
+      if (output->use_d3d && !output->d3d_direct_dc
+	  && output->dxgi_swap_chain)
+	{
+	  if (!output->paint_buffer)
+	    output->paint_buffer = (HBITMAP) 1; /* sentinel */
+	  output->paint_buffer_dirty = 1;
+	  return hdc;
+	}
+
       if (!w32_disable_double_buffering
 	  && FRAME_OUTPUT_DATA (f)->want_paint_buffer)
 	{
+	  /* Try D3D11 swap chain first.  Prefer pure D2D target mode
+	     (no swapchain surface DC).  */
+	  if (!FRAME_TOOLTIP_P (f) && !FRAME_PARENT_FRAME (f)
+	      && w32_d3d_available_p ()
+	      && w32_d3d_create_swap_chain (output,
+					    output->window_desc,
+					    FRAME_PIXEL_WIDTH (f),
+					    FRAME_PIXEL_HEIGHT (f)))
+	    {
+	      output->use_d3d = 1;
+
+	      if (output->d2d_context && output->d2d_target)
+		{
+		  output->d3d_direct_dc = 0;
+		  output->paint_dc = NULL;
+		  output->paint_buffer_handle = NULL;
+		  output->paint_buffer = (HBITMAP) 1; /* sentinel */
+		  output->paint_buffer_width = FRAME_PIXEL_WIDTH (f);
+		  output->paint_buffer_height
+		    = FRAME_PIXEL_HEIGHT (f);
+		  output->paint_buffer_dirty = 1;
+		  output->has_dirty_rect = 0;
+
+		  SET_FRAME_GARBAGED (f);
+		  return hdc;
+		}
+
+	      /* No direct-DC interop fallback in pure D2D mode.  If
+		 per-frame D2D target is unavailable, disable D3D for
+		 this frame and let the normal non-D3D path recover.
+	       */
+	      output->use_d3d = 0;
+	      w32_d3d_release_swap_chain (output);
+	      SET_FRAME_GARBAGED (f);
+	      return hdc;
+	    }
+
+	  /* Fallback: GDI memory bitmap as the persistent back
+	     buffer.  Used when D3D is unavailable or DC acquisition
+	     failed.  */
 	  back_buffer
 	    = CreateCompatibleBitmap (hdc, FRAME_PIXEL_WIDTH (f),
 				      FRAME_PIXEL_HEIGHT (f));
@@ -226,8 +330,10 @@ get_frame_dc (struct frame *f)
 		  output->paint_buffer_handle = hdc;
 		  output->paint_buffer = back_buffer;
 		  output->paint_buffer_width = FRAME_PIXEL_WIDTH (f);
-		  output->paint_buffer_height = FRAME_PIXEL_HEIGHT (f);
+		  output->paint_buffer_height
+		    = FRAME_PIXEL_HEIGHT (f);
 		  output->paint_buffer_dirty = 1;
+		  output->has_dirty_rect = 0;
 
 		  SET_FRAME_GARBAGED (f);
 
@@ -244,10 +350,19 @@ int
 release_frame_dc (struct frame *f, HDC hdc)
 {
   int ret;
+  struct w32_output *output = FRAME_OUTPUT_DATA (f);
+
+  /* In pure D2D mode, get_frame_dc returns NULL.  Nothing to
+     release.  */
+  if (!hdc)
+    {
+      leave_crit ();
+      return 0;
+    }
 
   /* Avoid releasing the double-buffered DC here, since it'll be
      released upon the next buffer flip instead.  */
-  if (hdc != FRAME_OUTPUT_DATA (f)->paint_dc)
+  if (hdc != output->paint_dc)
     {
       deselect_palette (f, hdc);
       ret = ReleaseDC (f->output_data.w32->window_desc, hdc);
@@ -271,7 +386,7 @@ static int_msg *lpTail = NULL;
 static int nQueue = 0;
 
 BOOL
-get_next_msg (W32Msg * lpmsg, BOOL bWait)
+get_next_msg (W32Msg *lpmsg, BOOL bWait)
 {
   BOOL bRet = FALSE;
 
@@ -291,7 +406,7 @@ get_next_msg (W32Msg * lpmsg, BOOL bWait)
       memcpy (lpmsg, &lpHead->w32msg, sizeof (W32Msg));
 
       {
-	int_msg * lpCur = lpHead;
+	int_msg *lpCur = lpHead;
 
 	lpHead = lpHead->lpNext;
 
@@ -301,45 +416,45 @@ get_next_msg (W32Msg * lpmsg, BOOL bWait)
       nQueue--;
       /* Consolidate WM_PAINT messages to optimize redrawing.  */
       if (lpmsg->msg.message == WM_PAINT && nQueue)
-        {
-          int_msg * lpCur = lpHead;
-          int_msg * lpPrev = NULL;
-          int_msg * lpNext = NULL;
+	{
+	  int_msg *lpCur = lpHead;
+	  int_msg *lpPrev = NULL;
+	  int_msg *lpNext = NULL;
 
-          while (lpCur && nQueue)
-            {
-              lpNext = lpCur->lpNext;
-              if (lpCur->w32msg.msg.message == WM_PAINT)
-                {
-                  /* Remove this message from the queue.  */
-                  if (lpPrev)
-                    lpPrev->lpNext = lpNext;
-                  else
-                    lpHead = lpNext;
+	  while (lpCur && nQueue)
+	    {
+	      lpNext = lpCur->lpNext;
+	      if (lpCur->w32msg.msg.message == WM_PAINT)
+		{
+		  /* Remove this message from the queue.  */
+		  if (lpPrev)
+		    lpPrev->lpNext = lpNext;
+		  else
+		    lpHead = lpNext;
 
-                  if (lpCur == lpTail)
-                    lpTail = lpPrev;
+		  if (lpCur == lpTail)
+		    lpTail = lpPrev;
 
-                  /* Adjust clip rectangle to cover both.  */
-                  if (!UnionRect (&(lpmsg->rect), &(lpmsg->rect),
-                                  &(lpCur->w32msg.rect)))
-                    {
-                      SetRectEmpty (&(lpmsg->rect));
-                    }
+		  /* Adjust clip rectangle to cover both.  */
+		  if (!UnionRect (&(lpmsg->rect), &(lpmsg->rect),
+				  &(lpCur->w32msg.rect)))
+		    {
+		      SetRectEmpty (&(lpmsg->rect));
+		    }
 
-                  myfree (lpCur);
+		  myfree (lpCur);
 
-                  nQueue--;
+		  nQueue--;
 
-                  lpCur = lpNext;
-                }
-              else
-                {
-                  lpPrev = lpCur;
-                  lpCur = lpNext;
-                }
-            }
-        }
+		  lpCur = lpNext;
+		}
+	      else
+		{
+		  lpPrev = lpCur;
+		  lpCur = lpNext;
+		}
+	    }
+	}
 
       bRet = TRUE;
     }
@@ -352,7 +467,7 @@ get_next_msg (W32Msg * lpmsg, BOOL bWait)
   return (bRet);
 }
 
-extern char * w32_strerror (int error_no);
+extern char *w32_strerror (int error_no);
 
 /* Tell the main thread that we have input available; if the main
    thread is blocked in select(), we wake it up here.  */
@@ -362,16 +477,17 @@ notify_msg_ready (void)
   SetEvent (input_available);
 
 #ifdef CYGWIN
-  /* Wakes up the main thread, which is blocked select()ing for /dev/windows,
-     among other files.  */
-  (void) PostThreadMessage (dwMainThreadId, WM_EMACS_INPUT_READY, 0, 0);
+  /* Wakes up the main thread, which is blocked select()ing for
+     /dev/windows, among other files.  */
+  (void) PostThreadMessage (dwMainThreadId, WM_EMACS_INPUT_READY, 0,
+			    0);
 #endif /* CYGWIN */
 }
 
 BOOL
-post_msg (W32Msg * lpmsg)
+post_msg (W32Msg *lpmsg)
 {
-  int_msg * lpNew = (int_msg *) myalloc (sizeof (int_msg));
+  int_msg *lpNew = (int_msg *) myalloc (sizeof (int_msg));
 
   if (!lpNew)
     return (FALSE);
@@ -400,7 +516,7 @@ post_msg (W32Msg * lpmsg)
 BOOL
 prepend_msg (W32Msg *lpmsg)
 {
-  int_msg * lpNew = (int_msg *) myalloc (sizeof (int_msg));
+  int_msg *lpNew = (int_msg *) myalloc (sizeof (int_msg));
 
   if (!lpNew)
     return (FALSE);

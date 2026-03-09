@@ -423,11 +423,10 @@ Must run in GUI mode."
 
 (defun w32-perf-image-display-single ()
   "Single run of image display benchmark.
-Creates an XPM image and displays it many times to stress
-image DC and brush caching."
-  (let ((buf (generate-new-buffer "*image-display*"))
-        ;; A small XPM image for testing
-        (xpm-data "/* XPM */
+Creates an image and displays it many times to stress image rendering."
+  (let* ((buf (generate-new-buffer "*image-display*"))
+         ;; A small XPM image for testing.
+         (xpm-data "/* XPM */
 static char * test_xpm[] = {
 \"16 16 2 1\",
 \"  c None\",
@@ -447,20 +446,40 @@ static char * test_xpm[] = {
 \" .............. \",
 \" .............. \",
 \" .............. \",
-\"                \"};"))
+\"                \"};")
+         ;; XBM fallback for builds without XPM support.
+         (xbm-data "#define test_width 16
+#define test_height 16
+static unsigned char test_bits[] = {
+0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};")
+         (img (cond
+               ((image-type-available-p 'xpm)
+                (create-image xpm-data 'xpm t))
+               ((image-type-available-p 'xbm)
+                (create-image xbm-data 'xbm t
+                              :foreground "#ff0000"
+                              :background "#000000"))
+               (t nil))))
     (unwind-protect
         (with-current-buffer buf
-          ;; Insert many images
-          (dotimes (i 200)
-            (insert-image (create-image xpm-data 'xpm t))
-            (when (= (mod i 20) 19)
-              (insert "\n")))
-          (when (display-graphic-p)
+          (when img
+            ;; Insert many images.
+            (dotimes (i 200)
+              (insert-image img)
+              (when (= (mod i 20) 19)
+                (insert "\n"))))
+          (when (and (display-graphic-p) img)
             (switch-to-buffer buf)
             ;; Scroll through images
             (goto-char (point-min))
             (dotimes (_ 50)
-              (scroll-up 1)
+              (condition-case nil
+                  (scroll-up 1)
+                (end-of-buffer
+                 (goto-char (point-min))))
               (redisplay t))))
       (kill-buffer buf))))
 
@@ -470,12 +489,17 @@ Tests image CompatibleDC cache and brush cache in image drawing.
 Must run in GUI mode."
   (w32-perf-message "Running image display benchmark...")
   (if (display-graphic-p)
-      (let ((total-time 0))
-        (dotimes (_ w32-perf-iterations)
-          (garbage-collect)
-          (setq total-time (+ total-time (benchmark-elapse
-                                          (w32-perf-image-display-single)))))
-        (w32-perf-record "image-display" (/ total-time w32-perf-iterations)))
+      (if (or (image-type-available-p 'xpm)
+              (image-type-available-p 'xbm))
+          (let ((total-time 0))
+            (dotimes (_ w32-perf-iterations)
+              (garbage-collect)
+              (setq total-time (+ total-time (benchmark-elapse
+                                              (w32-perf-image-display-single)))))
+            (w32-perf-record "image-display"
+                             (/ total-time w32-perf-iterations)))
+        (w32-perf-message
+         "  Skipping image display benchmark (no xpm/xbm support)"))
     (w32-perf-message "  Skipping image display benchmark (not in GUI mode)")))
 
 ;;; ---------------------------------------------------------------------------
