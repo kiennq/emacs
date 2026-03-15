@@ -253,12 +253,10 @@ get_frame_dc (struct frame *f)
     {
       select_palette (f, hdc);
 
-      /* Pure D2D-on-swapchain mode: return the window DC for any
-	 legacy code that needs a valid HDC (font metrics, palette,
-	 GDI state queries).  Drawing that goes through w32_fill_rect
-	 and w32_dwrite_draw is redirected to D2D automatically.
-	 GDI draws to this DC hit the window surface but are
-	 overwritten by the next D2D present.  */
+      /* Pure D2D-on-swapchain mode: return the window DC for legacy
+	 code that needs a valid HDC (font metrics, palette, toolbar
+	 icons, etc.).  Drawing that goes through w32_fill_rect and
+	 w32_dwrite_draw is redirected to D2D automatically.  */
       if (output->use_d3d && !output->d3d_direct_dc
 	  && output->dxgi_swap_chain)
 	{
@@ -352,8 +350,7 @@ release_frame_dc (struct frame *f, HDC hdc)
   int ret;
   struct w32_output *output = FRAME_OUTPUT_DATA (f);
 
-  /* In pure D2D mode, get_frame_dc returns NULL.  Nothing to
-     release.  */
+  /* In pure D2D mode, get_frame_dc may return NULL.  */
   if (!hdc)
     {
       leave_crit ();

@@ -2414,6 +2414,7 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #ifdef HAVE_NTGUI
       syms_of_w32term ();
       syms_of_w32fns ();
+      syms_of_w32d3d ();
       syms_of_w32menu ();
       syms_of_fontset ();
 #endif /* HAVE_NTGUI */
@@ -2560,9 +2561,7 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 
   init_keyboard ();	/* This too must precede init_sys_modes.  */
   init_display ();	/* Determine terminal type.  Calls init_sys_modes.  */
-#ifdef HAVE_NTGUI
-      init_w32d3d ();
-#endif
+  init_w32d3d ();
 #if HAVE_W32NOTIFY
   if (noninteractive)
     init_crit ();	/* w32notify.c needs this in batch mode.  */

@@ -1125,11 +1125,12 @@ w32_update_end (struct frame *f)
 
   output = FRAME_OUTPUT_DATA (f);
 
-  /* In pure D2D mode, present at update_end.  With NULL hdc from
-     get_frame_dc, all drawing goes through D2D so presenting here
-     is safe — no GDI draws contaminate the window DC.
+  /* In pure D2D mode, present unconditionally (ignore
+     buffer_flipping_blocked_p).  The D2D swap chain present is
+     independent of the GDI double-buffer flipping mechanism.
      paint_buffer_dirty is cleared after the first present, so
-     subsequent update_end calls in the same cycle are no-ops.  */
+     subsequent update_end calls in the same redisplay cycle are
+     no-ops.  */
   if (output->use_d3d && output->dxgi_swap_chain
       && output->d2d_context && output->d2d_target
       && !output->d3d_direct_dc && output->paint_buffer_dirty)
@@ -1170,7 +1171,8 @@ w32_buffer_flipping_unblocked_hook (struct frame *f)
 {
   struct w32_output *output = FRAME_OUTPUT_DATA (f);
 
-  /* Pure D2D: already presented at update_end.  */
+  /* Pure D2D: update_end presents unconditionally, no rescue needed.
+   */
   if (output->use_d3d && output->dxgi_swap_chain
       && output->d2d_context && output->d2d_target
       && !output->d3d_direct_dc)

@@ -512,6 +512,13 @@ struct w32_output
      Valid only when d3d_surface_dc_active is set.  */
   HDC d3d_surface_hdc;
 
+  /* Offscreen memory DC used as a sink for stray GDI operations in
+     pure D2D mode.  All actual rendering goes through D2D; this DC
+     absorbs GDI draws so they don't hit the visible window surface.
+   */
+  HDC d2d_offscreen_dc;
+  HBITMAP d2d_offscreen_bmp;
+
 #define MAX_TOUCH_POINTS 10
   /* Array of dwIDs of presently active touch points, or -1 when
      unpopulated.  */
