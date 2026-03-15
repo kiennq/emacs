@@ -393,8 +393,8 @@ source_marker_get (source_t *src)
 	c = BYTE8_TO_CHAR (c);
       bytepos++;
     }
-  const ptrdiff_t charpos = marker_vector_charpos (XMARKER (m));
-  marker_vector_set_charpos (XMARKER (m), charpos + 1);
+  XMARKER (m)->bytepos = bytepos;
+  XMARKER (m)->charpos++;
   return c;
 }
 
@@ -402,8 +402,11 @@ static void
 source_marker_unget (source_t *src, int c)
 {
   Lisp_Object m = src->object;
-  const ptrdiff_t charpos = marker_vector_charpos (XMARKER (m));
-  marker_vector_set_charpos (XMARKER (m), charpos - 1);
+  struct buffer *b = XMARKER (m)->buffer;
+  ptrdiff_t bytepos = XMARKER (m)->bytepos;
+  XMARKER (m)->charpos--;
+  bytepos -= src->multibyte ? buf_prev_char_len (b, bytepos) : 1;
+  XMARKER (m)->bytepos = bytepos;
 }
 
 static int
@@ -5176,7 +5179,9 @@ init_obarray_once (void)
 
   for (int i = 0; i < ARRAYELTS (lispsym); i++)
     {
-      gc_init_header (&lispsym[i].gc_header, IGC_OBJ_SYMBOL);
+#ifdef HAVE_MPS
+      igc_init_header (&lispsym[i].gc_header, IGC_OBJ_SYMBOL);
+#endif
       define_symbol (builtin_lisp_symbol (i), defsym_name[i]);
     }
 
@@ -5203,7 +5208,9 @@ void
 defsubr (union Aligned_Lisp_Subr *aname)
 {
   struct Lisp_Subr *sname = &aname->s;
-  gc_init_header (&sname->header.gc_header, IGC_OBJ_VECTOR);
+#ifdef HAVE_MPS
+  igc_init_header (&sname->header.gc_header, IGC_OBJ_VECTOR);
+#endif
   Lisp_Object sym, tem;
   sym = intern_c_string (sname->symbol_name);
   XSETPVECTYPE (sname, PVEC_SUBR);
@@ -5243,20 +5250,13 @@ defvar_bool (struct Lisp_Fwd const *b_fwd, char const *namestring)
 /* Similar but define a variable whose value is the Lisp Object stored
    at address.  */
 void
-defvar_lisp_nopro (struct Lisp_Fwd const *o_fwd, char const *namestring)
+defvar_lisp (struct Lisp_Fwd const *o_fwd, char const *namestring)
 {
   eassert (o_fwd->type == Lisp_Fwd_Obj);
   Lisp_Object sym = intern_c_string (namestring);
   XBARE_SYMBOL (sym)->u.s.declared_special = true;
   XBARE_SYMBOL (sym)->u.s.redirect = SYMBOL_FORWARDED;
   SET_SYMBOL_FWD (XBARE_SYMBOL (sym), o_fwd);
-}
-
-void
-defvar_lisp (struct Lisp_Fwd const *o_fwd, char const *namestring)
-{
-  eassert (o_fwd->type == Lisp_Fwd_Obj);
-  defvar_lisp_nopro (o_fwd, namestring);
   staticpro (o_fwd->u.objvar);
 }
 

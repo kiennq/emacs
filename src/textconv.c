@@ -487,7 +487,8 @@ record_buffer_change (ptrdiff_t beg, ptrdiff_t end,
   XSETBUFFER (buffer, current_buffer);
 
   /* Make markers for both BEG and END.  */
-  beg_marker = build_marker (current_buffer, beg);
+  beg_marker = build_marker (current_buffer, beg,
+			     CHAR_TO_BYTE (beg));
 
   /* If BEG and END are identical, make sure to keep the markers
      eq.  */
@@ -496,7 +497,8 @@ record_buffer_change (ptrdiff_t beg, ptrdiff_t end,
     end_marker = beg_marker;
   else
     {
-      end_marker = build_marker (current_buffer, end);
+      end_marker = build_marker (current_buffer, end,
+				 CHAR_TO_BYTE (end));
 
       /* Otherwise, make sure the marker extends past inserted
 	 text.  */
@@ -867,9 +869,9 @@ really_set_composing_text (struct frame *f, ptrdiff_t position,
 
       /* Now set the markers which denote the composition region.  */
       f->conversion.compose_region_start
-	= build_marker (current_buffer, PT);
+	= build_marker (current_buffer, PT, PT_BYTE);
       f->conversion.compose_region_end
-	= build_marker (current_buffer, PT);
+	= build_marker (current_buffer, PT, PT_BYTE);
 
       Fset_marker_insertion_type (f->conversion.compose_region_end,
 				  Qt);
@@ -1168,8 +1170,8 @@ locate_and_save_position_in_field (struct frame *f, struct window *w,
     }
   else
     {
-      c1 = build_marker (current_buffer, beg);
-      c2 = build_marker (current_buffer, end);
+      c1 = build_marker (current_buffer, beg, CHAR_TO_BYTE (beg));
+      c2 = build_marker (current_buffer, end, CHAR_TO_BYTE (end));
       Fset_marker_insertion_type (c2, Qt);
       f->conversion.field = Fcons (c1, Fcons (c2, window));
     }

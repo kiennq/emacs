@@ -23,49 +23,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "config.h"
 #include "lisp.h"
 
-enum igc_obj_type
-{
-  IGC_OBJ_INVALID,
-  IGC_OBJ_PAD,
-  IGC_OBJ_FWD,
-  IGC_OBJ_CONS,
-  IGC_OBJ_SYMBOL,
-  IGC_OBJ_INTERVAL,
-  IGC_OBJ_STRING,
-  IGC_OBJ_STRING_DATA,
-  IGC_OBJ_VECTOR,
-  IGC_OBJ_MARKER_VECTOR,
-  IGC_OBJ_ITREE_TREE,
-  IGC_OBJ_ITREE_NODE,
-  IGC_OBJ_IMAGE,
-  IGC_OBJ_IMAGE_CACHE,
-  IGC_OBJ_FACE,
-  IGC_OBJ_FACE_CACHE,
-  IGC_OBJ_FLOAT,
-  IGC_OBJ_BLV,
-  IGC_OBJ_HANDLER,
-  IGC_OBJ_BYTES,
-  IGC_OBJ_BUILTIN_SYMBOL,
-  IGC_OBJ_BUILTIN_THREAD,
-  IGC_OBJ_BUILTIN_SUBR,
-  IGC_OBJ_DUMPED_CODE_SPACE_MASKS,
-  IGC_OBJ_DUMPED_BUFFER_TEXT,
-  IGC_OBJ_DUMPED_BIGNUM_DATA,
-  IGC_OBJ_DUMPED_BYTES,
-#ifndef USE_EPHEMERON_POOL
-  IGC_OBJ_WEAK_HASH_TABLE_WEAK_PART,
-  IGC_OBJ_WEAK_HASH_TABLE_STRONG_PART,
-#endif
-#ifdef USE_EPHEMERON_POOL
-  IGC_OBJ_PAIR_VECTOR,
-  IGC_OBJ_WEAK_KEY_PAIR_VECTOR,
-  IGC_OBJ_WEAK_VALUE_PAIR_VECTOR,
-  IGC_OBJ_WEAK_OR_PAIR_VECTOR,
-  IGC_OBJ_WEAK_AND_PAIR_VECTOR,
-#endif
-  IGC_OBJ_NUM_TYPES
-};
-
 #ifdef HAVE_MPS
 
 void igc_break (void);
@@ -83,6 +40,9 @@ void igc_on_face_cache_change (void *face_cache);
 
 void igc_process_messages (void);
 Lisp_Object igc_make_cons (Lisp_Object car, Lisp_Object cdr);
+void igc_add_marker (struct buffer *b, struct Lisp_Marker *m);
+void igc_remove_marker (struct buffer *b, struct Lisp_Marker *m);
+void igc_remove_all_markers (struct buffer *b);
 void igc_resurrect_markers (struct buffer *b);
 Lisp_Object igc_alloc_symbol (void);
 #ifdef HAVE_MODULES
@@ -90,7 +50,6 @@ void *igc_alloc_global_ref (void);
 void igc_free_global_ref (struct module_global_reference *ref);
 #endif
 
-Lisp_Object igc_alloc_marker_vector (ptrdiff_t len, Lisp_Object init);
 struct Lisp_Buffer_Local_Value *igc_alloc_blv (void);
 void *igc_alloc_handler (void);
 void *igc_xzalloc_ambig (size_t size);
@@ -196,6 +155,10 @@ typedef union
 void * w32_add_non_lisp_thread (void *);
 void w32_remove_non_lisp_thread (void *);
 #endif
+
+void igc_init_header (union igc_header *, enum igc_obj_type);
+void igc_init_header_bytes (union igc_header *,
+			    enum igc_obj_type type, size_t bytes);
 
 extern void igc_assert_not_an_mps_object (void *ptr);
 # define eassert_not_mps() eassert (false)

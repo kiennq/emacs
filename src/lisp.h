@@ -45,24 +45,8 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 INLINE_HEADER_BEGIN
 
 #ifdef HAVE_MPS
-union gc_header;
-#else
-union gc_header { };
-#endif
-
-#ifdef HAVE_MPS
-enum igc_obj_type;
-extern void gc_init_header (union gc_header *header, enum igc_obj_type type);
-extern void gc_init_header_bytes (union gc_header *header, enum igc_obj_type type, size_t bytes);
 extern void gc_assert_untraced_object (void *obj);
-#else
-/* These are macros so they don't evaluate their `type' argument.  */
-#define gc_init_header(header, type) ((void)(header))
-#define gc_init_header_bytes(header, type, nbytes) ((void)(header))
 #endif
-
-#define GC_HEADER union gc_header gc_header;
-#define GC_HEADER_INIT {},
 
 /* Enable this with --enable-checking=igc_check_fwd. */
 # if defined HAVE_MPS && defined IGC_CHECK_FWD
@@ -342,11 +326,12 @@ DEFINE_GDB_SYMBOL_END (VALMASK)
 #define GCALIGNED(type) (alignof (type) % GCALIGNMENT == 0)
 
 #ifdef HAVE_MPS
-union gc_header
-{
-  uint64_t v;
-  GCALIGNED_UNION_MEMBER
-};
+# include "igc-types.h"
+# define GC_HEADER union igc_header gc_header;
+# define GC_HEADER_INIT { .v = 0 },
+#else
+# define GC_HEADER
+# define GC_HEADER_INIT
 #endif
 
 /* Lisp_Word is a scalar word suitable for holding a tagged pointer or
@@ -1826,16 +1811,10 @@ ASIZE (Lisp_Object array)
 }
 
 INLINE ptrdiff_t
-gc_vsize (const struct Lisp_Vector *v)
-{
-  return v->header.size & ~ARRAY_MARK_FLAG;
-}
-
-INLINE ptrdiff_t
 gc_asize (Lisp_Object array)
 {
   /* Like ASIZE, but also can be used in the garbage collector.  */
-  return gc_vsize (XVECTOR (array));
+  return XVECTOR (array)->header.size & ~ARRAY_MARK_FLAG;
 }
 
 INLINE ptrdiff_t
@@ -3183,10 +3162,23 @@ struct Lisp_Marker
   /* The remaining fields are meaningless in a marker that
      does not point anywhere.  */
 
-  /* If in a buffer's marker vector, this is the entry where it is
-     stored.  If not in the marker vector, this is minus its last
-     character position. */
-  ptrdiff_t entry;
+#ifndef HAVE_MPS
+  /* For markers that point somewhere,
+     this is used to chain of all the markers in a given buffer.
+     The chain does not preserve markers from garbage collection;
+     instead, markers are removed from the chain when freed by GC.  */
+  /* We could remove it and use an array in buffer_text instead.
+     That would also allow us to preserve it ordered.  */
+  struct Lisp_Marker *next;
+  /* This is the char position where the marker points.  */
+#endif
+
+  ptrdiff_t charpos;
+  /* This is the byte position.
+     It's mostly used as a charpos<->bytepos cache (i.e. it's not directly
+     used to implement the functionality of markers, but rather to (ab)use
+     markers as a cache for char<->byte mappings).  */
+  ptrdiff_t bytepos;
 
 # ifdef HAVE_MPS
   /* If in a buffer's marker vector, this is the index where it is
@@ -3838,7 +3830,6 @@ call0 (Lisp_Object fn)
 }
 
 extern void defvar_lisp (struct Lisp_Fwd const *, char const *);
-extern void defvar_lisp_nopro (struct Lisp_Fwd const *, char const *);
 extern void defvar_bool (struct Lisp_Fwd const *, char const *);
 extern void defvar_int (struct Lisp_Fwd const *, char const *);
 extern void defvar_kboard (struct Lisp_Fwd const *, char const *);
@@ -3867,12 +3858,6 @@ extern void defvar_kboard (struct Lisp_Fwd const *, char const *);
     static struct Lisp_Fwd const o_fwd			\
       = {Lisp_Fwd_Obj, .u.objvar = &globals.f_##vname};	\
     defvar_lisp (&o_fwd, lname);			\
-  } while (false)
-#define DEFVAR_LISP_NOPRO(lname, vname, doc)		\
-  do {							\
-    static struct Lisp_Fwd const o_fwd			\
-      = {Lisp_Fwd_Obj, .u.objvar = &globals.f_##vname};	\
-    defvar_lisp_nopro (&o_fwd, lname);			\
   } while (false)
 #define DEFVAR_BOOL(lname, vname, doc)				\
   do {								\
@@ -4667,7 +4652,7 @@ ptrdiff_t hash_put (struct Lisp_Hash_Table *, Lisp_Object, Lisp_Object,
 		    hash_hash_t);
 void hash_remove_from_table (struct Lisp_Hash_Table *, Lisp_Object);
 
-#ifdef HAVE_MPS
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
 Lisp_Object strong_copy_hash_table (Lisp_Object);
 void strengthen_hash_table_for_dump (struct Lisp_Weak_Hash_Table *);
 ptrdiff_t weak_hash_lookup (struct Lisp_Weak_Hash_Table *, Lisp_Object);
@@ -5450,13 +5435,16 @@ extern void syms_of_buffer (void);
 
 extern ptrdiff_t marker_position (Lisp_Object);
 extern ptrdiff_t marker_byte_position (Lisp_Object);
+extern void clear_charpos_cache (struct buffer *);
+extern ptrdiff_t buf_charpos_to_bytepos (struct buffer *, ptrdiff_t);
+extern ptrdiff_t buf_bytepos_to_charpos (struct buffer *, ptrdiff_t);
 extern void detach_marker (Lisp_Object);
 extern void unchain_marker (struct Lisp_Marker *);
 extern Lisp_Object set_marker_restricted (Lisp_Object, Lisp_Object, Lisp_Object);
-extern Lisp_Object set_marker_both (Lisp_Object, Lisp_Object, ptrdiff_t);
+extern Lisp_Object set_marker_both (Lisp_Object, Lisp_Object, ptrdiff_t, ptrdiff_t);
 extern Lisp_Object set_marker_restricted_both (Lisp_Object, Lisp_Object,
-                                               ptrdiff_t);
-extern Lisp_Object build_marker (struct buffer *, ptrdiff_t);
+                                               ptrdiff_t, ptrdiff_t);
+extern Lisp_Object build_marker (struct buffer *, ptrdiff_t, ptrdiff_t);
 extern void syms_of_marker (void);
 
 /* Defined in fileio.c.  */
