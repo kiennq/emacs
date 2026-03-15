@@ -197,7 +197,7 @@ case $host/$CLANG in
       EXEEXT=.exe
     ;;
     *)
-    AC_MSG_ERROR([MPS does not support this $host/$CLANG platform out of the box.  See manual/build.txt])
+    AC_MSG_ERROR([MPS does not support this platform out of the box.  See manual/build.txt])
 esac
 
 AC_CHECK_PROGS([MAKE],[gnumake gmake make],[AC_MSG_ERROR([Unable to find a make program.])])
