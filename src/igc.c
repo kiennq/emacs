@@ -169,7 +169,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 # ifndef HASH_Lisp_Mutex_744F44A86D
 #  error "struct Lisp_Mutex changed"
 # endif
-# ifndef HASH_coding_system_77D58F21B9
+# ifndef HASH_coding_system_719F6B8D2B
 #  error "struct coding_system changed"
 # endif
 # ifndef HASH_terminal_19777CD1E0
@@ -190,7 +190,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 # ifndef HASH_itree_tree_A8CE87B78A
 #  error "struct itree_tree changed"
 # endif
-# ifndef HASH_image_7243288625
+# ifndef HASH_image_5576A094B1
 #  error "struct image changed"
 # endif
 # ifndef HASH_image_cache_3EC6F9D296
@@ -1855,7 +1855,7 @@ scan_hash_table_user_test (mps_ss_t ss, void *start, void *end, void *closure)
   return MPS_RES_OK;
 }
 
-#ifdef USE_GTK
+#if defined (USE_GTK) && ! defined (HAVE_PGTK)
 /* scan_xg_pending_quit_event assumes that the fields of the input_event
    are in a consistent state.  This is a relatively safe assumption
    because:
