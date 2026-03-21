@@ -2101,6 +2101,7 @@ dump_object_start_pseudovector (struct dump_context *ctx,
 #define START_DUMP_PVEC(ctx, hdr, type, out)                  \
   const struct vectorlike_header *in_hdr = (hdr);	      \
   type *out = alloca (vectorlike_nbytes (in_hdr));	      \
+  memset (out, 0, vectorlike_nbytes (in_hdr));		      \
   dump_object_start_pseudovector (ctx, &out->header, in_hdr)
 
 static dump_off
@@ -2935,7 +2936,7 @@ dump_weak_hash_table (struct dump_context *ctx, Lisp_Object object)
 
   dump_field_lv (ctx, out, wh_in, &wh_in->dump_replacement,
 		 WEIGHT_NORMAL);
-  dump_off offset = finish_dump_pvec (ctx, &wh_in->header);
+  dump_off offset = finish_dump_pvec (ctx, &out->header);
   return offset;
 }
 #endif
