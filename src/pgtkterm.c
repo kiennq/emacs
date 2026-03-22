@@ -6591,7 +6591,7 @@ pgtk_link_touch_point (struct pgtk_display_info *dpyinfo,
     local_detail = 0;
 
 #ifdef HAVE_MPS
-  touchpoint = igc_xzalloc_ambig (sizeof *touchpoint);
+  touchpoint = IGC_XZALLOC_AMBIG (sizeof *touchpoint);
 #else
   touchpoint = xmalloc (sizeof *touchpoint);
 #endif
