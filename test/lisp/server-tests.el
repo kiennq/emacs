@@ -187,6 +187,34 @@ process's status matches it."
           'exit
         (should (= server-tests/variable value))))))
 
+(ert-deftest server-tests/emacsclient/signal-by-pid ()
+  "Test that \"emacsclient --signal\" delivers a user signal by PID."
+  (skip-unless (eq system-type 'windows-nt))
+  (cl-letf (((symbol-function 'server-ensure-safe-dir) #'ignore))
+    (server-tests/with-server
+      (let ((signal-received nil)
+            (old-binding (lookup-key special-event-map [sigusr1]))
+            (start (current-time)))
+        (unwind-protect
+            (progn
+              (define-key special-event-map [sigusr1]
+                          (lambda ()
+                            (interactive)
+                            (setq signal-received t)))
+              (server-tests/with-client emacsclient
+                  (list (format "--pid=%d" (emacs-pid))
+                        "--signal=1001")
+                  'exit
+                (while (not signal-received)
+                  (when (> (float-time (time-since start))
+                           server-tests/max-wait-time)
+                    (ert-fail (format "timed out waiting for %S to be non-nil"
+                                      'signal-received)))
+                  ;; `read-event' drives `special-event-map' handling,
+                  ;; which is where user signals are delivered.
+                  (read-event nil nil 0.1))))
+          (define-key special-event-map [sigusr1] old-binding))))))
+
 (ert-deftest server-tests/server-force-stop/keeps-frames ()
   "Ensure that `server-force-stop' doesn't delete frames.  See bug#58877.
 Note: since that bug is about a behavior when killing Emacs, this

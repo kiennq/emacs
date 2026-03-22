@@ -516,6 +516,8 @@ extern void kbd_buffer_store_help_event (Lisp_Object, Lisp_Object);
 extern Lisp_Object menu_item_eval_property (Lisp_Object);
 extern bool kbd_buffer_events_waiting (void);
 extern void add_user_signal (int, const char *);
+extern void register_user_signal (int, const char *);
+extern void process_w32_user_signal_events (void);
 
 extern int tty_read_avail_input (struct terminal *, struct input_event *);
 extern struct timespec timer_check (void);

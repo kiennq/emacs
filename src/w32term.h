@@ -768,6 +768,7 @@ extern HDC get_frame_dc (struct frame * f);
 extern int release_frame_dc (struct frame * f, HDC hDC);
 
 extern int drain_message_queue (void);
+extern int w32_get_next_pending_user_signal (void);
 
 extern BOOL get_next_msg (W32Msg *, BOOL);
 extern BOOL post_msg (W32Msg *);

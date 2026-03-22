@@ -54,6 +54,152 @@ static HANDLE input_available = NULL;
 extern HANDLE interrupt_handle;
 HANDLE interrupt_handle = NULL;
 
+#ifdef WINDOWSNT
+struct w32_user_signal_event
+{
+  int sig;
+  HANDLE event;
+  volatile LONG pending;
+};
+
+static struct w32_user_signal_event w32_user_signal_events[] =
+  {
+    { 1001, NULL, 0 },
+    { 1002, NULL, 0 },
+  };
+
+static HANDLE w32_user_signal_thread;
+static HANDLE w32_user_signal_stop;
+
+static DWORD WINAPI w32_user_signal_thread_proc (LPVOID);
+static void notify_msg_ready (void);
+
+static void
+init_w32_user_signal_events (void)
+{
+  char name[64];
+  DWORD pid = GetCurrentProcessId ();
+
+  w32_user_signal_stop = CreateEvent (NULL, TRUE, FALSE, NULL);
+  if (!w32_user_signal_stop)
+    return;
+
+  for (int i = 0; i < ARRAYELTS (w32_user_signal_events); ++i)
+    {
+      snprintf (name, sizeof name, "Local\\Emacs-%lu-%d",
+                (unsigned long) pid, w32_user_signal_events[i].sig);
+      w32_user_signal_events[i].event = CreateEvent (NULL, FALSE, FALSE,
+                                                     name);
+      if (!w32_user_signal_events[i].event)
+        {
+          for (int j = 0; j < i; ++j)
+            {
+              CloseHandle (w32_user_signal_events[j].event);
+              w32_user_signal_events[j].event = NULL;
+            }
+          CloseHandle (w32_user_signal_stop);
+          w32_user_signal_stop = NULL;
+          return;
+        }
+    }
+
+  w32_user_signal_thread = CreateThread (NULL, 0, w32_user_signal_thread_proc,
+                                         NULL, 0, NULL);
+  if (!w32_user_signal_thread)
+    {
+      for (int i = 0; i < ARRAYELTS (w32_user_signal_events); ++i)
+        if (w32_user_signal_events[i].event)
+          {
+            CloseHandle (w32_user_signal_events[i].event);
+            w32_user_signal_events[i].event = NULL;
+          }
+      CloseHandle (w32_user_signal_stop);
+      w32_user_signal_stop = NULL;
+    }
+}
+
+static void
+delete_w32_user_signal_events (void)
+{
+  if (w32_user_signal_stop)
+    SetEvent (w32_user_signal_stop);
+
+  if (w32_user_signal_thread)
+    {
+      WaitForSingleObject (w32_user_signal_thread, INFINITE);
+      CloseHandle (w32_user_signal_thread);
+      w32_user_signal_thread = NULL;
+    }
+
+  for (int i = 0; i < ARRAYELTS (w32_user_signal_events); ++i)
+    if (w32_user_signal_events[i].event)
+      {
+        CloseHandle (w32_user_signal_events[i].event);
+        w32_user_signal_events[i].event = NULL;
+        w32_user_signal_events[i].pending = 0;
+      }
+
+  if (w32_user_signal_stop)
+    {
+      CloseHandle (w32_user_signal_stop);
+      w32_user_signal_stop = NULL;
+    }
+}
+
+static DWORD WINAPI
+w32_user_signal_thread_proc (LPVOID arg)
+{
+  HANDLE waits[1 + ARRAYELTS (w32_user_signal_events)];
+  (void) arg;
+
+  waits[0] = w32_user_signal_stop;
+  for (int i = 0; i < ARRAYELTS (w32_user_signal_events); ++i)
+    waits[i + 1] = w32_user_signal_events[i].event;
+
+  while (true)
+    {
+      DWORD rc = WaitForMultipleObjects (ARRAYELTS (waits), waits,
+                                         FALSE, INFINITE);
+
+      if (rc == WAIT_OBJECT_0)
+        return 0;
+
+      if (WAIT_OBJECT_0 < rc
+          && rc < WAIT_OBJECT_0 + ARRAYELTS (waits))
+        {
+          int i = rc - WAIT_OBJECT_0 - 1;
+
+          InterlockedIncrement (&w32_user_signal_events[i].pending);
+          pending_signals = true;
+          signal_quit ();
+          notify_msg_ready ();
+        }
+    }
+}
+
+int
+w32_get_next_pending_user_signal (void)
+{
+  for (int i = 0; i < ARRAYELTS (w32_user_signal_events); ++i)
+    {
+      LONG pending = InterlockedCompareExchange (&w32_user_signal_events[i].pending,
+                                                 0, 0);
+
+      while (pending > 0)
+        {
+          LONG next = pending - 1;
+          LONG prev = InterlockedCompareExchange (&w32_user_signal_events[i].pending,
+                                                  next, pending);
+          if (prev == pending)
+            return w32_user_signal_events[i].sig;
+          pending = prev;
+        }
+    }
+
+  return 0;
+}
+#endif
+
 void
 init_crit (void)
 {
@@ -89,6 +235,10 @@ init_crit (void)
      that would the right response).  Note that we use PulseEvent to
      signal this event, so that it never remains signaled.  */
   interrupt_handle = CreateEvent (NULL, TRUE, FALSE, NULL);
+
+#ifdef WINDOWSNT
+  init_w32_user_signal_events ();
+#endif
 }
 
 void
@@ -106,6 +256,10 @@ delete_crit (void)
       CloseHandle (interrupt_handle);
       interrupt_handle = NULL;
     }
+
+#ifdef WINDOWSNT
+  delete_w32_user_signal_events ();
+#endif
 
 #if HAVE_W32NOTIFY
   if (notifications_set_head)
@@ -361,11 +515,11 @@ notify_msg_ready (void)
 {
   SetEvent (input_available);
 
-#ifdef CYGWIN
+#ifdef WINDOWSNT
   /* Wakes up the main thread, which is blocked select()ing for /dev/windows,
      among other files.  */
   (void) PostThreadMessage (dwMainThreadId, WM_EMACS_INPUT_READY, 0, 0);
-#endif /* CYGWIN */
+#endif /* WINDOWSNT */
 }
 
 BOOL
@@ -419,7 +573,8 @@ prepend_msg (W32Msg *lpmsg)
 }
 
 /* Process all messages in the current thread's queue.  Value is 1 if
-   one of these messages was WM_EMACS_FILENOTIFY, zero otherwise.  */
+   one of these messages was WM_EMACS_FILENOTIFY or WM_EMACS_INPUT_READY,
+   zero otherwise.  */
 int
 drain_message_queue (void)
 {
@@ -430,6 +585,9 @@ drain_message_queue (void)
     {
       switch (msg.message)
 	{
+	case WM_EMACS_INPUT_READY:
+	  retval = 1;
+	  break;
 #ifdef WINDOWSNT
 	case WM_WTSSESSION_CHANGE:
 	  if (msg.wParam == WTS_SESSION_LOCK)
