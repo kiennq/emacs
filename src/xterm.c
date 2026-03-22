@@ -5747,9 +5747,8 @@ x_cache_xi_devices (struct x_display_info *dpyinfo)
 #ifdef HAVE_MPS
   // FIXME/igc: use exact references
   dpyinfo->devices
-    = igc_xzalloc_ambig_with_label ((sizeof *dpyinfo->devices
-				     * ndevices),
-				    "xi_device_t[]");
+    = igc_xzalloc_ambig ((sizeof *dpyinfo->devices * ndevices),
+			 "xi_device_t[]");
 #else
   dpyinfo->devices = xzalloc (sizeof *dpyinfo->devices * ndevices);
 #endif
@@ -5854,7 +5853,7 @@ xi_link_touch_point (struct xi_device_t *device,
     local_detail = 0;
 
 #ifdef HAVE_MPS
-  touchpoint = igc_xzalloc_ambig (sizeof *touchpoint);
+  touchpoint = IGC_XZALLOC_AMBIG (sizeof *touchpoint);
 #else
   touchpoint = xmalloc (sizeof *touchpoint);
 #endif
@@ -8316,6 +8315,14 @@ x_update_frame_user_time_window (struct frame *f)
 
 	  output->user_time_window
 	    = x_create_special_window (dpyinfo, FRAME_X_WINDOW (f));
+
+	  if (FRAME_NO_FOCUS_ON_MAP (f))
+	    /* If the user time is zero, which is the case with
+	       `no-focus-on-map', then preserve that value by copying
+	       it to the new user time window.  */
+	    XChangeProperty (dpyinfo->display, output->user_time_window,
+			     dpyinfo->Xatom_net_wm_user_time, XA_CARDINAL, 32,
+			     PropModeReplace, (unsigned char *) &(Time) {0}, 1);
 
 	  XDeleteProperty (dpyinfo->display, FRAME_OUTER_WINDOW (f),
 			   dpyinfo->Xatom_net_wm_user_time);
@@ -13913,9 +13920,9 @@ xi_disable_devices (struct x_display_info *dpyinfo,
   ndevices = 0;
 #ifdef HAVE_MPS
   // FIXME/igc: use exact references
-  devices = igc_xzalloc_ambig_with_label ((sizeof *devices
-					   * dpyinfo->num_devices),
-					  "xi_device_t[]");
+  devices
+    = igc_xzalloc_ambig ((sizeof *devices * dpyinfo->num_devices),
+			 "xi_device_t[]");
 #else
   devices = xzalloc (sizeof *devices * dpyinfo->num_devices);
 #endif
@@ -29255,14 +29262,15 @@ x_make_frame_visible (struct frame *f)
 	 remember if it can leave `user_time_window' unset or not.  */
       if (output->user_time_window != None)
 	{
-	  if (dpyinfo->last_user_time)
+	  if (!dpyinfo->last_user_time)
+	    XDeleteProperty (dpyinfo->display, output->user_time_window,
+			     dpyinfo->Xatom_net_wm_user_time);
+	  /* Don't overwrite a zero user time for `no-focus-on-map'.  */
+	  else if (!FRAME_NO_FOCUS_ON_MAP (f))
 	    XChangeProperty (dpyinfo->display, output->user_time_window,
 			     dpyinfo->Xatom_net_wm_user_time,
 			     XA_CARDINAL, 32, PropModeReplace,
 			     (unsigned char *) &dpyinfo->last_user_time, 1);
-	  else
-	    XDeleteProperty (dpyinfo->display, output->user_time_window,
-			     dpyinfo->Xatom_net_wm_user_time);
 	}
 #endif
 
@@ -30885,8 +30893,7 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
 #ifdef HAVE_MPS
   // FIXME/igc: use exact references
-  dpyinfo = igc_xzalloc_ambig_with_label (sizeof *dpyinfo,
-					  "x_display_info");
+  dpyinfo = igc_xzalloc_ambig (sizeof *dpyinfo, "x_display_info");
 #else
   dpyinfo = xzalloc (sizeof *dpyinfo);
 #endif

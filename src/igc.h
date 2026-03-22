@@ -52,8 +52,8 @@ void igc_free_global_ref (struct module_global_reference *ref);
 
 struct Lisp_Buffer_Local_Value *igc_alloc_blv (void);
 void *igc_alloc_handler (void);
-void *igc_xzalloc_ambig (size_t size);
-void *igc_xzalloc_ambig_with_label (size_t size, const char *label);
+void *igc_xzalloc_ambig (size_t size, const char *label);
+#define IGC_XZALLOC_AMBIG(size) igc_xzalloc_ambig (size, __func__)
 void *igc_realloc_ambig (void *block, size_t size);
 #ifdef ENABLE_CHECKING
 void igc_check_freeable (void *p);
@@ -63,7 +63,7 @@ void * igc_xalloc_raw_exact (size_t n);
 
 void *igc_xpalloc_ambig (void *pa, ptrdiff_t *nitems,
 			 ptrdiff_t nitems_incr_min, ptrdiff_t nitems_max,
-			 ptrdiff_t item_size);
+			 ptrdiff_t item_size, const char *label);
 
 void *igc_xpalloc_raw_exact (void *pa, ptrdiff_t *nitems,
 			     ptrdiff_t nitems_incr_min,

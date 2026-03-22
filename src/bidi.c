@@ -810,7 +810,7 @@ bidi_cache_ensure_space (ptrdiff_t idx)
 	  bidi_cache
 	    = igc_xpalloc_ambig (bidi_cache, &bidi_cache_size,
 				 max (chunk_size, idx - bidi_cache_size + 1),
-				 max_elts, elsz);
+				 max_elts, elsz, "bidi_cache");
 #endif
 	  eassert (bidi_cache_size > idx);
 	}
@@ -1009,7 +1009,7 @@ bidi_shelve_cache (void)
   alloc = (bidi_shelve_header_size
 	   + bidi_cache_idx * sizeof (struct bidi_it));
 #ifdef HAVE_MPS
-  databuf = igc_xzalloc_ambig (alloc);
+  databuf = IGC_XZALLOC_AMBIG (alloc);
 #else
   databuf = xmalloc (alloc);
 #endif
