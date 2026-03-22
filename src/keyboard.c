@@ -418,8 +418,13 @@ static void timer_resume_idle (void);
 static void deliver_user_signal (int);
 static char *find_user_signal_name (int);
 static void store_user_signal_events (void);
+static void add_user_signal_1 (int, const char *);
 static bool is_ignored_event (union buffered_input_event *);
 static void do_async_work (void);
+
+#ifdef WINDOWSNT
+extern int w32_get_next_pending_user_signal (void);
+#endif
 
 /* Advance or retreat a buffered input event pointer.  */
 
@@ -8388,6 +8393,9 @@ void
 process_pending_signals (void)
 {
   pending_signals = false;
+#ifdef WINDOWSNT
+  process_w32_user_signal_events ();
+#endif
   handle_async_input ();
   do_pending_atimers ();
   do_async_work ();
@@ -8488,6 +8496,22 @@ void
 add_user_signal (int sig, const char *name)
 {
   struct sigaction action;
+
+  add_user_signal_1 (sig, name);
+
+  emacs_sigaction_init (&action, deliver_user_signal);
+  sigaction (sig, &action, 0);
+}
+
+void
+register_user_signal (int sig, const char *name)
+{
+  add_user_signal_1 (sig, name);
+}
+
+static void
+add_user_signal_1 (int sig, const char *name)
+{
   struct user_signal_info *p;
 
   for (p = user_signals; p; p = p->next)
@@ -8501,9 +8525,6 @@ add_user_signal (int sig, const char *name)
   p->npending = 0;
   p->next = user_signals;
   user_signals = p;
-
-  emacs_sigaction_init (&action, deliver_user_signal);
-  sigaction (sig, &action, 0);
 }
 
 #ifdef HAVE_MPS
@@ -8578,6 +8599,24 @@ static void
 deliver_user_signal (int sig)
 {
   deliver_process_signal (sig, handle_user_signal);
+}
+
+void
+process_w32_user_signal_events (void)
+{
+#ifdef WINDOWSNT
+  int sig;
+  bool got_signal = false;
+
+  while ((sig = w32_get_next_pending_user_signal ()) != 0)
+    {
+      handle_user_signal (sig);
+      got_signal = true;
+    }
+
+  if (got_signal)
+    store_user_signal_events ();
+#endif
 }
 
 static char *
@@ -14606,6 +14645,7 @@ operation to work at all.  */);
   DEFSYM (Qsuspend_hook, "suspend-hook");
   DEFSYM (Qsuspend_resume_hook, "suspend-resume-hook");
   DEFSYM (Qcommand_error_default_function, "command-error-default-function");
+  DEFSYM (Qsigusr1, "sigusr1");
   DEFSYM (Qsigusr2, "sigusr2");
   DEFSYM (Qascii_character, "ascii-character");
 }

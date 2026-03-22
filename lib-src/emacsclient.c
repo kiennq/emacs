@@ -28,7 +28,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 # include <malloc.h>
 # include <windows.h>
-# include <commctrl.h>
 # include <io.h>
 # include <winsock2.h>
 
@@ -40,6 +39,8 @@ char *w32_getenv (const char *);
 # define egetenv(VAR) w32_getenv (VAR)
 
 # undef signal
+
+VOID WINAPI InitCommonControls (void);
 
 #else /* !WINDOWSNT */
 
@@ -155,6 +156,14 @@ static char const *tramp_prefix;
 /* If nonzero, PID of the Emacs server process.  */
 static pid_t emacs_pid;
 
+#ifdef WINDOWSNT
+/* If nonzero, send this Windows signal and exit.  */
+static int requested_signal;
+
+/* True if --pid was provided explicitly.  */
+static bool signal_pid_given;
+#endif
+
 /* If non-NULL, a string that should form a frame parameter alist to
    be used for the new frame.  */
 static char const *frame_parameters;
@@ -186,6 +195,10 @@ static struct option const longopts[] =
   { "parent-id", required_argument, NULL, 'p' },
   { "timeout",	required_argument, NULL, 'w' },
   { "tramp",	required_argument, NULL, 'T' },
+#ifdef WINDOWSNT
+  { "pid", required_argument, NULL, 'P' },
+  { "signal", required_argument, NULL, 'S' },
+#endif
   { 0, 0, 0, 0 }
 };
 
@@ -196,7 +209,11 @@ static char const shortopts[] =
 #ifdef SOCKETS_IN_FILE_SYSTEM
   "s:"
 #endif
-  "f:d:T:";
+  "f:d:T:"
+#ifdef WINDOWSNT
+  "P:S:"
+#endif
+  ;
 
 
 /* Like malloc but get fatal error if memory is exhausted.  */
@@ -549,6 +566,27 @@ decode_options (int argc, char **argv)
 	    }
 	  break;
 
+#ifdef WINDOWSNT
+	case 'P':
+	  emacs_pid = strtoumax (optarg, &endptr, 10);
+	  if (emacs_pid <= 0 || *endptr)
+	    {
+	      fprintf (stderr, "Invalid pid: \"%s\"\n", optarg);
+	      exit (EXIT_FAILURE);
+	    }
+	  signal_pid_given = true;
+	  break;
+
+	case 'S':
+	  requested_signal = strtoimax (optarg, &endptr, 10);
+	  if (requested_signal <= 0 || *endptr)
+	    {
+	      fprintf (stderr, "Invalid signal: \"%s\"\n", optarg);
+	      exit (EXIT_FAILURE);
+	    }
+	  break;
+#endif
+
 	case 'e':
 	  eval = true;
 	  break;
@@ -709,6 +747,10 @@ The following OPTIONS are accepted:\n\
 			Visit the file in the given display\n\
 ", "\
 --parent-id=ID          Open in parent window ID, via XEmbed\n"
+#ifdef WINDOWSNT
+"--pid=PID                Send a Windows signal to Emacs process PID\n\
+--signal=SIGNAL          Send Windows signal number SIGNAL to Emacs\n"
+#endif
 #ifdef SOCKETS_IN_FILE_SYSTEM
 "-s SOCKET, --socket-name=SOCKET\n\
 			Set filename of the UNIX socket for communication\n"
@@ -1033,6 +1075,114 @@ get_server_config (const char *config_file, struct sockaddr_in *server,
 
   return true;
 }
+
+#ifdef WINDOWSNT
+static bool
+get_server_pid (const char *config_file, pid_t *pid)
+{
+  char line[64];
+  FILE *config;
+
+  if (IS_ABSOLUTE_FILE_NAME (config_file))
+    config = fopen (config_file, "rb");
+  else
+    {
+      char const *xdg = egetenv ("XDG_CONFIG_HOME");
+      config = open_config (egetenv ("HOME"), xdg, config_file);
+      if (!config)
+	config = open_config (egetenv ("APPDATA"), xdg, config_file);
+    }
+
+  if (!config)
+    return false;
+
+  if (fgets (line, sizeof line, config))
+    {
+      char *pid_start = strchr (line, ' ');
+      if (pid_start)
+	{
+	  char *end;
+	  uintmax_t value;
+
+	  errno = 0;
+	  value = strtoumax (pid_start + 1, &end, 10);
+	  if (!errno && pid_start + 1 < end && value > 0)
+	    {
+	      *pid = value;
+	      fclose (config);
+	      return true;
+	    }
+	}
+    }
+
+  fclose (config);
+  return false;
+}
+
+static _Noreturn void
+w32_send_signal_or_die (void)
+{
+  char name[64];
+  HANDLE event;
+
+  switch (requested_signal)
+    {
+    case 1001:
+    case 1002:
+      break;
+
+    default:
+      message (true, "%s: unsupported Windows signal %d\n",
+	       progname, requested_signal);
+      exit (EXIT_FAILURE);
+    }
+
+  if (!signal_pid_given)
+    {
+      const char *local_server_file = server_file;
+
+      if (!local_server_file)
+	local_server_file = egetenv ("EMACS_SERVER_FILE");
+      if (!local_server_file)
+	{
+	  message (true,
+		   "%s: use --pid=PID or --server-file=SERVER with --signal\n",
+		   progname);
+	  exit (EXIT_FAILURE);
+	}
+      if (!get_server_pid (local_server_file, &emacs_pid))
+	{
+	  message (true,
+		   "%s: cannot determine Emacs PID; use --pid=PID\n",
+		   progname);
+	  exit (EXIT_FAILURE);
+	}
+    }
+
+  snprintf (name, sizeof name, "Local\\Emacs-%lu-%d",
+	    (unsigned long) emacs_pid, requested_signal);
+  event = OpenEvent (EVENT_MODIFY_STATE, FALSE, name);
+  if (!event)
+    {
+      message (true,
+	       "%s: cannot open Windows signal event for pid %lu signal %d\n",
+	       progname, (unsigned long) emacs_pid, requested_signal);
+      exit (EXIT_FAILURE);
+    }
+
+  if (!SetEvent (event))
+    {
+      CloseHandle (event);
+      message (true,
+	       "%s: cannot signal Emacs pid %lu with signal %d\n",
+	       progname, (unsigned long) emacs_pid, requested_signal);
+      exit (EXIT_FAILURE);
+    }
+
+  CloseHandle (event);
+  exit (EXIT_SUCCESS);
+}
+#endif
 
 /* Like socket (DOMAIN, TYPE, PROTOCOL), except arrange for the
    resulting file descriptor to be close-on-exec.  */
@@ -1994,6 +2144,11 @@ main (int argc, char **argv)
 
   /* Process options.  */
   decode_options (argc, argv);
+
+#ifdef WINDOWSNT
+  if (requested_signal)
+    w32_send_signal_or_die ();
+#endif
 
   if (! (optind < argc || eval || create_frame))
     {

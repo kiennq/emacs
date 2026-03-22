@@ -2077,7 +2077,10 @@ init_signals (void)
 
   /* SIGUSR1 and SIGUSR2 are used internally by the android_select
      function.  */
-#if !defined HAVE_ANDROID
+#if defined WINDOWSNT
+  register_user_signal (1001, "sigusr1");
+  register_user_signal (1002, "sigusr2");
+#elif !defined HAVE_ANDROID
 #ifdef SIGUSR1
   add_user_signal (SIGUSR1, "sigusr1");
 #endif
