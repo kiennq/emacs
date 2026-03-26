@@ -61,7 +61,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 #endif
 
 /* Structure to pass dimensions around.  Used for character bounding
-   boxes, glyph matrix dimensions and alike.  */
+    boxes, glyph matrix dimensions and alike.  */
 
 struct dim
 {
@@ -170,8 +170,8 @@ static int history_idx;
 static uintmax_t history_tick;
 
 /* Add to the redisplay history how window W has been displayed.
-   MSG is a trace containing the information how W's glyph matrix
-   has been constructed.  */
+    MSG is a trace containing the information how W's glyph matrix
+    has been constructed.  */
 
 static void
 add_window_display_history (struct window *w, const char *msg)
@@ -243,7 +243,7 @@ __executable_start (void)
 
 /***********************************************************************
 			    Glyph Matrices
- ***********************************************************************/
+  ***********************************************************************/
 
 /* Allocate and return a glyph_matrix structure.  POOL is the glyph
    pool from which memory for the matrix should be allocated, or null
@@ -876,8 +876,8 @@ clear_window_matrices (struct window *w, bool desired_p)
 /***********************************************************************
 			      Glyph Rows
 
-      See dispextern.h for an overall explanation of glyph rows.
- ***********************************************************************/
+       See dispextern.h for an overall explanation of glyph rows.
+  ***********************************************************************/
 
 /* Clear glyph row ROW.  NOTE: this code relies on the current
    layout of `glyphs' and `used' fields of `struct glyph_row'.  */
@@ -1345,8 +1345,8 @@ row_equal_p (struct glyph_row *a, struct glyph_row *b,
 /***********************************************************************
 			      Glyph Pool
 
-     See dispextern.h for an overall explanation of glyph pools.
- ***********************************************************************/
+      See dispextern.h for an overall explanation of glyph pools.
+  ***********************************************************************/
 
 /* Allocate a glyph_pool structure.  The structure returned is
    initialized with zeros.  If GLYPH_DEBUG and ENABLE_CHECKING are in
@@ -1432,7 +1432,7 @@ realloc_glyph_pool (struct glyph_pool *pool, struct dim matrix_dim)
 
 /***********************************************************************
 			      Debug Code
- ***********************************************************************/
+  ***********************************************************************/
 
 #ifdef GLYPH_DEBUG
 
@@ -1560,7 +1560,7 @@ check_matrix_invariants (struct window *w)
 
 /**********************************************************************
 		 Allocating/ Adjusting Glyph Matrices
- **********************************************************************/
+  **********************************************************************/
 
 /* Allocate glyph matrices over a window tree for a frame-based
    redisplay
@@ -2347,7 +2347,7 @@ adjust_decode_mode_spec_buffer (struct frame *f)
 
 /**********************************************************************
 			Freeing Glyph Matrices
- **********************************************************************/
+  **********************************************************************/
 
 /* Free glyph memory for a frame F.  F may be null.  This function can
    be called for the same frame more than once.  The root window of
@@ -2475,7 +2475,7 @@ check_glyph_memory (void)
 
 /**********************************************************************
 		       Building a Frame Matrix
- **********************************************************************/
+  **********************************************************************/
 
 /* Most of the redisplay code works on glyph matrices attached to
    windows.  This is a good solution most of the time, but it is not
@@ -2812,8 +2812,8 @@ fill_up_frame_row_with_spaces (struct frame *f, struct glyph_row *row,
 }
 
 /**********************************************************************
-      Mirroring operations on frame matrices in window matrices
- **********************************************************************/
+       Mirroring operations on frame matrices in window matrices
+  **********************************************************************/
 
 /* Make sure glyph row ROW in CURRENT_MATRIX is up to date.
    DESIRED_MATRIX is the desired matrix corresponding to
@@ -3202,7 +3202,7 @@ check_matrix_pointers (struct glyph_matrix *window_matrix,
 
 /**********************************************************************
 		      VPOS and HPOS translations
- **********************************************************************/
+  **********************************************************************/
 
 /* Translate vertical position VPOS which is relative to window W to a
    vertical position relative to W's frame.  */
@@ -3232,7 +3232,7 @@ window_to_frame_hpos (struct window *w, int hpos)
 
 /**********************************************************************
 			    Redrawing Frames
- **********************************************************************/
+  **********************************************************************/
 
 /* Redraw frame F.  */
 
@@ -3293,7 +3293,7 @@ DEFUN ("redraw-display", Fredraw_display, Sredraw_display, 0, 0, "",
 
 /**********************************************************************
 			    TTY Child Frames
- **********************************************************************/
+  **********************************************************************/
 
 /* Child frames on ttys break the assumption that frames on a tty
    always occupy the whole terminal.  They can overlap instead.
@@ -4296,7 +4296,7 @@ properties or updating the help echo text.  */)
 
 /************************************************************************
 			 Window-based updates
- ************************************************************************/
+  ************************************************************************/
 
 /* Perform updates in window tree rooted at W.  */
 
@@ -4653,8 +4653,8 @@ set_cursor:
       /* Make cursor visible at cursor position of W.  */
       set_window_cursor_after_update (w);
 
-#if 0 /* Check that current matrix invariants are satisfied.  This \
- is for debugging only.  See the comment of check_matrix_invariants.  \
+#if 0 /* Check that current matrix invariants are satisfied.  This   \
+ is for debugging only.  See the comment of check_matrix_invariants. \
  */
     IF_DEBUG (check_matrix_invariants (w));
 #endif
@@ -5240,7 +5240,7 @@ set_window_update_flags (struct window *w, bool on_p)
 
 /***********************************************************************
 			Window-Based Scrolling
- ***********************************************************************/
+  ***********************************************************************/
 
 /* Structure describing rows in scrolling_window.  */
 
@@ -5739,7 +5739,7 @@ scrolling_window (struct window *w, int tab_line_p)
 
 /************************************************************************
 			 Frame-Based Updates
- ************************************************************************/
+  ************************************************************************/
 
 static void
 tty_set_cursor (struct frame *f)
@@ -6341,7 +6341,7 @@ just_erase:
 
 /***********************************************************************
 		   X/Y Position -> Buffer Position
- ***********************************************************************/
+  ***********************************************************************/
 
 /* Determine what's under window-relative pixel position (*X, *Y).
    Return the object (string or buffer) that's there.
@@ -6885,7 +6885,7 @@ frame_size_change_delayed (struct frame *f)
 
 /***********************************************************************
 		   Terminal Related Lisp Functions
- ***********************************************************************/
+  ***********************************************************************/
 
 DEFUN ("open-termscript", Fopen_termscript, Sopen_termscript, 1, 1,
        "FOpen termscript file: ", doc:
@@ -6896,8 +6896,7 @@ open.  */)
 {
   struct tty_display_info *tty;
 
-  if (!FRAME_TERMCAP_P (SELECTED_FRAME ())
-      && !FRAME_MSDOS_P (SELECTED_FRAME ()))
+  if (!is_tty_frame (SELECTED_FRAME ()))
     error ("Current frame is not on a tty device");
 
   tty = CURTTY ();
@@ -7004,7 +7003,7 @@ bitch_at_user (void)
 
 /***********************************************************************
 			  Sleeping, Waiting
- ***********************************************************************/
+  ***********************************************************************/
 
 DEFUN ("sleep-for", Fsleep_for, Ssleep_for, 1, 2, 0,
        doc: /* Pause, without updating display, for SECONDS seconds.
@@ -7154,7 +7153,7 @@ keyboard macro.  */)
 
 /***********************************************************************
 			 Other Lisp Functions
- ***********************************************************************/
+  ***********************************************************************/
 
 /* A vector of size >= 2 * NFRAMES + 3 * NBUFFERS + 1, containing the
    session's frames, frame names, buffers, buffer-read-only flags, and
@@ -7286,7 +7285,7 @@ changed:
 
 /***********************************************************************
 			    Initialization
-***********************************************************************/
+ ***********************************************************************/
 
 static void
 init_faces_initial (void)
@@ -7467,7 +7466,7 @@ init_display_interactive (void)
     t = init_tty (0, terminal_type, 1); /* Errors are fatal. */
 
     /* Convert the initial frame to use the new display. */
-    if (f->output_method != output_initial)
+    if (!FRAME_INITIAL_P (f))
       emacs_abort ();
     f->output_method = t->type;
     f->terminal = t;
@@ -7477,7 +7476,7 @@ init_display_interactive (void)
     f->output_data.tty = &the_only_tty_output;
     f->output_data.tty->display_info = &the_only_display_info;
 # else
-    if (f->output_method == output_termcap)
+    if (FRAME_TERMCAP_P (f))
       create_tty_output (f);
 # endif
     t->display_info.tty->top_frame = selected_frame;
@@ -7545,7 +7544,7 @@ init_display (void)
 
 /***********************************************************************
 			   Blinking cursor
- ***********************************************************************/
+  ***********************************************************************/
 
 DEFUN ("internal-show-cursor", Finternal_show_cursor,
        Sinternal_show_cursor, 2, 2, 0,
@@ -7574,7 +7573,7 @@ in WINDOW. WINDOW nil or omitted means report on the selected window.
 
 /***********************************************************************
 			    Initialization
- ***********************************************************************/
+  ***********************************************************************/
 
 static void syms_of_display_for_pdumper (void);
 

@@ -1232,6 +1232,14 @@ If DIRNAME is already in a Dired buffer, that buffer is used without refresh."
   (interactive (dired-read-dir-and-switches ""))
   (pop-to-buffer-same-window (dired-noselect dirname switches)))
 
+;; This is needed to let clicks on the menu bar invoke Dired even if
+;; some feature remaps the Dired command to another command.
+;;;###autoload
+(defun dired-from-menubar (dirname &optional switches)
+  "Edit an existing directory."
+  (interactive (dired-read-dir-and-switches ""))
+  (dired dirname switches))
+
 ;;;###autoload (keymap-set ctl-x-4-map "d" #'dired-other-window)
 ;;;###autoload
 (defun dired-other-window (dirname &optional switches)
@@ -4003,20 +4011,11 @@ Considers buffers closer to the car of `buffer-list' to be more recent."
        (not (memq buffer1 (memq buffer2 (buffer-list))))))
 
 (defun dired--filename-with-newline-p ()
-  "Check if a file name in this directory has a newline.
-Return non-nil if at least one file name in this directory contains
-either a literal newline or the string \"\\n\")."
-  (save-excursion
-    (goto-char (point-min))
-    (catch 'found
-      (while (not (eobp))
-        (when (dired-move-to-filename)
-          (let ((fn (buffer-substring-no-properties
-                     (point) (dired-move-to-end-of-filename))))
-            (when (or (memq 10 (seq-into fn 'list))
-                      (string-search "\\n" fn))
-              (throw 'found t))))
-        (forward-line)))))
+  "Check whether a file name in this directory has a newline.
+Return non-nil if at least one file name in this directory contains a
+newline character (regardless of whether Dired displays the character as
+a literal newline or as \"\\n\")."
+  (directory-files default-directory nil "\n"))
 
 (defun dired--remove-b-switch ()
   "Remove all variants of the `b' switch from `dired-actual-switches'.

@@ -14,19 +14,19 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
+along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 
 #include <config.h>
 
 #include "lisp.h"
+#include "blockinput.h"
 #include "character.h"
 #include "frame.h"
-#include "termchar.h"
-#include "blockinput.h"
-#include "termhooks.h"
 #include "keyboard.h"
+#include "termchar.h"
+#include "termhooks.h"
 #ifdef HAVE_MPS
-#include "igc.h"
+# include "igc.h"
 #endif
 
 #if HAVE_STRUCT_UNIPAIR_UNICODE
@@ -56,9 +56,7 @@ tset_param_alist (struct terminal *t, Lisp_Object val)
 {
   t->param_alist = val;
 }
-
 
-
 void
 ring_bell (struct frame *f)
 {
@@ -123,7 +121,7 @@ cursor_to (struct frame *f, int vpos, int hpos)
       int x, y;
 #ifndef HAVE_ANDROID
       root_xy (f, hpos, vpos, &x, &y);
-#else /* HAVE_ANDROID */
+#else  /* HAVE_ANDROID */
       x = hpos, y = vpos;
 #endif /* !HAVE_ANDROID */
       term->cursor_to_hook (f, y, x);
@@ -141,7 +139,7 @@ raw_cursor_to (struct frame *f, int row, int col)
       int x, y;
 #ifndef HAVE_ANDROID
       root_xy (f, col, row, &x, &y);
-#else /* HAVE_ANDROID */
+#else  /* HAVE_ANDROID */
       x = col, y = row;
 #endif /* !HAVE_ANDROID */
       term->raw_cursor_to_hook (f, y, x);
@@ -168,19 +166,22 @@ clear_frame (struct frame *f)
 }
 
 /* Clear from cursor to end of line.
-   Assume that the line is already clear starting at column first_unused_hpos.
+   Assume that the line is already clear starting at column
+   first_unused_hpos.
 
-   Note that the cursor may be moved, on terminals lacking a `ce' string.  */
+   Note that the cursor may be moved, on terminals lacking a `ce'
+   string.  */
 
 void
 clear_end_of_line (struct frame *f, int first_unused_hpos)
 {
   if (FRAME_TERMINAL (f)->clear_end_of_line_hook)
-    (*FRAME_TERMINAL (f)->clear_end_of_line_hook) (f, first_unused_hpos);
+    (*FRAME_TERMINAL (f)->clear_end_of_line_hook) (f,
+						   first_unused_hpos);
 }
 
-/* Output LEN glyphs starting at STRING at the nominal cursor position.
-   Advance the nominal cursor over the text.  */
+/* Output LEN glyphs starting at STRING at the nominal cursor
+   position. Advance the nominal cursor over the text.  */
 
 void
 write_glyphs (struct frame *f, struct glyph *string, int len)
@@ -212,7 +213,7 @@ delete_glyphs (struct frame *f, int n)
     (*FRAME_TERMINAL (f)->delete_glyphs_hook) (f, n);
 }
 
-/* Insert N lines at vpos VPOS.  If N is negative, delete -N lines.  */
+/* Insert N lines at vpos VPOS.  If N is negative, delete -N lines. */
 
 void
 ins_del_lines (struct frame *f, int vpos, int n)
@@ -233,13 +234,14 @@ decode_terminal (Lisp_Object terminal)
 
   if (NILP (terminal))
     terminal = selected_frame;
-  t = (TERMINALP (terminal)
-       ? XTERMINAL (terminal)
-       : FRAMEP (terminal) ? FRAME_TERMINAL (XFRAME (terminal)) : NULL);
+  t = (TERMINALP (terminal) ? XTERMINAL (terminal)
+       : FRAMEP (terminal)  ? FRAME_TERMINAL (XFRAME (terminal))
+			    : NULL);
   return t && t->name ? t : NULL;
 }
 
-/* Like above, but throw an error if TERMINAL is not valid or deleted.  */
+/* Like above, but throw an error if TERMINAL is not valid or deleted.
+ */
 
 struct terminal *
 decode_live_terminal (Lisp_Object terminal)
@@ -251,20 +253,22 @@ decode_live_terminal (Lisp_Object terminal)
   return t;
 }
 
-/* Like decode_terminal, but ensure that the resulting terminal object refers
-   to a text-based terminal device.  */
+/* Like decode_live_terminal, but ensure that the resulting terminal
+   object refers to a text-based terminal device.  */
 
 struct terminal *
 decode_tty_terminal (Lisp_Object terminal)
 {
   struct terminal *t = decode_live_terminal (terminal);
 
-  return (t->type == output_termcap || t->type == output_msdos_raw) ? t : NULL;
+  return (t->type == output_termcap || t->type == output_msdos_raw)
+	   ? t
+	   : NULL;
 }
 
-/* Return an active (not suspended) text-based terminal device that uses
-   the tty device with the given NAME, or NULL if the named terminal device
-   is not opened.  */
+/* Return an active (not suspended) text-based terminal device that
+   uses the tty device with the given NAME, or NULL if the named
+   terminal device is not opened.  */
 
 struct terminal *
 get_named_terminal (const char *name)
@@ -276,9 +280,9 @@ get_named_terminal (const char *name)
   for (t = terminal_list; t; t = t->next_terminal)
     {
       if ((t->type == output_termcap || t->type == output_msdos_raw)
-          && !strcmp (t->display_info.tty->name, name)
-          && TERMINAL_ACTIVE_P (t))
-        return t;
+	  && !strcmp (t->display_info.tty->name, name)
+	  && TERMINAL_ACTIVE_P (t))
+	return t;
     }
   return NULL;
 }
@@ -288,15 +292,18 @@ get_named_terminal (const char *name)
 static struct terminal *
 allocate_terminal (void)
 {
-  return ALLOCATE_ZEROED_PSEUDOVECTOR (struct terminal, glyph_code_table,
+  return ALLOCATE_ZEROED_PSEUDOVECTOR (struct terminal,
+				       glyph_code_table,
 				       PVEC_TERMINAL);
 }
 
-/* Create a new terminal object of TYPE and add it to the terminal list.  RIF
-   may be NULL if this terminal type doesn't support window-based redisplay.  */
+/* Create a new terminal object of TYPE and add it to the terminal
+   list.  RIF may be NULL if this terminal type doesn't support
+   window-based redisplay.  */
 
 struct terminal *
-create_terminal (enum output_method type, struct redisplay_interface *rif)
+create_terminal (enum output_method type,
+		 struct redisplay_interface *rif)
 {
   struct terminal *terminal = allocate_terminal ();
   Lisp_Object terminal_coding, keyboard_coding;
@@ -311,11 +318,13 @@ create_terminal (enum output_method type, struct redisplay_interface *rif)
   terminal->keyboard_coding = xzalloc (sizeof (struct coding_system));
   igc_root_create_n (&terminal->keyboard_coding->src_object, 1);
   igc_root_create_n (&terminal->keyboard_coding->dst_object, 1);
-  igc_root_create_n (&terminal->keyboard_coding->safe_charsets_string, 1);
+  igc_root_create_n (&terminal->keyboard_coding->safe_charsets_string,
+		     1);
   terminal->terminal_coding = xzalloc (sizeof (struct coding_system));
   igc_root_create_n (&terminal->terminal_coding->src_object, 1);
   igc_root_create_n (&terminal->terminal_coding->dst_object, 1);
-  igc_root_create_n (&terminal->terminal_coding->safe_charsets_string, 1);
+  igc_root_create_n (&terminal->terminal_coding->safe_charsets_string,
+		     1);
 #else
   terminal->keyboard_coding = xmalloc (sizeof (struct coding_system));
   terminal->terminal_coding = xmalloc (sizeof (struct coding_system));
@@ -324,14 +333,14 @@ create_terminal (enum output_method type, struct redisplay_interface *rif)
   /* If default coding systems for the terminal and the keyboard are
      already defined, use them in preference to the defaults.  This is
      needed when Emacs runs in daemon mode.  */
-  keyboard_coding = find_symbol_value (Qdefault_keyboard_coding_system);
-  if (NILP (keyboard_coding)
-      || BASE_EQ (keyboard_coding, Qunbound)
+  keyboard_coding
+    = find_symbol_value (Qdefault_keyboard_coding_system);
+  if (NILP (keyboard_coding) || BASE_EQ (keyboard_coding, Qunbound)
       || NILP (Fcoding_system_p (keyboard_coding)))
     keyboard_coding = Qno_conversion;
-  terminal_coding = find_symbol_value (Qdefault_terminal_coding_system);
-  if (NILP (terminal_coding)
-      || BASE_EQ (terminal_coding, Qunbound)
+  terminal_coding
+    = find_symbol_value (Qdefault_terminal_coding_system);
+  if (NILP (terminal_coding) || BASE_EQ (terminal_coding, Qunbound)
       || NILP (Fcoding_system_p (terminal_coding)))
     terminal_coding = Qundecided;
 
@@ -361,14 +370,14 @@ delete_terminal (struct terminal *terminal)
 
   /* Check for live frames that are still on this terminal.  */
   FOR_EACH_FRAME (tail, frame)
-    {
-      struct frame *f = XFRAME (frame);
-      if (FRAME_LIVE_P (f) && f->terminal == terminal)
-        {
-	  /* Pass Qnoelisp rather than Qt.  */
-          delete_frame (frame, Qnoelisp);
-        }
-    }
+  {
+    struct frame *f = XFRAME (frame);
+    if (FRAME_LIVE_P (f) && f->terminal == terminal)
+      {
+	/* Pass Qnoelisp rather than Qt.  */
+	delete_frame (frame, Qnoelisp);
+      }
+  }
 
   delete_terminal_internal (terminal);
   unblock_input ();
@@ -379,23 +388,30 @@ delete_terminal_internal (struct terminal *terminal)
 {
   struct terminal **tp;
 
-  for (tp = &terminal_list; *tp != terminal; tp = &(*tp)->next_terminal)
-    if (! *tp)
+  for (tp = &terminal_list; *tp != terminal;
+       tp = &(*tp)->next_terminal)
+    if (!*tp)
       emacs_abort ();
   *tp = terminal->next_terminal;
 
 #ifdef HAVE_MPS
-  igc_destroy_root_with_start (&terminal->keyboard_coding->src_object);
-  igc_destroy_root_with_start (&terminal->keyboard_coding->dst_object);
-  igc_destroy_root_with_start (&terminal->keyboard_coding->safe_charsets_string);
+  igc_destroy_root_with_start (
+    &terminal->keyboard_coding->src_object);
+  igc_destroy_root_with_start (
+    &terminal->keyboard_coding->dst_object);
+  igc_destroy_root_with_start (
+    &terminal->keyboard_coding->safe_charsets_string);
 #endif
   xfree (terminal->keyboard_coding);
   terminal->keyboard_coding = NULL;
 
 #ifdef HAVE_MPS
-  igc_destroy_root_with_start (&terminal->terminal_coding->src_object);
-  igc_destroy_root_with_start (&terminal->terminal_coding->dst_object);
-  igc_destroy_root_with_start (&terminal->terminal_coding->safe_charsets_string);
+  igc_destroy_root_with_start (
+    &terminal->terminal_coding->src_object);
+  igc_destroy_root_with_start (
+    &terminal->terminal_coding->dst_object);
+  igc_destroy_root_with_start (
+    &terminal->terminal_coding->safe_charsets_string);
 #endif
   xfree (terminal->terminal_coding);
   terminal->terminal_coding = NULL;
@@ -408,13 +424,15 @@ delete_terminal_internal (struct terminal *terminal)
 }
 
 DEFUN ("delete-terminal", Fdelete_terminal, Sdelete_terminal, 0, 2, 0,
-       doc: /* Delete TERMINAL by deleting all frames on it and closing the terminal.
-TERMINAL may be a terminal object, a frame, or nil (meaning the
-selected frame's terminal).
+       doc:
+	 /* Delete TERMINAL by deleting all frames on it and closing
+the terminal. TERMINAL may be a terminal object, a frame, or nil
+(meaning the selected frame's terminal).
 
-Normally, you may not delete a display if all other displays are suspended,
-but if the second argument FORCE is non-nil, you may do so. */)
-  (Lisp_Object terminal, Lisp_Object force)
+Normally, you may not delete a display if all other displays are
+suspended, but if the second argument FORCE is non-nil, you may do
+so. */)
+(Lisp_Object terminal, Lisp_Object force)
 {
   struct terminal *t = decode_terminal (terminal);
 
@@ -435,11 +453,12 @@ but if the second argument FORCE is non-nil, you may do so. */)
     ;
   else if (EQ (force, Qnoelisp))
     pending_funcalls
-      = Fcons (list3 (Qrun_hook_with_args,
-		      Qdelete_terminal_functions, terminal),
+      = Fcons (list3 (Qrun_hook_with_args, Qdelete_terminal_functions,
+		      terminal),
 	       pending_funcalls);
   else
-    safe_calln (Qrun_hook_with_args, Qdelete_terminal_functions, terminal);
+    safe_calln (Qrun_hook_with_args, Qdelete_terminal_functions,
+		terminal);
 
   if (t->delete_terminal_hook)
     (*t->delete_terminal_hook) (t);
@@ -448,14 +467,13 @@ but if the second argument FORCE is non-nil, you may do so. */)
 
   return Qnil;
 }
-
 
 DEFUN ("frame-terminal", Fframe_terminal, Sframe_terminal, 0, 1, 0,
        doc: /* Return the terminal that FRAME is displayed on.
 If FRAME is nil, use the selected frame.
 
 The terminal device is represented by its integer identifier.  */)
-  (Lisp_Object frame)
+(Lisp_Object frame)
 {
   struct terminal *t = FRAME_TERMINAL (decode_live_frame (frame));
 
@@ -477,7 +495,7 @@ selected frame's terminal).
 If OBJECT is a live display terminal, return what sort of output
 terminal it uses.  See the documentation of `framep' for possible
 return values.  */)
-  (Lisp_Object object)
+(Lisp_Object object)
 {
   struct terminal *t = decode_terminal (object);
 
@@ -486,7 +504,8 @@ return values.  */)
 
   switch (t->type)
     {
-    case output_initial: /* The initial frame is like a termcap frame. */
+    case output_initial: /* The initial frame is like a termcap frame.
+			  */
     case output_termcap:
       return Qt;
     case output_x_window:
@@ -508,9 +527,28 @@ return values.  */)
     }
 }
 
+DEFUN ("frame-initial-p", Fframe_initial_p, Sframe_initial_p, 0, 1, 0,
+       doc: /* Return non-nil if FRAME is the initial frame.
+That is, the initial text frame used internally during daemon mode,
+batch mode, and the early stages of startup.
+If FRAME is a terminal object, return non-nil if it holds
+the initial frame.  FRAME defaults to the selected frame.  */)
+(Lisp_Object frame)
+{
+  if (NILP (frame))
+    frame = selected_frame;
+  if (FRAMEP (frame))
+    {
+      struct frame *f = XFRAME (frame);
+      return FRAME_LIVE_P (f) && FRAME_INITIAL_P (f) ? Qt : Qnil;
+    }
+  struct terminal *t = decode_terminal (frame);
+  return t && t->type == output_initial ? Qt : Qnil;
+}
+
 DEFUN ("terminal-list", Fterminal_list, Sterminal_list, 0, 0, 0,
-       doc: /* Return a list of all terminal devices.  */)
-  (void)
+       doc:/* Return a list of all terminal devices.  */)
+(void)
 {
   Lisp_Object terminal, terminals = Qnil;
   struct terminal *t;
@@ -530,25 +568,25 @@ It is not guaranteed that the returned value is unique among opened devices.
 
 TERMINAL may be a terminal object, a frame, or nil (meaning the
 selected frame's terminal). */)
-  (Lisp_Object terminal)
+(Lisp_Object terminal)
 {
   struct terminal *t = decode_live_terminal (terminal);
 
   return t->name ? build_string (t->name) : Qnil;
 }
-
-
 
-/* Set the value of terminal parameter PARAMETER in terminal D to VALUE.
-   Return the previous value.  */
+/* Set the value of terminal parameter PARAMETER in terminal D to
+   VALUE. Return the previous value.  */
 
 static Lisp_Object
-store_terminal_param (struct terminal *t, Lisp_Object parameter, Lisp_Object value)
+store_terminal_param (struct terminal *t, Lisp_Object parameter,
+		      Lisp_Object value)
 {
   Lisp_Object old_alist_elt = Fassq (parameter, t->param_alist);
   if (NILP (old_alist_elt))
     {
-      tset_param_alist (t, Fcons (Fcons (parameter, value), t->param_alist));
+      tset_param_alist (t, Fcons (Fcons (parameter, value),
+				  t->param_alist));
       return Qnil;
     }
   else
@@ -559,7 +597,6 @@ store_terminal_param (struct terminal *t, Lisp_Object parameter, Lisp_Object val
     }
 }
 
-
 DEFUN ("terminal-parameters", Fterminal_parameters, Sterminal_parameters, 0, 1, 0,
        doc: /* Return the parameter-alist of terminal TERMINAL.
 The value is a list of elements of the form (PARM . VALUE), where PARM
@@ -567,7 +604,7 @@ is a symbol.
 
 TERMINAL can be a terminal object, a frame, or nil (meaning the
 selected frame's terminal).  */)
-  (Lisp_Object terminal)
+(Lisp_Object terminal)
 {
   return Fcopy_alist (decode_live_terminal (terminal)->param_alist);
 }
@@ -576,10 +613,11 @@ DEFUN ("terminal-parameter", Fterminal_parameter, Sterminal_parameter, 2, 2, 0,
        doc: /* Return TERMINAL's value for parameter PARAMETER.
 TERMINAL can be a terminal object, a frame, or nil (meaning the
 selected frame's terminal).  */)
-  (Lisp_Object terminal, Lisp_Object parameter)
+(Lisp_Object terminal, Lisp_Object parameter)
 {
   CHECK_SYMBOL (parameter);
-  return Fcdr (Fassq (parameter, decode_live_terminal (terminal)->param_alist));
+  return Fcdr (
+    Fassq (parameter, decode_live_terminal (terminal)->param_alist));
 }
 
 DEFUN ("set-terminal-parameter", Fset_terminal_parameter,
@@ -589,9 +627,10 @@ Return the previous value of PARAMETER.
 
 TERMINAL can be a terminal object, a frame or nil (meaning the
 selected frame's terminal).  */)
-  (Lisp_Object terminal, Lisp_Object parameter, Lisp_Object value)
+(Lisp_Object terminal, Lisp_Object parameter, Lisp_Object value)
 {
-  return store_terminal_param (decode_live_terminal (terminal), parameter, value);
+  return store_terminal_param (decode_live_terminal (terminal),
+			       parameter, value);
 }
 
 #if HAVE_STRUCT_UNIPAIR_UNICODE
@@ -602,7 +641,10 @@ static void
 calculate_glyph_code_table (struct terminal *t)
 {
   Lisp_Object glyphtab = Qt;
-  enum { initial_unipairs = 1000 };
+  enum
+  {
+    initial_unipairs = 1000
+  };
   int entry_ct = initial_unipairs;
   struct unipair unipair_buffer[initial_unipairs];
   struct unipair *entries = unipair_buffer;
@@ -623,7 +665,8 @@ calculate_glyph_code_table (struct terminal *t)
       if (errno != ENOMEM)
 	break;
       entry_ct = unimapdesc.entry_ct;
-      entries = alloced = xrealloc (alloced, entry_ct * sizeof *alloced);
+      entries = alloced
+	= xrealloc (alloced, entry_ct * sizeof *alloced);
     }
 
   xfree (alloced);
@@ -632,14 +675,16 @@ calculate_glyph_code_table (struct terminal *t)
 #endif
 
 /* Return the glyph code in T of character CH, or -1 if CH does not
-   have a font position in T, or nil if T does not report glyph codes.  */
+   have a font position in T, or nil if T does not report glyph codes.
+ */
 
 Lisp_Object
 terminal_glyph_code (struct terminal *t, int ch)
 {
 #if HAVE_STRUCT_UNIPAIR_UNICODE
   /* Heuristically assume that a terminal supporting glyph codes is in
-     UTF-8 mode if and only if its coding system is UTF-8 (Bug#26396).  */
+     UTF-8 mode if and only if its coding system is UTF-8 (Bug#26396).
+   */
   if (t->type == output_termcap
       && t->terminal_coding->encoder == encode_coding_utf_8)
     {
@@ -648,7 +693,7 @@ terminal_glyph_code (struct terminal *t, int ch)
       if (NILP (t->glyph_code_table) || ch == MAX_CHAR)
 	calculate_glyph_code_table (t);
 
-      if (! EQ (t->glyph_code_table, Qt))
+      if (!EQ (t->glyph_code_table, Qt))
 	return char_table_ref (t->glyph_code_table, ch);
     }
 #endif
@@ -678,7 +723,9 @@ init_initial_terminal (void)
 #ifndef HAVE_MPS
   initial_terminal = create_terminal (output_initial, NULL);
 #else
-  initial_terminal_lisp = make_lisp_ptr (create_terminal (output_initial, NULL), Lisp_Vectorlike);
+  initial_terminal_lisp
+    = make_lisp_ptr (create_terminal (output_initial, NULL),
+		     Lisp_Vectorlike);
 #endif
   /* Note: menu-bar.el:menu-bar-update-buffers knows about this
      special name of the initial terminal.  */
@@ -686,7 +733,8 @@ init_initial_terminal (void)
   initial_terminal->kboard = initial_kboard;
   initial_terminal->delete_terminal_hook = &delete_initial_terminal;
   initial_terminal->delete_frame_hook = &initial_free_frame_resources;
-  initial_terminal->defined_color_hook = &tty_defined_color; /* xfaces.c */
+  initial_terminal->defined_color_hook
+    = &tty_defined_color; /* xfaces.c */
   /* Other hooks are NULL by default.  */
 
   return initial_terminal;
@@ -725,6 +773,7 @@ or some time later.  */);
   Vdelete_terminal_functions = Qnil;
 
   DEFSYM (Qterminal_live_p, "terminal-live-p");
+  DEFSYM (Qframe_initial_p, "frame-initial-p");
   DEFSYM (Qdelete_terminal_functions, "delete-terminal-functions");
   DEFSYM (Qrun_hook_with_args, "run-hook-with-args");
 
@@ -734,6 +783,7 @@ or some time later.  */);
   defsubr (&Sdelete_terminal);
   defsubr (&Sframe_terminal);
   defsubr (&Sterminal_live_p);
+  defsubr (&Sframe_initial_p);
   defsubr (&Sterminal_list);
   defsubr (&Sterminal_name);
   defsubr (&Sterminal_parameters);
@@ -741,6 +791,8 @@ or some time later.  */);
   defsubr (&Sset_terminal_parameter);
 
   Fprovide (intern_c_string ("multi-tty"), Qnil);
-  DEFSYM (Qdefault_keyboard_coding_system, "default-keyboard-coding-system");
-  DEFSYM (Qdefault_terminal_coding_system, "default-terminal-coding-system");
+  DEFSYM (Qdefault_keyboard_coding_system,
+	  "default-keyboard-coding-system");
+  DEFSYM (Qdefault_terminal_coding_system,
+	  "default-terminal-coding-system");
 }
