@@ -32867,7 +32867,7 @@ produce_special_glyphs (struct it *it, enum display_element_type what,
 		    {
 		      c = XFIXNUM (val);
 
-		      /* If something goes wrong defaults to '/'.  */
+		      /* If something goes wrong, fall back to '/'.  */
 		      if (CHAR_VALID_P (c))
 			SET_GLYPH (glyph, c, face_id);
 		      else
@@ -32928,7 +32928,7 @@ produce_special_glyphs (struct it *it, enum display_element_type what,
 		    {
 		      c = XFIXNUM (val);
 
-		      /* If something goes wrong defaults to '$'.  */
+		      /* If something goes wrong, fall back to '$'.  */
 		      if (CHAR_VALID_P (c))
 			  SET_GLYPH (glyph, c, face_id);
 		      else
