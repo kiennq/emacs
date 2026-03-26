@@ -94,23 +94,26 @@ union igc_header
 #ifndef WORDS_BIGENDIAN
   struct
   {
-    uint64_t tag : IGC_HEADER_TAG_BITS;
-    uint64_t obj_type : IGC_HEADER_TYPE_BITS;
-    uint64_t hash : IGC_HEADER_HASH_BITS;
-    uint64_t nwords : IGC_HEADER_NWORDS_BITS;
+    enum igc_tag tag : IGC_HEADER_TAG_BITS;
+    enum igc_obj_type obj_type : IGC_HEADER_TYPE_BITS;
+    uint32_t hash : IGC_HEADER_HASH_BITS;
+    uint32_t nwords : IGC_HEADER_NWORDS_BITS;
   } s;
 #endif
 #ifdef WORDS_BIGENDIAN
   struct
   {
-    uint64_t nwords : IGC_HEADER_NWORDS_BITS;
-    uint64_t hash : IGC_HEADER_HASH_BITS;
-    uint64_t obj_type : IGC_HEADER_TYPE_BITS;
-    uint64_t tag : IGC_HEADER_TAG_BITS;
+    uint32_t nwords : IGC_HEADER_NWORDS_BITS;
+    uint32_t hash : IGC_HEADER_HASH_BITS;
+    enum igc_obj_type obj_type : IGC_HEADER_TYPE_BITS;
+    enum igc_tag tag : IGC_HEADER_TAG_BITS;
   } s;
 #endif
   uint64_t v;
   GCALIGNED_UNION_MEMBER
 };
+
+static_assert (sizeof (*(union igc_header *) 0).s == 8);
+static_assert (sizeof (union igc_header) == 8);
 
 #endif /* EMACS_IGC_TYPES_H */

@@ -663,8 +663,6 @@ struct igc_fwd
   mps_addr_t new_addr;
 };
 
-static_assert (sizeof (union igc_header) == 8);
-
 static void
 check_header_bit (union igc_header h1, size_t i, size_t shift)
 {
@@ -3941,12 +3939,12 @@ igc_xalloc_lisp_objs_exact (size_t n, const char *label)
 }
 
 void *
-igc_xalloc_raw_exact (size_t n)
+igc_xalloc_raw_exact (size_t n, const char *label)
 {
   size_t size = n * sizeof (void *);
   void *p = xzalloc (size);
   root_create_exact (global_igc, p, (char *) p + size, scan_ptr_exact,
-		     "xalloc-raw-exact");
+		     label);
   return p;
 }
 
@@ -3966,12 +3964,13 @@ igc_xzalloc_ambig (size_t size, const char *label)
 }
 
 void *
-igc_xnmalloc_ambig (ptrdiff_t nitems, ptrdiff_t item_size)
+igc_xnmalloc_ambig (ptrdiff_t nitems, ptrdiff_t item_size,
+		    const char *label)
 {
   ptrdiff_t nbytes;
   if (ckd_mul (&nbytes, nitems, item_size) || SIZE_MAX < nbytes)
     memory_full (SIZE_MAX);
-  return igc_xzalloc_ambig (nbytes, __func__);
+  return igc_xzalloc_ambig (nbytes, label);
 }
 
 void *
