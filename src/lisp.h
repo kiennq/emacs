@@ -6115,31 +6115,75 @@ enum MAX_ALLOCA { MAX_ALLOCA = 16 * 1024 };
 extern void *record_xmalloc (size_t)
   ATTRIBUTE_ALLOC_SIZE ((1)) ATTRIBUTE_RETURNS_NONNULL;
 
+#ifdef HAVE_MPS
+/* Prototypes needed for macros and inline functions.  */
+
+extern void *igc_record_xmalloc_ambig (size_t size, const char *label)
+  ATTRIBUTE_ALLOC_SIZE ((1)) ATTRIBUTE_RETURNS_NONNULL;
+extern void *igc_xnmalloc_ambig (ptrdiff_t nitems,
+				 ptrdiff_t item_size,
+				 const char *label);
+extern Lisp_Object *igc_xalloc_lisp_objs_exact (size_t n,
+						const char *label);
+extern void igc_xfree (void *p);
+#endif
+
 #define USE_SAFE_ALLOCA			\
   ptrdiff_t sa_avail = MAX_ALLOCA;	\
   specpdl_ref sa_count = SPECPDL_INDEX ()
 
 #define AVAIL_ALLOCA(size) (sa_avail -= (size), alloca (size))
 
-/* SAFE_ALLOCA allocates a simple buffer.  This may never be used to
-   hold references to objects that are relevant to GC.  */
+/* SAFE_ALLOCA_NOPRO allocates a simple buffer.  This may never be used
+   to hold references to objects that are relevant to GC.  */
 
-#define SAFE_ALLOCA(size) ((size) <= sa_avail				\
-			   ? AVAIL_ALLOCA (size)			\
-			   : record_xmalloc (size))
+#define SAFE_ALLOCA_NOPRO(size) \
+  (eassert (sa_avail >= 0),     \
+   (size) <= sa_avail ? AVAIL_ALLOCA (size) : record_xmalloc (size))
 
-/* SAFE_NALLOCA sets BUF to a newly allocated array of MULTIPLIER *
-   NITEMS items, each of the same type as *BUF.  MULTIPLIER must be
-   positive.  The code is tuned for MULTIPLIER being a constant.  */
+#ifdef HAVE_MPS
+/* SAFE_ALLOCA_AMBIG allocates a buffer of SIZE bytes.  The buffer
+   becomes an ambiguous root.  */
+#define SAFE_ALLOCA_AMBIG(size)             \
+  (eassert (sa_avail >= 0),                 \
+   (size) <= sa_avail ? AVAIL_ALLOCA (size) \
+		      : igc_record_xmalloc_ambig (size, __func__))
+#endif
 
-# ifdef HAVE_MPS
-/* Defined in igc.c.  */
-void *igc_xnmalloc_ambig (ptrdiff_t nitems, ptrdiff_t item_size,
-			  const char *label);
-void igc_xfree (void *p);
+/* SAFE_ALLOCA allocates a simple buffer.  */
 
-#define SAFE_NALLOCA(buf, multiplier, nitems)				\
+#ifdef HAVE_MPS
+# define SAFE_ALLOCA(size) SAFE_ALLOCA_AMBIG (size)
+#else
+# define SAFE_ALLOCA(size) SAFE_ALLOCA_NOPRO (size)
+#endif
+
+/* SAFE_NALLOCA_NOPRO sets BUF to a newly allocated array of MULTIPLIER
+   * NITEMS items, each of the same type as *BUF.  MULTIPLIER must
+   positive.  The code is tuned for MULTIPLIER being a constant.  This
+   may never be used to hold references to objects that are relevant to
+   GC.  */
+
+#define SAFE_NALLOCA_NOPRO(buf, multiplier, nitems)			\
   do {									\
+    eassert (sa_avail >= 0);						\
+    if ((nitems) <= sa_avail / sizeof *(buf) / (multiplier))		\
+      (buf) = AVAIL_ALLOCA (sizeof *(buf) * (multiplier) * (nitems));	\
+    else								\
+      {									\
+	(buf) = xnmalloc (nitems, sizeof *(buf) * (multiplier));	\
+	record_unwind_protect_ptr (xfree, buf);				\
+      }									\
+  } while (false)
+
+#ifdef HAVE_MPS
+/* SAFE_NALLOCA_AMBIG sets BUF to a newly allocated array of MULTIPLIER
+   * NITEMS items, each of the same type as *BUF.  MULTIPLIER must be
+   positive.  The code is tuned for MULTIPLIER being a constant.  BUF
+   becomes an ambiguous root.  */
+#define SAFE_NALLOCA_AMBIG(buf, multiplier, nitems)			\
+  do {									\
+    eassert (sa_avail >= 0);						\
     if ((nitems) <= sa_avail / sizeof *(buf) / (multiplier))		\
       (buf) = AVAIL_ALLOCA (sizeof *(buf) * (multiplier) * (nitems));	\
     else								\
@@ -6150,52 +6194,21 @@ void igc_xfree (void *p);
 	record_unwind_protect_ptr (igc_xfree, buf);			\
       }									\
   } while (false)
-
-#else
-
-#define SAFE_NALLOCA(buf, multiplier, nitems)			 \
-  do {								 \
-    if ((nitems) <= sa_avail / sizeof *(buf) / (multiplier))	 \
-      (buf) = AVAIL_ALLOCA (sizeof *(buf) * (multiplier) * (nitems)); \
-    else							 \
-      {								 \
-	(buf) = xnmalloc (nitems, sizeof *(buf) * (multiplier)); \
-	record_unwind_protect_ptr (xfree, buf);			 \
-      }								 \
-  } while (false)
-
 #endif
 
 #ifdef HAVE_MPS
-/* Temporarily avoid bug#75754.  The code above is painstakingly written
-   to avoid statement expressions; no easy way to do that in this case,
-   unfortunately.
-
-   FIXME/igc: find a permanent fix for these bugs.  */
-#undef SAFE_ALLOCA
-#define SAFE_ALLOCA(size)				\
-  ({ char *buf = (void *)"";				\
-     if ((size) != 0)					\
-       SAFE_NALLOCA (buf, size, 1);			\
-     (void *)buf; })
+# define SAFE_NALLOCA(buf, m, n) SAFE_NALLOCA_AMBIG (buf, m, n)
+#else
+# define SAFE_NALLOCA(buf, m, n) SAFE_NALLOCA_NOPRO (buf, m, n)
 #endif
 
 /* SAFE_ALLOCA_STRING allocates a C copy of a Lisp string.  */
 
 #define SAFE_ALLOCA_STRING(ptr, string)			\
   do {							\
-    (ptr) = SAFE_ALLOCA (SBYTES (string) + 1);		\
+    (ptr) = SAFE_ALLOCA_NOPRO (SBYTES (string) + 1);	\
     memcpy (ptr, SDATA (string), SBYTES (string) + 1);	\
   } while (false)
-
-#ifdef HAVE_MPS
-Lisp_Object *igc_alloc_lisp_obj_vec (size_t n);
-#define SAFE_ALLOCA_XZALLOC(n, nbytes) igc_alloc_lisp_obj_vec (n)
-#define SAFE_ALLOCA_XFREE(p) (void) 0
-#else
-#define SAFE_ALLOCA_XZALLOC(n, nbytes) xzalloc (nbytes)
-#define SAFE_ALLOCA_XFREE(p) xfree (p)
-#endif
 
 /* Free xmalloced memory and enable GC as needed.  */
 
@@ -6221,7 +6234,7 @@ safe_free (specpdl_ref sa_count)
       else
 	{
 	  eassert (binding.kind == SPECPDL_UNWIND_ARRAY);
-	  SAFE_ALLOCA_XFREE (binding.unwind_array.array);
+	  xfree (binding.unwind_array.array);
 	}
     }
 }
@@ -6248,12 +6261,42 @@ safe_free_unbind_to (specpdl_ref count, specpdl_ref sa_count, Lisp_Object val)
    memory allocation in SAFE_ALLOCA_LISP_EXTRA.  */
 #if __GNUC__ == 13 && __GNUC_MINOR__ < 3
 # pragma GCC diagnostic ignored "-Wanalyzer-allocation-size"
-# endif
+#endif
+
+#ifndef HAVE_MPS
+/* Set BUF to point to an allocated array of NELT Lisp_Objects,
+   immediately followed by EXTRA spare bytes.  */
+
+#define SAFE_ALLOCA_LISP_EXTRA(buf, nelt, extra)	       \
+  do {							       \
+    eassert (sa_avail >= 0);				       \
+    ptrdiff_t alloca_nbytes;				       \
+    if (ckd_mul (&alloca_nbytes, nelt, word_size)	       \
+	|| ckd_add (&alloca_nbytes, alloca_nbytes, extra)      \
+	|| SIZE_MAX < alloca_nbytes)			       \
+      memory_full (SIZE_MAX);				       \
+    else if (alloca_nbytes <= sa_avail)			       \
+      (buf) = AVAIL_ALLOCA (alloca_nbytes);		       \
+    else						       \
+      {							       \
+	/* Although only the first nelt words need clearing,   \
+	   typically EXTRA is 0 or small so just use xzalloc;  \
+	   this is simpler and often faster.  */	       \
+	(buf) = xzalloc (alloca_nbytes);		       \
+	record_unwind_protect_array (buf, nelt);	       \
+      }							       \
+  } while (false)
 
 /* Set BUF to point to an allocated array of NELT Lisp_Objects.  */
 
+#define SAFE_ALLOCA_LISP(buf, nelt) SAFE_ALLOCA_LISP_EXTRA (buf, nelt, 0)
+
+#endif
+
+#ifdef HAVE_MPS
 #define SAFE_ALLOCA_LISP(buf, nelt)				\
   do {								\
+    eassert (sa_avail >= 0);					\
     ptrdiff_t alloca_nbytes;					\
     if (ckd_mul (&alloca_nbytes, nelt, word_size)		\
 	|| SIZE_MAX < alloca_nbytes)				\
@@ -6262,10 +6305,12 @@ safe_free_unbind_to (specpdl_ref count, specpdl_ref sa_count, Lisp_Object val)
       (buf) = AVAIL_ALLOCA (alloca_nbytes);			\
     else							\
       {								\
-        (buf) = SAFE_ALLOCA_XZALLOC (nelt, alloca_nbytes);	\
-        record_unwind_protect_array (buf, nelt);		\
+	eassert (sa_avail >= 0);				\
+        (buf) = igc_xalloc_lisp_objs_exact (nelt, __func__);	\
+	record_unwind_protect_ptr (igc_xfree, buf);		\
       }								\
   } while (false)
+#endif
 
 /* If USE_STACK_LISP_OBJECTS, define macros and functions that
    allocate some Lisp objects on the C stack.  As the storage is not

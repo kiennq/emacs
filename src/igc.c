@@ -4163,6 +4163,16 @@ igc_xnrealloc_lisp_objs_exact (ptrdiff_t nitems_old,
   return new;
 }
 
+void *
+igc_record_xmalloc_ambig (size_t size, const char *label)
+{
+  eassert (size > 0);
+  /* FIXME: zeroing is not needed.  */
+  void *p = igc_xzalloc_ambig (size, label);
+  record_unwind_protect_ptr (igc_xfree, p);
+  return p;
+}
+
 struct kboard *
 igc_alloc_kboard (void)
 {
@@ -5172,16 +5182,6 @@ igc_make_face_cache (void)
 {
   struct face_cache *c = alloc (sizeof *c, IGC_OBJ_FACE_CACHE);
   return c;
-}
-
-/* Allocate a Lisp_Object vector with N elements.
-   Currently only used by SAFE_ALLOCA_LISP.  */
-
-Lisp_Object *
-igc_alloc_lisp_obj_vec (size_t n)
-{
-  Lisp_Object v = make_vector (n, Qnil);
-  return XVECTOR (v)->contents;
 }
 
 #ifndef USE_EPHEMERON_POOL
