@@ -53,6 +53,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "font.h"
 #include "pdumper.h"
 #include "igc.h"
+#include "gc-handles.h"
 
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
@@ -3727,7 +3728,65 @@ cache_image (struct frame *f, struct image *img)
 
 #if defined (HAVE_WEBP) || defined (HAVE_GIF)
 
-struct anim_cache *anim_cache = NULL;
+# ifdef HAVE_GIF
+struct gif_anim_handle
+{
+  struct GifFileType *gif;
+  unsigned long *pixmap;
+};
+# endif /* HAVE_GIF */
+
+# ifdef HAVE_WEBP
+struct webp_anim_handle
+{
+  /* Decoder iterator+compositor.  */
+  struct WebPAnimDecoder *dec;
+  /* Owned copy of input WebP bitstream data consumed by decoder,
+     which it must outlive unchanged.  */
+  uint8_t *contents;
+  /* Timestamp in milliseconds of last decoded frame.  */
+  int timestamp;
+};
+# endif /* HAVE_WEBP */
+
+/* To speed animations up, we keep a cache (based on EQ-ness of the
+   image spec/object) where we put the animator iterator.  */
+
+struct anim_cache
+{
+  /* 'Key' of this cache entry.
+     Typically the cdr (plist) of an image spec.  */
+  gc_handle spec;
+  /* Image type dependent animation handle (e.g., WebP iterator), freed
+     by 'destructor'.  The union allows maintaining multiple fields per
+     image type and image frame without further heap allocations.  */
+  union anim_handle
+  {
+# ifdef HAVE_GIF
+    struct gif_anim_handle gif;
+# endif /* HAVE_GIF */
+# ifdef HAVE_WEBP
+    struct webp_anim_handle webp;
+# endif /* HAVE_WEBP */
+  } handle;
+  /* A function to call to free the handle.  */
+  void (*destructor) (union anim_handle *);
+  /* Current frame index, and total number of frames.  Note that
+     different image formats may start at different indices.  */
+  int index, frames;
+  /* Animation frame dimensions.  */
+  int width, height;
+  /* This is used to be able to say something about the cache size.
+     We don't know how much memory the different libraries actually
+     use here (since these cache structures are opaque), so this is
+     mostly just the size of the original image file.  */
+  intmax_t byte_size;
+  /* Last time this cache entry was updated.  */
+  struct timespec update_time;
+  struct anim_cache *next;
+};
+
+static struct anim_cache *anim_cache = NULL;
 
 /* Return a new animation cache entry for image SPEC (which need not be
    an image specification, and is typically its cdr/plist).
@@ -3736,12 +3795,25 @@ static ATTRIBUTE_MALLOC struct anim_cache *
 anim_create_cache (Lisp_Object spec)
 {
   struct anim_cache *cache = xzalloc (sizeof *cache);
-  cache->spec = spec;
+  cache->spec = gc_handle_for (spec);
   cache->index = -1;
   cache->frames = -1;
   cache->width = -1;
   cache->height = -1;
   return cache;
+}
+
+static void
+anim_cache_free (struct anim_cache *cache)
+{
+  free_gc_handle (cache->spec);
+  xfree (cache);
+}
+
+static Lisp_Object
+anim_cache_spec (struct anim_cache *cache)
+{
+  return gc_handle_value (cache->spec);
 }
 
 /* Discard cached images that haven't been used for a minute.  If
@@ -3760,12 +3832,12 @@ anim_prune_animation_cache (Lisp_Object clear)
       struct anim_cache *cache = *pcache;
       if (EQ (clear, Qt)
 	  || (NILP (clear) && timespec_cmp (old, cache->update_time) > 0)
-	  || EQ (clear, cache->spec))
+	  || EQ (clear, anim_cache_spec (cache)))
 	{
 	  if (cache->destructor)
 	    cache->destructor (&cache->handle);
 	  *pcache = cache->next;
-	  xfree (cache);
+	  anim_cache_free (cache);
 	}
       else
 	pcache = &cache->next;
@@ -3788,7 +3860,7 @@ anim_get_animation_cache (Lisp_Object spec)
           *pcache = cache = anim_create_cache (spec);
           break;
         }
-      if (EQ (spec, cache->spec))
+      if (EQ (spec, anim_cache_spec (cache)))
 	break;
       pcache = &cache->next;
     }
@@ -3823,11 +3895,6 @@ mark_image_cache (struct image_cache *c)
 	if (c->images[i])
 	  mark_image (c->images[i]);
     }
-
-#if defined HAVE_WEBP || defined HAVE_GIF
-  for (struct anim_cache *cache = anim_cache; cache; cache = cache->next)
-    mark_object (cache->spec);
-#endif
 }
 
 #endif // not HAVE_MPS

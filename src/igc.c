@@ -1918,21 +1918,6 @@ scan_hash_table_user_test (mps_ss_t ss, void *start, void *end, void *closure)
   return MPS_RES_OK;
 }
 
-#if defined (HAVE_WEBP) || defined (HAVE_GIF)
-static mps_res_t
-scan_anim_cache (mps_ss_t ss, void *start, void *end, void *closure)
-{
-  struct anim_cache **anim_cache_var = start;
-  MPS_SCAN_BEGIN (ss)
-  {
-    for (struct anim_cache *c = *anim_cache_var; c; c = c->next)
-      IGC_FIX12_OBJ (ss, &c->spec);
-  }
-  MPS_SCAN_END (ss);
-  return MPS_RES_OK;
-}
-#endif  /* HAVE_WEBP || HAVE_GIF */
-
 #if defined (USE_GTK) && ! defined (HAVE_PGTK)
 /* scan_xg_pending_quit_event assumes that the fields of the input_event
    are in a consistent state.  This is a relatively safe assumption
@@ -2771,20 +2756,6 @@ scan_buffer (mps_ss_t ss, void *start, void *end, void *closure)
 }
 
 static mps_res_t
-fix_glyph_pool (mps_ss_t ss, struct glyph_pool *pool)
-{
-  MPS_SCAN_BEGIN (ss)
-  {
-    for (ptrdiff_t i = 0; i < pool->nglyphs; ++i)
-      {
-	IGC_FIX12_OBJ (ss, &pool->glyphs[i].object);
-      }
-  }
-  MPS_SCAN_END (ss);
-  return MPS_RES_OK;
-}
-
-static mps_res_t
 fix_glyph_array (mps_ss_t ss, size_t len, struct glyph array[len])
 {
   MPS_SCAN_BEGIN (ss)
@@ -2832,6 +2803,7 @@ fix_glyph_array (mps_ss_t ss, size_t len, struct glyph array[len])
 static mps_res_t
 fix_glyph_matrix (mps_ss_t ss, struct glyph_matrix *matrix)
 {
+  igc_assert (matrix->pool == NULL);
   MPS_SCAN_BEGIN (ss)
   {
     struct glyph_row *row = matrix->rows;
@@ -2851,6 +2823,12 @@ fix_glyph_matrix (mps_ss_t ss, struct glyph_matrix *matrix)
   }
   MPS_SCAN_END (ss);
   return MPS_RES_OK;
+}
+
+static mps_res_t
+fix_glyph_pool (mps_ss_t ss, struct glyph_pool *pool)
+{
+  return fix_glyph_array (ss, pool->nglyphs, pool->glyphs);
 }
 
 static mps_res_t
@@ -2898,10 +2876,12 @@ fix_frame (mps_ss_t ss, struct frame *f)
     IGC_FIX12_OBJ (ss, &f->conversion.field);
 #endif
 
+#if 0
     if (f->current_pool)
       IGC_FIX_CALL (ss, fix_glyph_pool (ss, f->current_pool));
     if (f->desired_pool)
       IGC_FIX_CALL (ss, fix_glyph_pool (ss, f->desired_pool));
+#endif
   }
   MPS_SCAN_END (ss);
   return MPS_RES_OK;
@@ -3557,18 +3537,6 @@ root_create_kbd_buffer (struct igc *gc)
 	       true, "kbd-buffer");
 }
 
-#if defined (HAVE_WEBP) || defined (HAVE_GIF)
-
-static void
-root_create_anim_cache (struct igc *gc)
-{
-  root_create (gc, &anim_cache, &anim_cache + 1, mps_rank_exact (),
-	       scan_anim_cache, NULL, false, "anim_cache");
-}
-
-#endif  /* HAVE_WEBP || HAVE_GIF */
-
-
 #if defined (USE_GTK) && ! defined (HAVE_PGTK)
 static void
 root_create_xg_pending_quit_event (struct igc *gc)
@@ -4210,31 +4178,6 @@ igc_xpalloc_exact (void **pa_cell, ptrdiff_t *nitems,
   igc_xfree (old_pa);
 }
 
-static void *
-igc_xnrealloc_ambig (void *old_pa, ptrdiff_t nitems, ptrdiff_t item_size)
-{
-  ptrdiff_t old_nbytes = 0;
-  if (old_pa != NULL)
-    {
-      struct igc_root_list *r = root_find (old_pa);
-      igc_assert (r);
-      eassume (r != NULL);
-      old_nbytes = (char *) r->d.end - (char *) r->d.start;
-    }
-  ptrdiff_t nbytes;
-  if (ckd_mul (&nbytes, nitems, item_size) || SIZE_MAX < nbytes)
-    memory_full (SIZE_MAX);
-  void *new_pa = xzalloc (nbytes);
-  char *end = (char *) new_pa + nbytes;
-  root_create_ambig (global_igc, new_pa, end, "xnrealloc-ambig");
-  ptrdiff_t min_nbytes = min (old_nbytes, nbytes);
-  memcpy (new_pa, old_pa, min_nbytes);
-  eassert (memcmp (new_pa, old_pa, min_nbytes) == 0);
-  igc_xfree (old_pa);
-
-  return new_pa;
-}
-
 void *
 igc_xpalloc_raw_exact (void *pa, ptrdiff_t *nitems,
 		       ptrdiff_t nitems_incr_min, ptrdiff_t nitems_max,
@@ -4343,6 +4286,22 @@ igc_alloc_glyph_matrix (void)
   root_create_exact (global_igc, m, m + 1, scan_glyph_matrix,
 		     "glyph_matrix");
   return m;
+}
+
+static mps_res_t
+scan_glyph_pool (mps_ss_t ss, void *start, void *end, void *closure)
+{
+  struct glyph_pool *p = start;
+  return fix_glyph_pool (ss, p);
+}
+
+struct glyph_pool *
+igc_alloc_glyph_pool (void)
+{
+  struct glyph_pool *p = xzalloc (sizeof *p);
+  root_create_exact (global_igc, p, p + 1, scan_glyph_pool,
+		     "glyph_pool");
+  return p;
 }
 
 static void
@@ -6064,9 +6023,6 @@ make_igc (void)
   root_create_exact_ptr (gc, &all_threads);
   root_create_kbd_buffer (gc);
   root_create_exact_ptr (gc, &buffer_before_last_command_or_undo);
-#if defined (HAVE_WEBP) || defined (HAVE_GIF)
-  root_create_anim_cache (gc);
-#endif
 #if defined (USE_GTK) && ! defined (HAVE_PGTK)
   root_create_xg_pending_quit_event (gc);
 #endif
