@@ -1954,6 +1954,32 @@ scan_xg_pending_quit_event (mps_ss_t ss, void *start, void *end,
 }
 #endif
 
+/* We scan coding_systems ambiguously because that makes fixing the
+   cs->source field simpler.  The disadvantage is that more objects get
+   pinned.  */
+static mps_res_t
+scan_coding_system (mps_ss_t ss, void *start, void *end,
+		    void *closure)
+{
+  struct coding_system *cs = start;
+  MPS_SCAN_BEGIN (ss)
+  {
+    IGC_FIX12_OBJ (ss, &cs->safe_charsets_string);
+    IGC_FIX12_OBJ (ss, &cs->src_object);
+    /* cs->source can point to SDATA (see coding_set_source),
+       so pin it.  */
+    {
+      mps_addr_t ref = (mps_addr_t) cs->source;
+      mps_res_t res = MPS_FIX12 (ss, &ref);
+      if (res != MPS_RES_OK)
+	return res;
+    }
+    IGC_FIX12_OBJ (ss, &cs->dst_object);
+  }
+  MPS_SCAN_END (ss);
+  return MPS_RES_OK;
+}
+
 /***********************************************************************
 			 Default pad, fwd, ...
  ***********************************************************************/
@@ -3161,30 +3187,12 @@ fix_mutex (mps_ss_t ss, struct Lisp_Mutex *m)
 }
 
 static mps_res_t
-fix_coding (mps_ss_t ss, struct coding_system *c)
-{
-  MPS_SCAN_BEGIN (ss)
-  {
-    if (c)
-      {
-	IGC_FIX12_OBJ (ss, &c->src_object);
-	IGC_FIX12_OBJ (ss, &c->dst_object);
-      }
-  }
-  MPS_SCAN_END (ss);
-  return MPS_RES_OK;
-}
-
-static mps_res_t
 fix_terminal (mps_ss_t ss, struct terminal *t)
 {
   MPS_SCAN_BEGIN (ss)
   {
     IGC_FIX_CALL_FN (ss, struct Lisp_Vector, t, fix_vectorlike);
     IGC_FIX12_PVEC (ss, &t->next_terminal);
-    /* These are malloc'd, so they can be accessed.  */
-    IGC_FIX_CALL_FN (ss, struct coding_system, t->keyboard_coding, fix_coding);
-    IGC_FIX_CALL_FN (ss, struct coding_system, t->terminal_coding, fix_coding);
   }
   MPS_SCAN_END (ss);
   return MPS_RES_OK;
@@ -4301,6 +4309,15 @@ igc_alloc_glyph_pool (void)
   struct glyph_pool *p = xzalloc (sizeof *p);
   root_create_exact (global_igc, p, p + 1, scan_glyph_pool,
 		     "glyph_pool");
+  return p;
+}
+
+struct coding_system *
+igc_alloc_coding_system (void)
+{
+  struct coding_system *p = xzalloc (sizeof *p);
+  root_create (global_igc, p, p + 1, mps_rank_ambig (),
+	       scan_coding_system, NULL, true, "coding_system");
   return p;
 }
 
