@@ -1295,11 +1295,13 @@ compute_new_linecol_by_change (struct ts_linecol pos_linecol,
   /* 2. When old_end (oe) is before pos, the difference between pos and
      pos' is the difference between old_end and new_end (ne).
 
-     |     |   |           |     |   |
-     s     oe  pos         s     oe  pos
-		      OR
-     |  |   |              |         |
-     s  ne  pos'           s         ne  pos'
+     Delete:                   Insert:
+
+     |     |   |               |     |   |
+     s     oe  pos             s     oe  pos
+
+     |  |   |                  |         |   |
+     s  ne  pos'               s         ne  pos'
 
    */
   else if (old_end_linecol.bytepos <= pos_linecol.bytepos)
@@ -1525,7 +1527,7 @@ treesit_linecol_maybe (ptrdiff_t pos, ptrdiff_t pos_byte,
    does not parse the buffer and only updates the tree, so it should be
    very fast.
 
-   This is a wrapper over treesit_record_change that does a bit more
+   This is a wrapper over treesit_record_change_1 that does a bit more
    boilerplate work: it (optionally) calculates linecol for new_end,
    pass all the positions into treesit_record_change_1 which does the
    real work, and finally (optionally) sets buffer's linecol cache to
@@ -5161,7 +5163,7 @@ return the line and column in the form of
 This is used for internal testing and debugging ONLY.  */)
   (Lisp_Object pos)
 {
-  CHECK_NUMBER (pos);
+  treesit_check_position (pos, current_buffer);
   struct ts_linecol pos_linecol
     = treesit_linecol_of_pos (CHAR_TO_BYTE (fix_position (pos)),
 			      BUF_TS_LINECOL_POINT (current_buffer));
