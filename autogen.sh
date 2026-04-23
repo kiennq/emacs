@@ -370,7 +370,7 @@ git_config diff.texinfo.xfuncname \
 tailored_hooks=
 sample_hooks=
 
-for hook in commit-msg pre-commit prepare-commit-msg post-commit \
+for hook in commit-msg prepare-commit-msg post-commit \
             pre-push commit-msg-files.awk; do
     cmp -- build-aux/git-hooks/$hook "$hooks/$hook" >/dev/null 2>&1 ||
 	tailored_hooks="$tailored_hooks $hook"
@@ -383,11 +383,10 @@ git_sample_hook_src ()
     if test ! -r "$src"; then
 	case $hook in
 	    applypatch-msg) src=build-aux/git-hooks/commit-msg;;
-	    pre-applypatch) src=build-aux/git-hooks/pre-commit;;
 	esac
     fi
 }
-for hook in applypatch-msg pre-applypatch; do
+for hook in applypatch-msg; do
     git_sample_hook_src $hook
     cmp -- "$src" "$hooks/$hook" >/dev/null 2>&1 ||
 	sample_hooks="$sample_hooks $hook"
