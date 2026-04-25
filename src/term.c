@@ -1549,7 +1549,15 @@ append_glyph (struct it *it)
   eassert (it->glyph_row);
   glyph = (it->glyph_row->glyphs[it->area]
 	   + it->glyph_row->used[it->area]);
-  end = it->glyph_row->glyphs[1 + it->area];
+  /* The last glyph of TEXT_AREA in all windows but the rightmost one is
+     the border glyph, except when the window has the right margin.  */
+  int reserve_last =
+    it->area == TEXT_AREA
+    /* Exclude mode/header/tab lines and menu/tool bars.  */
+    && !it->glyph_row->full_width_p
+    && !WINDOW_RIGHTMOST_P (it->w)
+    && WINDOW_RIGHT_MARGIN_WIDTH (it->w) == 0;
+  end = it->glyph_row->glyphs[1 + it->area] - reserve_last;
 
   /* If the glyph row is reversed, we need to prepend the glyph rather
      than append it.  */
@@ -1774,7 +1782,15 @@ append_composite_glyph (struct it *it)
 
   eassert (it->glyph_row);
   glyph = it->glyph_row->glyphs[it->area] + it->glyph_row->used[it->area];
-  if (glyph < it->glyph_row->glyphs[1 + it->area])
+  /* The last glyph of TEXT_AREA in all windows but the rightmost one is
+     the border glyph, except when the window has the right margin.  */
+  int reserve_last =
+    it->area == TEXT_AREA
+    /* Exclude mode/header/tab lines and menu/tool bars.  */
+    && !it->glyph_row->full_width_p
+    && !WINDOW_RIGHTMOST_P (it->w)
+    && WINDOW_RIGHT_MARGIN_WIDTH (it->w) == 0;
+  if (glyph < it->glyph_row->glyphs[1 + it->area] - reserve_last)
     {
       /* If the glyph row is reversed, we need to prepend the glyph
 	 rather than append it.  */
@@ -1869,7 +1885,15 @@ append_glyphless_glyph (struct it *it, int face_id, const char *str)
 
   eassert (it->glyph_row);
   glyph = it->glyph_row->glyphs[it->area] + it->glyph_row->used[it->area];
-  end = it->glyph_row->glyphs[1 + it->area];
+  /* The last glyph of TEXT_AREA in all windows but the rightmost one is
+     the border glyph, except when the window has the right margin.  */
+  int reserve_last =
+    it->area == TEXT_AREA
+    /* Exclude mode/header/tab lines and menu/tool bars.  */
+    && !it->glyph_row->full_width_p
+    && !WINDOW_RIGHTMOST_P (it->w)
+    && WINDOW_RIGHT_MARGIN_WIDTH (it->w) == 0;
+  end = it->glyph_row->glyphs[1 + it->area] - reserve_last;
 
   /* If the glyph row is reversed, we need to prepend the glyph rather
      than append it.  */
