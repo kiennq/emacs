@@ -468,11 +468,12 @@ BI-DESC should be a `package--bi-desc' object."
                        :summary (package--bi-desc-summary bi-desc)
                        :dir 'builtin))
 
-(defun package--builtin-alist ()
-  "Return a `package-alist'-like alist for all builtin packages."
+(defconst package--builtin-alist
   (cl-loop for bi-desc in package--builtins
-           unless (assq (car bi-desc) package-alist)
-           collect (list (car bi-desc) (package--from-builtin bi-desc))))
+           unless (eq (car bi-desc) 'emacs)
+           collect (list (car bi-desc) (package--from-builtin bi-desc)))
+  "Alist of built-in packages in the form of `package-alist'.
+The alist doesn't include the pseudo-package for Emacs.")
 
 (defun package-desc-suffix (pkg-desc)
   "Return file-name extension of package-desc object PKG-DESC.
@@ -2053,7 +2054,6 @@ package archive."
 This excludes packages that are listed in the archives, but have
 incompatible dependencies (either too old or not available at all
 in any archive mentioned in `package-archives')."
-  (package-read-all-archive-contents)
   (package--build-compatibility-table)
   (cl-loop for (name . desc) in package-archive-contents
            unless (any #'package--incompatible-p desc)
@@ -2166,7 +2166,7 @@ NAME should be a symbol."
                   (package-desc-version (cadr elt))
                   (package-desc-version available)))
              (not (package-vc-p (cadr elt))))))
-    (nconc (and include-builtins (package--builtin-alist))
+    (nconc (and include-builtins package--builtin-alist)
            (package--alist)))))
 
 ;;;###autoload
@@ -2889,8 +2889,7 @@ Helper function for `describe-package'."
         (package--print-email-button author)))
     (let* ((all-pkgs (append (cdr (assq name package-alist))
                              (cdr (assq name package-archive-contents))
-                             (and-let* ((bi (assq name package--builtins)))
-                               (list (package--from-builtin bi)))))
+                             (cdr (assq name package--builtin-alist))))
            (other-pkgs (delete desc all-pkgs)))
       (when other-pkgs
         (package--print-help-section "Other versions"
@@ -3456,15 +3455,13 @@ KEYWORDS should be nil or a list of keywords."
               (push pkg info-list))))))
 
     ;; Built-in packages:
-    (dolist (elt package--builtins)
-      (let ((pkg  (package--from-builtin elt))
-            (name (car elt)))
-        (when (not (eq name 'emacs)) ; Hide the `emacs' package.
-          (when (and (package--has-keyword-p pkg keywords)
-                     (or package-list-unversioned
-                         (package--bi-desc-version (cdr elt)))
-                     (or (eq packages t) (memq name packages)))
-            (push pkg info-list)))))
+    (dolist (elt package--builtin-alist)
+      (let ((name (car elt)) (pkg (cadr elt)))
+        (when (and (package--has-keyword-p pkg keywords)
+                   (or package-list-unversioned
+                       (package-desc-version pkg))
+                   (or (eq packages t) (memq name packages)))
+          (push pkg info-list))))
 
     ;; Available and disabled packages:
     (unless (equal package--old-archive-priorities package-archive-priorities)
@@ -3499,18 +3496,14 @@ KEYWORDS should be nil or a list of keywords."
 (defun package--mapc (function &optional packages)
   "Call FUNCTION for all known PACKAGES.
 PACKAGES can be nil or t, which means to display all known
-packages, or a list of packages.
-
-Built-in packages are converted with `package--from-builtin'."
+packages, or a list of packages."
   (dolist (pkg (if (memq packages '(t nil))
                    (flatten-tree
-                    (list (mapcar #'cdr (package--builtin-alist))
+                    (list (mapcar #'cdr package--builtin-alist)
                           (mapcar #'cdr (package--archive-contents))
                           (mapcar #'cdr (package--alist))))
                  (mapcar #'package-get-descriptor packages)))
-    (unless (or (package-disabled-p (package-desc-name pkg)
-                                    (package-desc-version pkg))
-                (eq (package-desc-name pkg) 'emacs)) ;hide pseudo package
+    (unless (package-disabled-p (package-desc-name pkg) (package-desc-version pkg))
       (funcall function pkg))))
 
 (defun package--has-keyword-p (desc &optional keywords)
@@ -4846,8 +4839,7 @@ form (PKG-NAME PKG-DESC).  If not specified, it will default to
 `package-alist'."
   (or (tabulated-list-get-id)
       (let ((alist (or alist (package--alist))))
-        (cadr (assoc (completing-read "Package: " alist nil t)
-                     alist #'string=)))))
+        (package-get-descriptor (completing-read "Package: " alist nil t)))))
 
 ;;;###autoload
 (defun package-browse-url (desc &optional secondary)
@@ -4955,37 +4947,37 @@ DESC must be a `package-desc' object."
 
 ;;;; Introspection
 
-(defun package-get-descriptor (pkg sources &optional pred)
+(defun package-get-descriptor (pkg &optional sources pred)
   "Return a `package-desc' object for PKG, or nil if none can be found.
 If PKG is a `package-desc' object it will be returned directly.  If PKG
-is a symbol or string it designates a package name.  The argument
+is a symbol or string it designates a package name.  The optional argument
 SOURCES can be a list consisting of the symbols `installed', `builtin'
 or `archive', each when present indicating that the function should find
 a `package-desc' object for PKG in the list of installed packages,
 built-in packages or packages available in the archives respectively.
 If SOURCES is t, then the function will interpret this as a shorthand
 for a list consisting of the symbols mentioned in the order given above.
-Any other symbol will be converted to a singleton list.  The order is
-significant, in that the first hit will be returned.  If specified, PRED
-is a function that takes a single `package-desc' argument and prevents
-the object from being returned if the predicate returns nil."
+If omitted, the argument falls back to a list consisting of `installed'
+and `archive'.  Any other symbol will be converted to a singleton list.
+The order is significant, in that the first hit will be returned.  If
+specified, PRED is a function that takes a single `package-desc' argument
+and prevents the object from being returned if the predicate returns nil."
   (cond
    ((package-desc-p pkg)
     (and (or (not pred) (funcall pred pkg)) pkg))
    ((or (and (stringp pkg) (setq pkg (intern pkg)))
         (symbolp pkg))
     (catch 'found
-      (dolist (source (if (eq sources t)
-                          '(installed builtin archive)
-                        (delete-dups (ensure-list sources))))
-        (dolist (ent (pcase-exhaustive source
-                       ('installed (package--alist))
-                       ('builtin (package--builtin-alist))
-                       ('archive (package--archive-contents))))
-          (when (eq (car ent) pkg)
-            (dolist (desc (cdr ent))
-              (when (or (null pred) (funcall pred desc))
-                (throw 'found desc))))))))
+      (dolist (source (cond
+                       ((eq sources nil) '(installed archive))
+                       ((eq sources t) '(installed builtin archive))
+                       ((delete-dups (ensure-list sources)))))
+        (dolist (desc (alist-get pkg (pcase-exhaustive source
+                                       ('installed (package--alist))
+                                       ('builtin package--builtin-alist)
+                                       ('archive (package--archive-contents)))))
+          (when (or (null pred) (funcall pred desc))
+            (throw 'found desc))))))
    ((error "Failed to recognize package %S" pkg))))
 
 (provide 'package)
