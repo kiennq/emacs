@@ -361,8 +361,9 @@ If INCLUDE-NODE is non-nil, return NODE if it satisfies PRED."
 Use the first parser in the parser list if LANGUAGE is omitted.
 
 If LANGUAGE is non-nil, use the first parser for LANGUAGE with TAG in
-the parser list.  If there's no such parser, return nil.  TAG defaults
-to nil."
+the parser list.  TAG defaults to nil.
+
+If no parser is available, throw `treesit-no-parser'."
   (let ((parser
          (or (car (treesit-parser-list nil language tag))
              (signal 'treesit-no-parser (list language)))))
@@ -2170,7 +2171,8 @@ If LOUDLY is non-nil, display some debugging information."
         (when (eq treesit--font-lock-fast-mode 'unspecified)
           (pcase-let ((`(,max-depth ,max-width)
                        (treesit-subtree-stat
-                        (treesit-buffer-root-node language))))
+                        (treesit-parser-root-node
+                         treesit-primary-parser))))
             (setq treesit--font-lock-fast-mode
                   (or (> max-depth 100) (> max-width 4000)))))
 
