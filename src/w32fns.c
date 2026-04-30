@@ -11509,6 +11509,7 @@ Optional arg TYPE should be either `jpeg' (default), `bmp', `png',
 Value is non-nil if FRAME was successfully exported, nil otherwise.  */)
   (Lisp_Object frame, Lisp_Object file, Lisp_Object type)
 {
+#ifdef WINDOWSNT
   struct frame *f = decode_live_frame (frame);
 
   if (NILP (type))
@@ -11534,6 +11535,9 @@ Value is non-nil if FRAME was successfully exported, nil otherwise.  */)
   unblock_input ();
 
   return result >= 0 ? Qt : Qnil;
+#else  /* !WINDOWSNT */
+  return Qnil;
+#endif
 }
 
 
