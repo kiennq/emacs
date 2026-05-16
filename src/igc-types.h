@@ -20,6 +20,13 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 #ifndef EMACS_IGC_TYPES_H
 #define EMACS_IGC_TYPES_H
 
+#ifndef HAVE_MPS
+/* FIXME: this file should only be included if HAVE_MPS.  Currently the
+   code in pdumper.c depends on the enum tags from this file.  Emit a
+   warning instead of an error until that is fixed.  */
+#warning "HAVE_MPS not defined"
+#endif
+
 enum igc_obj_type
 {
   IGC_OBJ_INVALID,
@@ -115,5 +122,13 @@ union igc_header
 
 static_assert (sizeof (*(union igc_header *) 0).s == 8);
 static_assert (sizeof (union igc_header) == 8);
+
+extern bool igc_warn_if_an_mps_object (void *ptr);
+
+INLINE void
+igc_assert_not_an_mps_object (void *obj)
+{
+  eassert (igc_warn_if_an_mps_object (obj) == false);
+}
 
 #endif /* EMACS_IGC_TYPES_H */
