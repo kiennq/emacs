@@ -219,16 +219,13 @@
     '(fset 'tramp-gvfs-handler-askquestion
 	   (lambda (_message _choices) '(t nil 0)))))
 
-(defconst tramp-test-vec
-  (and (file-remote-p ert-remote-temporary-file-directory)
-       (tramp-dissect-file-name ert-remote-temporary-file-directory))
-  "The used `tramp-file-name' structure.")
-
 (setq auth-source-cache-expiry nil
       auth-source-save-behavior nil
       auto-revert-remote-files t
       auto-revert-use-notify t
       ert-batch-backtrace-right-margin nil
+      ert-remote-temporary-file-directory
+      (expand-file-name ert-remote-temporary-file-directory)
       password-cache-expiry nil
       remote-file-name-inhibit-cache nil
       tramp-allow-unsafe-temporary-files t
@@ -238,6 +235,11 @@
       tramp-persistency-file-name nil
       tramp-verbose 0
       vc-handled-backends (unless noninteractive vc-handled-backends))
+
+(defconst tramp-test-vec
+  (and (file-remote-p ert-remote-temporary-file-directory)
+       (tramp-dissect-file-name ert-remote-temporary-file-directory))
+  "The used `tramp-file-name' structure.")
 
 (defconst tramp-test-name-prefix "tramp-test"
   "Prefix to use for temporary test files.")
@@ -6517,13 +6519,12 @@ INPUT, if non-nil, is a string sent to the process."
 	       ;; 	(should (= 11 (point)))))))))))))
 	       )))))))))
 
-;; This test is inspired by Bug#23952.
+;; This test is inspired by Bug#23952 and Bug#80783.
 (ert-deftest tramp-test33-environment-variables ()
   "Check that remote processes set / unset environment variables properly."
   :tags '(:expensive-test)
   (skip-unless (tramp--test-enabled))
-  (skip-unless (tramp--test-sh-p))
-  (skip-unless (not (tramp--test-crypt-p)))
+  (skip-unless (tramp--test-supports-environment-variables-p))
 
   (dolist (this-shell-command-to-string
 	   (append
@@ -6552,6 +6553,21 @@ INPUT, if non-nil, is a string sent to the process."
 	  (format "%s,foo,tramp:%s\n" emacs-version tramp-version)
 	  (funcall
 	   this-shell-command-to-string "echo \"${INSIDE_EMACS:-bla}\""))))
+
+      ;; Check EMACSCLIENT_TRAMP.
+      (setenv "EMACSCLIENT_TRAMP")
+      (let ((tramp-propagate-emacsclient-tramp t))
+	(should
+	 (string-equal
+	  (format "%s\n" (tramp-make-tramp-file-name tramp-test-vec 'noloc))
+	  (funcall
+	   this-shell-command-to-string "echo \"${EMACSCLIENT_TRAMP:-bla}\""))))
+      (let (tramp-propagate-emacsclient-tramp)
+	(should
+	 (string-equal
+	  "bla\n"
+	  (funcall
+	   this-shell-command-to-string "echo \"${EMACSCLIENT_TRAMP:-bla}\""))))
 
       ;; Set a value.
       (let ((process-environment
@@ -6609,7 +6625,18 @@ INPUT, if non-nil, is a string sent to the process."
 	      ;; We must suppress "_=VAR...".
 	      (funcall
 	       this-shell-command-to-string
-	       "printenv | grep -v PS1 | grep -v _=")))))))))
+	       "printenv | grep -v PS1 | grep -v _="))))))
+
+      ;; Handle looooong environment variables.  Bug#80783.
+      ;; FIXME: Make it also work in the synchronous case.
+      (unless (or (eq this-shell-command-to-string 'shell-command-to-string)
+		  (tramp-direct-async-process-p))
+	(let* ((bad (concat envvar "=" (make-string 2024 ?x)))
+	       (process-environment
+		(cl-list* bad bad bad bad process-environment)))
+	  (should
+	   (string-match-p
+	    "foo" (funcall this-shell-command-to-string "echo foo"))))))))
 
 (tramp--test-deftest-direct-async-process tramp-test33-environment-variables)
 
@@ -7768,6 +7795,11 @@ This requires restrictions of file name syntax."
   (or (tramp--test-adb-p) (tramp--test-gvfs-p)
       (tramp--test-sh-p) (tramp--test-smb-p)
       (tramp--test-sudoedit-p)))
+
+(defun tramp--test-supports-environment-variables-p ()
+  "Return whether setting environment variables is supported."
+  (and (tramp--test-sh-p)
+       (not (tramp--test-crypt-p))))
 
 (defun tramp--test-check-files (&rest files)
   "Run a simple but comprehensive test over every file in FILES."

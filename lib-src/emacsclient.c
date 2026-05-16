@@ -2412,6 +2412,11 @@ main (int argc, char **argv)
       char *p = recv_buf;
       for (char *end_p = p; end_p < recv_buf + nrecv; p = end_p)
 	{
+	  /* An unquoted newline ends a server command.  Keep reading,
+             possibly growing the buffer, until a buffer with a newline
+             is received.  This handles commands with arbitrary-long
+             arguments (actually needed in 'print' and 'error' commands,
+             which are followed by strings).  */
 	  end_p = memchr (p, '\n', recv_buf + nrecv - p);
 	  if (!end_p)
 	    break;
@@ -2443,7 +2448,8 @@ main (int argc, char **argv)
             }
           else if (strprefix ("-print ", p))
             {
-              /* -print STRING: Print STRING on the terminal. */
+              /* -print STRING: Print STRING, preceeded by a newline, on
+                  the terminal. */
 	      if (!suppress_output)
 		{
 		  char *str = unquote_argument (p + strlen ("-print "));
@@ -2454,8 +2460,10 @@ main (int argc, char **argv)
 	    }
           else if (strprefix ("-print-nonl ", p))
             {
-              /* -print-nonl STRING: Print STRING on the terminal.
-                 Used to continue a preceding -print command.  */
+              /* -print-nonl STRING: Print STRING on the terminal
+                 without a preceding newlin.  Used to continue a
+                 preceding -print command.  Nowadays used only for
+                 servers in Emacs versions before 31.  */
 	      if (!suppress_output)
 		{
 		  char *str = unquote_argument (p + strlen ("-print-nonl "));

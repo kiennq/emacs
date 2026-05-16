@@ -131,6 +131,10 @@ in a Emacs not built with tree-sitter library."
 
      (declare-function treesit-available-p "treesit.c")
 
+     (declare-function treesit-parser-remove-notifier "treesit.c")
+
+     (declare-function treesit-grammar-location "treesit.c")
+
      (defvar treesit-thing-settings)
      (defvar treesit-major-mode-remap-alist)
      (defvar treesit-extra-load-path)))
@@ -1232,27 +1236,27 @@ Return the created local parsers as a list."
         ;; Each element of RANGES can be either (START . END) or ((START
         ;; . END)...).
         (dolist (range ranges)
-          (let ((beg (treesit--range-start range))
-                (end (treesit--range-end range))
-                (existing-local-parser
-                 (catch 'done
-                   (dolist (ov (overlays-in beg end) nil)
-                     ;; Update range of local parser.
-                     (when-let* ((embedded-parser
-                                  (overlay-get ov 'treesit-parser))
-                                 (parser-lang (treesit-parser-language
-                                               embedded-parser))
-                                 (parser-level (treesit-parser-embed-level
-                                                embedded-parser)))
-                       (when (and (overlay-get ov 'treesit-parser-local-p)
-                                  (eq parser-lang embedded-lang)
-                                  (eq embed-level parser-level))
-                         (treesit--set-embed-ranges
-                          range embedded-parser host-parser)
-                         (move-overlay ov beg end)
-                         (overlay-put ov 'treesit-parser-ov-timestamp
-                                      modified-tick)
-                         (throw 'done embedded-parser)))))))
+          (let* ((r-start (treesit--range-start range))
+                 (r-end (treesit--range-end range))
+                 (existing-local-parser
+                  (catch 'done
+                    (dolist (ov (overlays-in r-start r-end) nil)
+                      ;; Update range of local parser.
+                      (when-let* ((embedded-parser
+                                   (overlay-get ov 'treesit-parser))
+                                  (parser-lang (treesit-parser-language
+                                                embedded-parser))
+                                  (parser-level (treesit-parser-embed-level
+                                                 embedded-parser)))
+                        (when (and (overlay-get ov 'treesit-parser-local-p)
+                                   (eq parser-lang embedded-lang)
+                                   (eq embed-level parser-level))
+                          (treesit--set-embed-ranges
+                           range embedded-parser host-parser)
+                          (move-overlay ov r-start r-end)
+                          (overlay-put ov 'treesit-parser-ov-timestamp
+                                       modified-tick)
+                          (throw 'done embedded-parser)))))))
             (if existing-local-parser
                 (push existing-local-parser touched-parsers)
               ;; Create overlay and local parser.  Refer to
@@ -1260,7 +1264,7 @@ Return the created local parsers as a list."
               ;; local parser overlays.
               (let ((embedded-parser (treesit-parser-create
                                       embedded-lang nil t 'embedded))
-                    (ov (make-overlay beg end nil nil t)))
+                    (ov (make-overlay r-start r-end nil nil t)))
                 (treesit-parser-set-embed-level embedded-parser embed-level)
                 (overlay-put ov 'treesit-parser embedded-parser)
                 (overlay-put ov 'treesit-parser-local-p t)
@@ -4454,12 +4458,14 @@ For BOUND, MOVE, BACKWARD, LOOKING-AT, see the descriptions in
       (setq level (1+ level)))
 
     ;; Continue counting the host nodes.
-    (dolist (parser (mapcar #'cdr (treesit-parsers-at (point) nil t '(global local))))
-      (let* ((node (treesit-node-at (point) parser))
-             (lang (treesit-parser-language parser))
-             (pred (alist-get lang treesit-aggregated-outline-predicate)))
-        (while (setq node (treesit-parent-until node pred))
-          (setq level (1+ level)))))
+    (when treesit-aggregated-outline-predicate
+      (dolist (parser (mapcar #'cdr (treesit-parsers-at
+                                     (point) nil t '(global local))))
+        (let* ((node (treesit-node-at (point) parser))
+               (lang (treesit-parser-language parser))
+               (pred (alist-get lang treesit-aggregated-outline-predicate)))
+          (while (setq node (treesit-parent-until node pred))
+            (setq level (1+ level))))))
 
     level))
 
@@ -5031,6 +5037,10 @@ in the region."
               (while (and (null (pos-visible-in-window-p pos window))
                           (= (forward-line 4) 0))
                 (set-window-start window (point))))
+            ;; Recenter if amenable.
+            (when (< scroll-conservatively 101)
+              (with-selected-window window
+                (recenter)))
             (set-window-point window pos)))))))
 
 (defun treesit--explorer-refresh ()
@@ -5193,11 +5203,6 @@ leaves point at the end of the last line of NODE."
       (when (not named)
         (overlay-put ov 'face 'treesit-explorer-anonymous-node)))))
 
-(defun treesit--explorer-kill-explorer-buffer ()
-  "Kill the explorer buffer of this buffer."
-  (when (buffer-live-p treesit--explorer-buffer)
-    (kill-buffer treesit--explorer-buffer)))
-
 (defun treesit--explorer-generate-parser-alist ()
   "Return an alist of (PARSER-NAME . PARSER) for relevant parsers.
 Relevant parsers include all global parsers and local parsers that
@@ -5206,7 +5211,12 @@ covers point.  PARSER-NAME are unique."
          (local-parsers-at-point
           (treesit-local-parsers-at (point)))
          res)
-    (dolist (parser (treesit-parser-list nil nil t))
+    ;; Add `treesit-primary-parser' first in the list, if populated.
+    (dolist (parser (delete-dups
+                     (delq nil
+                           (append
+                            (list treesit-primary-parser)
+                            (treesit-parser-list nil nil t)))))
       ;; Exclude local parsers that doesn't cover point.
       (when (or (memq parser local-parsers-at-point)
                 (not (memq parser local-parsers)))
@@ -5226,20 +5236,68 @@ covers point.  PARSER-NAME are unique."
               res)))
     (nreverse res)))
 
+(defun treesit--explorer-tree-mode-cleanup ()
+  "Clean up `treesit--explorer-tree-mode'.
+If called from the source buffer, quit the tree buffer window and kill
+the explorer buffer.
+If called from the explorer tree buffer, disable `treesit-explore-mode'
+in the source buffer, quit the tree window and kill its buffer."
+  (cond
+   ;; Called from the source buffer.
+   ((buffer-live-p treesit--explorer-buffer)
+    (when (window-live-p (get-buffer-window treesit--explorer-buffer))
+      (let ((buf treesit--explorer-buffer))
+        (with-selected-window (get-buffer-window treesit--explorer-buffer)
+          (quit-window))
+        (kill-buffer buf))))
+   ;; Called from the tree buffer.
+   ((buffer-live-p treesit--explorer-source-buffer)
+    (with-current-buffer treesit--explorer-source-buffer
+      (treesit-explore-mode -1))
+    (when (window-live-p (get-buffer-window (current-buffer)))
+      (with-selected-window (get-buffer-window (current-buffer))
+        (quit-window 'kill))))))
+
+(defun treesit-explorer-tree-window-select ()
+  "Select the `treesit--explorer-buffer' window.
+Invoke this command from the source window."
+  (interactive)
+  (if (buffer-live-p treesit--explorer-buffer)
+      (select-window (get-buffer-window treesit--explorer-buffer))
+    (user-error "The `treesit-explorer-mode' tree buffer does not exist")))
+
+(defun treesit-explorer-source-buffer-window-select ()
+  "Select the `treesit--explorer-buffer' window.
+Invoke this command from the tree window."
+  (interactive)
+  (if (buffer-live-p treesit--explorer-source-buffer)
+      (select-window (get-buffer-window treesit--explorer-source-buffer))
+    (user-error "The `treesit-explorer-mode' source buffer does not exist")))
+
+(defvar-keymap treesit-explore-mode-map
+  :doc "Keymap for the treesit explore mode."
+  "C-c C-t o" #'treesit-explorer-tree-window-select
+  "C-c C-t q" #'treesit-explore-quit)
+
 (defvar-keymap treesit--explorer-tree-mode-map
   :doc "Keymap for the treesit tree explorer.
-
 Navigates from button to button."
   :parent special-mode-map
-  "n" #'forward-button
-  "p" #'backward-button
-  "TAB" #'forward-button
-  "<backtab>" #'backward-button)
+  "n"         #'forward-button
+  "p"         #'backward-button
+  "q"         #'treesit-explore-quit
+  "TAB"       #'forward-button
+  "<backtab>" #'backward-button
+  "C-c C-t o" #'treesit-explorer-source-buffer-window-select
+  "C-c C-t q" #'treesit-explore-quit)
 
 (define-derived-mode treesit--explorer-tree-mode special-mode
   "TS Explorer"
   "Mode for displaying syntax trees for `treesit-explore-mode'."
-  nil)
+  ;; Clean up `treesit--explorer-tree-mode' when the tree buffer is
+  ;; killed.
+  (add-hook 'kill-buffer-hook
+            #'treesit--explorer-tree-mode-cleanup 0 t))
 
 (defun treesit-explorer-switch-parser (parser)
   "Switch explorer to use PARSER."
@@ -5248,8 +5306,14 @@ Navigates from button to button."
                  (treesit--explorer-generate-parser-alist))
                 (parser-name (if (= (length parser-alist) 1)
                                  (car parser-alist)
+                               ;; Default to the first parser in the
+                               ;; list which we hope is
+                               ;; `treesit-primary-parser'.
                                (completing-read
-                                "Parser: " (mapcar #'car parser-alist)))))
+                                "Parser: "
+                                (mapcar #'car parser-alist)
+                                nil t nil nil
+                                (caar parser-alist)))))
            (alist-get parser-name parser-alist
                       nil nil #'equal))))
   (unless treesit-explore-mode
@@ -5258,7 +5322,9 @@ Navigates from button to button."
   (display-buffer treesit--explorer-buffer
                   (cons nil '((inhibit-same-window . t))))
   (setq-local treesit--explorer-last-node nil)
-  (treesit--explorer-refresh))
+  (treesit--explorer-refresh)
+  ;; Signal that `completing-read' did not quit.
+  t)
 
 (define-minor-mode treesit-explore-mode
   "Enable exploring the current buffer's syntax tree.
@@ -5277,33 +5343,41 @@ window."
                                (buffer-name))))
           (with-current-buffer treesit--explorer-buffer
             (treesit--explorer-tree-mode)))
-        ;; Select parser.
-        (call-interactively #'treesit-explorer-switch-parser)
-        ;; Set up variables and hooks.
-        (add-hook 'post-command-hook
-                  #'treesit--explorer-post-command 0 t)
-        (add-hook 'kill-buffer-hook
-                  #'treesit--explorer-kill-explorer-buffer 0 t)
-        ;; Tell `desktop-save' to not save explorer buffers.
-        (when (boundp 'desktop-modes-not-to-save)
-          (unless (memq 'treesit--explorer-tree-mode
-                        desktop-modes-not-to-save)
-            (push 'treesit--explorer-tree-mode
-                  desktop-modes-not-to-save)))
-        ;; Tell `desktop-save' to not save this minor mode
-        ;; that might disrupt loading the desktop
-        ;; with the prompt to select a parser.
-        (when (boundp 'desktop-minor-mode-table)
-          (unless (member '(treesit-explore-mode nil)
-                          desktop-minor-mode-table)
-            (push '(treesit-explore-mode nil)
-                  desktop-minor-mode-table))))
+        ;; Select parser.  `treesit-explorer-switch-parser' will return
+        ;; t if its `completing-read' did not quit.
+        (if (not (condition-case _
+                     (call-interactively #'treesit-explorer-switch-parser)
+                   (quit)))
+            (setq treesit-explore-mode nil)
+          ;; Track the `treesit--explorer-source-buffer' active region.
+          (add-hook 'post-command-hook
+                    #'treesit--explorer-post-command 0 t)
+          ;; Clean up when the `treesit-explore-mode' buffer is killed.
+          (add-hook 'kill-buffer-hook
+                    #'treesit--explorer-tree-mode-cleanup 0 t)
+          ;; Tell `desktop-save' to not save explorer buffers.
+          (when (boundp 'desktop-modes-not-to-save)
+            (unless (memq 'treesit--explorer-tree-mode
+                          desktop-modes-not-to-save)
+              (push 'treesit--explorer-tree-mode
+                    desktop-modes-not-to-save)))
+          ;; Tell `desktop-save' to not save this minor mode
+          ;; that might disrupt loading the desktop
+          ;; with the prompt to select a parser.
+          (when (boundp 'desktop-minor-mode-table)
+            (unless (member '(treesit-explore-mode nil)
+                            desktop-minor-mode-table)
+              (push '(treesit-explore-mode nil)
+                    desktop-minor-mode-table)))))
     ;; Turn off explore mode.
     (remove-hook 'post-command-hook
                  #'treesit--explorer-post-command t)
     (remove-hook 'kill-buffer-hook
-                 #'treesit--explorer-kill-explorer-buffer t)
-    (treesit--explorer-kill-explorer-buffer)))
+                 #'treesit--explorer-tree-mode-cleanup t)
+    ;; Clean up if the user disables `treesit-explore-mode' interactively; e.g.,
+    ;; via M-x while leaving the source buffer alive.
+    (when (called-interactively-p 'any)
+      (treesit--explorer-tree-mode-cleanup))))
 
 (defun treesit-explore ()
   "Show the explorer."
@@ -5312,6 +5386,15 @@ window."
            (buffer-live-p treesit--explorer-buffer))
       (display-buffer treesit--explorer-buffer '(nil (inhibit-same-window . t)))
     (treesit-explore-mode)))
+
+(defun treesit-explore-quit ()
+  "Quit and clean up `treesit-explore-mode'.
+Invoke this command from the source buffer or its tree buffer."
+  (interactive)
+  ;; Called from the source buffer.
+  (when (buffer-live-p treesit--explorer-buffer)
+    (treesit-explore-mode -1))
+  (treesit--explorer-tree-mode-cleanup))
 
 ;;; Install & build language grammar
 

@@ -81,6 +81,34 @@
     (should-error (read-event "foo: "))
     (should-error (read-char-exclusive "foo: "))))
 
+(ert-deftest keyboard-sigint-to-quit () ;; bug#80942
+  (with-temp-buffer
+    (let* ((exit-msg "Exit via Quit")
+           (proc
+            (make-process
+             :name "keyboard-sigint-to-quit"
+             :buffer (current-buffer)
+             :command
+             `(,(expand-file-name invocation-name invocation-directory)
+               "-Q" "--batch" "--eval"
+               ,(prin1-to-string
+                 `(condition-case nil
+                      (progn (setq kill-emacs-on-sigint nil)
+                             (message "Ready!")
+                             (sleep-for 3))
+                    (quit (message "%s" ,exit-msg))))))))
+      (while (progn (accept-process-output proc 1.0)
+                    (goto-char (point-min))
+                    (not (re-search-forward "Ready!" nil t)))
+        ) ;; (message "Waiting for subprocess to be ready")
+      ;; (message "Subprocess is ready")
+      (interrupt-process proc)
+      (while (prog1 (memq (process-status proc) '(run))
+               (accept-process-output proc 1.0))
+        ) ;; (message "Waiting for subprocess to exit")
+      (goto-char (point-min))
+      (should (re-search-forward exit-msg nil t)))))
+
 ;;; Tests for `read-key-sequence' code paths.
 
 ;;;; Helpers

@@ -19994,14 +19994,14 @@ handle_one_xevent (struct x_display_info *dpyinfo,
               x_clear_area (f,
                             event->xexpose.x, event->xexpose.y,
                             event->xexpose.width, event->xexpose.height);
+	      /* Paint the border before content (few operations, less
+		 chance for a compositor sync in between).  */
+	      x_clear_under_internal_border (f);
 #endif
               expose_frame (f, event->xexpose.x, event->xexpose.y,
 			    event->xexpose.width, event->xexpose.height);
 #ifndef USE_TOOLKIT_SCROLL_BARS
 	      x_scroll_bar_handle_exposure (f, (XEvent *) event);
-#endif
-#ifdef USE_GTK
-	      x_clear_under_internal_border (f);
 #endif
             }
 #ifndef USE_TOOLKIT_SCROLL_BARS
@@ -29260,14 +29260,15 @@ x_make_frame_visible (struct frame *f)
 	{
 	  block_input ();
 #ifdef USE_GTK
-	  gtk_widget_show_all (FRAME_GTK_OUTER_WIDGET (f));
 	  XMoveWindow (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f),
 		       f->left_pos, f->top_pos);
+	  gtk_widget_show_all (FRAME_GTK_OUTER_WIDGET (f));
 #else
 	  XMapRaised (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f));
 #endif
 	  unblock_input ();
 
+	  SET_FRAME_GARBAGED (f);
 	  SET_FRAME_VISIBLE (f, true);
 	  SET_FRAME_ICONIFIED (f, false);
 	}
