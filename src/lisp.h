@@ -6197,7 +6197,7 @@ extern void init_system_name (void);
       systems to detect stack exhaustion and enlarge the stack as
       needed; this thus risks hitting a segfault where none should
       have happened.  (This problem is real in deeply-recursive cases,
-      but these do happen in Emacs, e.g. in regexp search or during GC.)  */
+      e.g., in regexp search or during GC.)  */
 
 enum MAX_ALLOCA { MAX_ALLOCA = 16 * 1024 };
 
@@ -6362,7 +6362,7 @@ safe_free_unbind_to (specpdl_ref count, specpdl_ref sa_count, Lisp_Object val)
    memory allocation in SAFE_ALLOCA_LISP_EXTRA.  */
 #if __GNUC__ == 13 && __GNUC_MINOR__ < 3
 # pragma GCC diagnostic ignored "-Wanalyzer-allocation-size"
-# endif
+#endif
 
 /* Set BUF to point to an allocated array of NELT Lisp_Objects.  */
 
