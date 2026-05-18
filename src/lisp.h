@@ -6364,6 +6364,7 @@ safe_free_unbind_to (specpdl_ref count, specpdl_ref sa_count, Lisp_Object val)
 # pragma GCC diagnostic ignored "-Wanalyzer-allocation-size"
 #endif
 
+
 /* Set BUF to point to an allocated array of NELT Lisp_Objects.  */
 
 #define SAFE_ALLOCA_LISP(buf, nelt)				\

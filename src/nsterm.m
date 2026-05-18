@@ -7442,7 +7442,7 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
 
 - (NSRect)accessibilityFrame
 {
-  EmacsView *view = FRAME_NS_VIEW (emacsframe);
+  EmacsView *view = FRAME_NS_VIEW (*emacsframe);
   return [[view window] convertRectToScreen: ns_UAZoom_cursor_rect_new];
 }
 
@@ -8404,7 +8404,7 @@ ns_in_echo_area (void)
   [self adjustEmacsFrameRect];
 
 #ifdef NS_IMPL_COCOA
-  EmacsView *view = FRAME_NS_VIEW (emacsframe);
+  EmacsView *view = FRAME_NS_VIEW (*emacsframe);
   /* Make sure we have focus and the timer isn't already scheduled.  */
   if (self.window.firstResponder == view
       && !ns_deferred_UAZoomChangeFocus_timer)
@@ -8461,9 +8461,9 @@ static void cancel_ns_deferred_UAZoomChangeFocus_timer ()
 - (void)deferred_UAZoomChangeFocus_handler: (NSTimer *)timer
 {
   /* The frame may be deleted before the timer fires.  */
-  if (FRAME_LIVE_P (*emacsframe))
+  if (emacsframe && FRAME_LIVE_P (*emacsframe))
     {
-      EmacsView *view = FRAME_NS_VIEW (emacsframe);
+      EmacsView *view = FRAME_NS_VIEW (*emacsframe);
       ns_UAZoomChangeFocus (view, true);
     }
   cancel_ns_deferred_UAZoomChangeFocus_timer ();
@@ -8542,7 +8542,7 @@ static void cancel_ns_deferred_UAZoomChangeFocus_timer ()
   NSTRACE_MSG ("cols:%d lines:%d", f->text_cols, f->text_lines);
 
 #ifdef HAVE_MPS
-  emacsframe = igc_xalloc_raw_exact (1, "emacsframe");
+  emacsframe = igc_xalloc_raw (1, "emacsframe");
 #else
   emacsframe = xzalloc (sizeof *emacsframe);
 #endif
@@ -8577,6 +8577,7 @@ static void cancel_ns_deferred_UAZoomChangeFocus_timer ()
   ns_UAZoom_cursor_rect_new = NSZeroRect;
   ns_UAZoom_cursor_rect_old = NSZeroRect;
 #endif
+
 #ifdef NS_IMPL_COCOA
   old_title = 0;
   maximizing_resize = NO;
@@ -10636,7 +10637,7 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
 {
   NSTRACE ("[EmacsScroller initFrame: window:]");
 #ifdef HAVE_MPS
-  m_lisp_window = igc_xalloc_raw_exact (1, "initFrame");
+  m_lisp_window = igc_xalloc_raw (1, "initFrame");
 #else
   m_lisp_window = xzalloc (sizeof *m_lisp_window);
 #endif
