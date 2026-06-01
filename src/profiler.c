@@ -96,13 +96,13 @@ make_log (int size, int depth)
   log->next_free = 0;
 
   log->hash = xnmalloc (size, sizeof *log->hash);
+#ifdef HAVE_MPS
+  log->keys
+    = igc_xzalloc_ambig (size * depth * sizeof *log->keys, __func__);
+#else
   size_t size_x_depth;
   if (ckd_mul (&size_x_depth, size, depth))
     memory_full_up ();
-#ifdef HAVE_MPS
-  log->keys
-    = igc_xzalloc_ambig (size_x_depth * sizeof *log->keys, __func__);
-#else
   log->keys = xcalloc (size_x_depth, sizeof *log->keys);
 #endif
   log->counts = xcalloc (size, sizeof *log->counts);
@@ -435,12 +435,11 @@ deliver_profiler_signal (int signal)
 static int
 setup_cpu_timer (Lisp_Object sampling_interval)
 {
-  int billion = 1000000000;
+  EMACS_INT billion = 1000000000;
 
   if (! RANGED_FIXNUMP (1, sampling_interval,
 			 (TYPE_MAXIMUM (time_t) < EMACS_INT_MAX / billion
-			  ? ((EMACS_INT) TYPE_MAXIMUM (time_t) * billion
-			     + (billion - 1))
+			  ? TYPE_MAXIMUM (time_t) * billion + (billion - 1)
 			  : EMACS_INT_MAX)))
     return -1;
 
@@ -473,7 +472,7 @@ setup_cpu_timer (Lisp_Object sampling_interval)
       sigev.sigev_signo = SIGPROF;
       sigev.sigev_notify = SIGEV_SIGNAL;
 
-      for (int i = 0; i < ARRAYELTS (system_clock); i++)
+      for (int i = 0; i < countof (system_clock); i++)
 	if (timer_create (system_clock[i], &sigev, &profiler_timer) == 0)
 	  {
 	    profiler_timer_ok = true;
