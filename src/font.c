@@ -753,7 +753,7 @@ get_font_prop_index (Lisp_Object key)
 {
   int i;
 
-  for (i = 0; i < ARRAYELTS (font_property_table); i++)
+  for (i = 0; i < countof (font_property_table); i++)
     if (EQ (key, builtin_lisp_symbol (font_property_table[i].key)))
       return i;
   return -1;

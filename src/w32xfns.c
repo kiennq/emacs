@@ -84,7 +84,7 @@ init_w32_user_signal_events (void)
   if (!w32_user_signal_stop)
     return;
 
-  for (int i = 0; i < ARRAYELTS (w32_user_signal_events); ++i)
+  for (int i = 0; i < countof (w32_user_signal_events); ++i)
     {
       snprintf (name, sizeof name, "Local\\Emacs-%lu-%d",
                 (unsigned long) pid, w32_user_signal_events[i].sig);
@@ -107,7 +107,7 @@ init_w32_user_signal_events (void)
                                          NULL, 0, NULL);
   if (!w32_user_signal_thread)
     {
-      for (int i = 0; i < ARRAYELTS (w32_user_signal_events); ++i)
+      for (int i = 0; i < countof (w32_user_signal_events); ++i)
         if (w32_user_signal_events[i].event)
           {
             CloseHandle (w32_user_signal_events[i].event);
@@ -131,7 +131,7 @@ delete_w32_user_signal_events (void)
       w32_user_signal_thread = NULL;
     }
 
-  for (int i = 0; i < ARRAYELTS (w32_user_signal_events); ++i)
+  for (int i = 0; i < countof (w32_user_signal_events); ++i)
     if (w32_user_signal_events[i].event)
       {
         CloseHandle (w32_user_signal_events[i].event);
@@ -149,23 +149,23 @@ delete_w32_user_signal_events (void)
 static DWORD WINAPI
 w32_user_signal_thread_proc (LPVOID arg)
 {
-  HANDLE waits[1 + ARRAYELTS (w32_user_signal_events)];
+  HANDLE waits[1 + countof (w32_user_signal_events)];
   (void) arg;
 
   waits[0] = w32_user_signal_stop;
-  for (int i = 0; i < ARRAYELTS (w32_user_signal_events); ++i)
+  for (int i = 0; i < countof (w32_user_signal_events); ++i)
     waits[i + 1] = w32_user_signal_events[i].event;
 
   while (true)
     {
-      DWORD rc = WaitForMultipleObjects (ARRAYELTS (waits), waits,
+      DWORD rc = WaitForMultipleObjects (countof (waits), waits,
                                          FALSE, INFINITE);
 
       if (rc == WAIT_OBJECT_0)
         return 0;
 
       if (WAIT_OBJECT_0 < rc
-          && rc < WAIT_OBJECT_0 + ARRAYELTS (waits))
+          && rc < WAIT_OBJECT_0 + countof (waits))
         {
           int i = rc - WAIT_OBJECT_0 - 1;
 
@@ -180,7 +180,7 @@ w32_user_signal_thread_proc (LPVOID arg)
 int
 w32_get_next_pending_user_signal (void)
 {
-  for (int i = 0; i < ARRAYELTS (w32_user_signal_events); ++i)
+  for (int i = 0; i < countof (w32_user_signal_events); ++i)
     {
       LONG pending = InterlockedCompareExchange (&w32_user_signal_events[i].pending,
                                                  0, 0);

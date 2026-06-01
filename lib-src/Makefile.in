@@ -457,7 +457,7 @@ NTDEPS = $(NTINC)/ms-w32.h $(NTINC)/sys/stat.h $(NTINC)/inttypes.h \
 
 # The dependency on $(NTDEPS) is a trick intended to cause recompile of
 # programs on MinGW whenever some private header in nt/inc is modified.
-ntlib.o: ${srcdir}/ntlib.c ${srcdir}/ntlib.h $(NTDEPS)
+ntlib.o: ${srcdir}/ntlib.c ${srcdir}/ntlib.h $(NTDEPS) $(config_h)
 	$(AM_V_CC)$(CC) -c ${CPP_CFLAGS} $<
 
 hexl${EXEEXT}: ${srcdir}/hexl.c $(NTLIB) $(config_h)
