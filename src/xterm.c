@@ -12729,7 +12729,7 @@ x_dnd_process_quit (struct frame *f, Time timestamp)
 Lisp_Object
 x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 			   Lisp_Object return_frame, Atom *ask_action_list,
-			   const char **ask_action_names, size_t n_ask_actions,
+			   const char **ask_action_names, int n_ask_actions,
 			   bool allow_current_frame, Atom *target_atoms,
 			   int ntargets, Lisp_Object selection_target_list,
 			   bool follow_tooltip)

@@ -686,6 +686,21 @@ xzalloc (size_t size)
   return val;
 }
 
+/* Like xzalloc, but for an array of N objects each of size S.  */
+
+void *
+xcalloc (size_t n, size_t s)
+{
+  void *val = calloc (n, s);
+  if (!val)
+    {
+      size_t size;
+      memory_full (ckd_mul (&size, n, s) ? SIZE_MAX : size);
+    }
+  MALLOC_PROBE (n * s);
+  return val;
+}
+
 /* Like realloc but check for no memory and block interrupt input.  */
 
 void *
@@ -4345,6 +4360,16 @@ memory_full (size_t nbytes)
      get infinite recursion trying to build the string.  */
 #endif
   xsignal (Qnil, Vmemory_signal_data);
+}
+
+/* Report memory exhaustion because size calculations overflowed,
+   or perhaps malloc was invoked successfully but the
+   resulting pointer had problems fitting into a tagged EMACS_INT.  */
+
+void
+memory_full_up (void)
+{
+  memory_full (SIZE_MAX);
 }
 
 /* If we released our reserve (due to running out of memory),
