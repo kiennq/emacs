@@ -4991,7 +4991,7 @@ make_obarray (unsigned bits)
   struct Lisp_Obarray *o = allocate_obarray ();
   o->count = 0;
   o->size_bits = bits;
-  ptrdiff_t size = (ptrdiff_t)1 << bits;
+  ptrdiff_t size = (ptrdiff_t) {1} << bits;
 #ifdef HAVE_MPS
   o->buckets = hash_table_alloc_kv (o, size);
 #else
@@ -5019,7 +5019,7 @@ grow_obarray (struct Lisp_Obarray *o)
   int new_bits = o->size_bits + 1;
   if (new_bits > obarray_max_bits)
     error ("Obarray too big");
-  ptrdiff_t new_size = (ptrdiff_t) 1 << new_bits;
+  ptrdiff_t new_size = (ptrdiff_t) {1} << new_bits;
 #ifdef HAVE_MPS
   o->buckets = hash_table_alloc_kv (o, new_size);
 #else
@@ -5093,7 +5093,7 @@ DEFUN ("obarray-clear", Fobarray_clear, Sobarray_clear, 1, 1, 0,
   /* This function does not bother setting the status of its contained symbols
      to uninterned.  It doesn't matter very much.  */
   int new_bits = obarray_default_bits;
-  int new_size = (ptrdiff_t)1 << new_bits;
+  int new_size = (ptrdiff_t) {1} << new_bits;
 #ifdef HAVE_MPS
   Lisp_KV_Vector new_buckets = hash_table_alloc_kv (o, new_size);
 #else
@@ -5177,7 +5177,7 @@ init_obarray_once (void)
   initial_obarray = Vobarray;
   staticpro (&initial_obarray);
 
-  for (int i = 0; i < ARRAYELTS (lispsym); i++)
+  for (int i = 0; i < countof (lispsym); i++)
     {
 #ifdef HAVE_MPS
       igc_init_header (&lispsym[i].gc_header, IGC_OBJ_SYMBOL);

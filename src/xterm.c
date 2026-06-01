@@ -5750,7 +5750,7 @@ x_cache_xi_devices (struct x_display_info *dpyinfo)
     = igc_xzalloc_ambig ((sizeof *dpyinfo->devices * ndevices),
 			 "xi_device_t[]");
 #else
-  dpyinfo->devices = xzalloc (sizeof *dpyinfo->devices * ndevices);
+  dpyinfo->devices = xcalloc (ndevices, sizeof *dpyinfo->devices);
 #endif
 
   for (i = 0; i < ndevices; ++i)
@@ -13924,7 +13924,7 @@ xi_disable_devices (struct x_display_info *dpyinfo,
     = igc_xzalloc_ambig ((sizeof *devices * dpyinfo->num_devices),
 			 "xi_device_t[]");
 #else
-  devices = xzalloc (sizeof *devices * dpyinfo->num_devices);
+  devices = xcalloc (dpyinfo->num_devices, sizeof *devices);
 #endif
 
   /* Loop through every device currently in DPYINFO, and copy it to

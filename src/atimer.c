@@ -133,7 +133,7 @@ start_atimer (enum atimer_type type, struct timespec timestamp,
 #ifdef HAVE_MPS
       t = igc_xzalloc_ambig (sizeof *t, "atimer");
 #else
-      t = xmalloc (sizeof *t);
+      t = xzalloc (sizeof *t);
 #endif
     }
 

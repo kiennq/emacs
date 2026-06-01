@@ -2852,7 +2852,7 @@ remember_mouse_glyph (struct frame *f, int gx, int gy, NativeRectangle *rect)
     text_glyph:
       gr = 0; gy = 0;
       for (; r <= end_row && r->enabled_p; ++r)
-	if (r->y + (int) r->height > y)
+	if (r->y + r->height > y)
 	  {
 	    gr = r; gy = r->y;
 	    break;
@@ -2952,7 +2952,7 @@ remember_mouse_glyph (struct frame *f, int gx, int gy, NativeRectangle *rect)
     row_glyph:
       gr = 0, gy = 0;
       for (; r <= end_row && r->enabled_p; ++r)
-	if (r->y + (int) r->height > y)
+	if (r->y + r->height > y)
 	  {
 	    gr = r; gy = r->y;
 	    break;
@@ -3149,7 +3149,7 @@ funcall_with_backtraces (ptrdiff_t nargs, Lisp_Object *args)
 }
 
 #define SAFE_CALLMANY(inhibit_quit, f, array) \
-  dsafe__call (inhibit_quit, f, ARRAYELTS (array), array)
+  dsafe__call (inhibit_quit, f, countof (array), array)
 #define dsafe_calln(inhibit_quit, ...)                 \
   SAFE_CALLMANY (inhibit_quit,			       \
                  backtrace_on_redisplay_error          \
@@ -7097,7 +7097,7 @@ load_overlay_strings (struct it *it, ptrdiff_t charpos)
 {
   ptrdiff_t n = 0;
   struct overlay_entry entriesbuf[20];
-  ptrdiff_t size = ARRAYELTS (entriesbuf);
+  ptrdiff_t size = countof (entriesbuf);
   struct overlay_entry *entries = entriesbuf;
   struct itree_node *node;
 
@@ -12258,7 +12258,7 @@ vadd_to_log (char const *format, va_list ap)
   ptrdiff_t form_nargs = format_nargs (format);
   ptrdiff_t nargs = 1 + form_nargs;
   Lisp_Object args[10];
-  eassert (nargs <= ARRAYELTS (args));
+  eassert (nargs <= countof (args));
   AUTO_STRING (args0, format);
   args[0] = args0;
   for (ptrdiff_t i = 1; i < nargs; i++)
@@ -13523,7 +13523,7 @@ truncate_echo_area (ptrdiff_t nchars)
 	 initialized yet, just toss it.  */
       if (sf->glyphs_initialized_p)
 	with_echo_area_buffer (0, 0, truncate_message_1,
-			       (void *) (intptr_t) nchars, Qnil);
+			       (void *) (intptr_t) {nchars}, Qnil);
     }
 }
 
@@ -19870,7 +19870,7 @@ try_cursor_movement (Lisp_Object window, struct text_pos startp,
       && !(!NILP (Vdisplay_line_numbers)
 	   && NILP (Finternal_lisp_face_equal_p (Qline_number,
 						 Qline_number_current_line,
-						 w->frame)))
+						 w->frame, Qt)))
       /* This code is not used for mini-buffer for the sake of the case
 	 of redisplaying to replace an echo area message; since in
 	 that case the mini-buffer contents per se are usually
@@ -22671,7 +22671,7 @@ try_window_id (struct window *w)
       || (!NILP (Vdisplay_line_numbers)
 	  && NILP (Finternal_lisp_face_equal_p (Qline_number,
 						Qline_number_current_line,
-						w->frame))))
+						w->frame, Qt))))
     GIVE_UP (24);
 
   /* composition-break-at-point is incompatible with the optimizations
@@ -29106,7 +29106,7 @@ pint2str (register char *buf, register int width, register ptrdiff_t d)
 	}
     }
 
-  for (width -= (int) (p - buf); width > 0; --width)
+  for (width -= p - buf; width > 0; --width)
     *p++ = ' ';
   *p-- = '\0';
   while (p > buf)

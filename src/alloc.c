@@ -808,7 +808,7 @@ xpalloc_nbytes (void *pa, ptrdiff_t *nitems, ptrdiff_t nitems_incr_min,
       && (ckd_add (&n, n0, nitems_incr_min)
 	  || (0 <= nitems_max && nitems_max < n)
 	  || ckd_mul (&nbytes, n, item_size)))
-    memory_full (SIZE_MAX);
+    memory_full_up ();
   *nitems = n;
   return nbytes;
 }

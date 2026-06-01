@@ -905,7 +905,7 @@ concat_to_string (ptrdiff_t nargs, Lisp_Object *args)
 
       result_len += len;
       if (MOST_POSITIVE_FIXNUM < result_len)
-	memory_full (SIZE_MAX);
+	memory_full_up ();
     }
 
   if (dest_multibyte && some_unibyte)
@@ -1125,7 +1125,7 @@ concat_to_vector (ptrdiff_t nargs, Lisp_Object *args)
       EMACS_INT len = XFIXNAT (Flength (arg));
       result_len += len;
       if (MOST_POSITIVE_FIXNUM < result_len)
-	memory_full (SIZE_MAX);
+	memory_full_up ();
     }
 
   /* Create the output vector.  */
@@ -4675,7 +4675,7 @@ larger_vector (Lisp_Object vec, ptrdiff_t incr_min, ptrdiff_t nitems_max)
   incr_max = n_max - old_size;
   incr = max (incr_min, min (old_size >> 1, incr_max));
   if (incr_max < incr)
-    memory_full (SIZE_MAX);
+    memory_full_up ();
   new_size = old_size + incr;
   v = allocate_vector (new_size);
   memcpy (v->contents, XVECTOR (vec)->contents, old_size * sizeof *v->contents);
@@ -4767,7 +4767,7 @@ cmpfn_user_defined (Lisp_Object key1, Lisp_Object key2,
 		    struct Lisp_Hash_Table *h)
 {
   Lisp_Object args[] = { h->test->user_cmp_function, key1, key2 };
-  return hash_table_user_defined_call (ARRAYELTS (args), args, h);
+  return hash_table_user_defined_call (countof (args), args, h);
 }
 
 static EMACS_INT
@@ -4817,7 +4817,7 @@ static hash_hash_t
 hashfn_user_defined (Lisp_Object key, struct Lisp_Hash_Table *h)
 {
   Lisp_Object args[] = { h->test->user_hash_function, key };
-  Lisp_Object hash = hash_table_user_defined_call (ARRAYELTS (args), args, h);
+  Lisp_Object hash = hash_table_user_defined_call (countof (args), args, h);
   return reduce_emacs_uint_to_hash_hash (FIXNUMP (hash)
 					 ? XUFIXNUM(hash) : sxhash (hash));
 }
@@ -5150,7 +5150,7 @@ maybe_resize_hash_table (struct Lisp_Hash_Table *h)
 
       ptrdiff_t old_index_size = hash_table_index_size (h);
       ptrdiff_t index_bits = compute_hash_index_bits (new_size);
-      ptrdiff_t index_size = (ptrdiff_t)1 << index_bits;
+      ptrdiff_t index_size = (ptrdiff_t) {1} << index_bits;
       hash_idx_t *index = hash_table_alloc_bytes (index_size * sizeof *index);
       for (ptrdiff_t i = 0; i < index_size; i++)
 	index[i] = -1;
@@ -6808,7 +6808,7 @@ DEFUN ("internal--hash-table-histogram",
 #endif
   struct Lisp_Hash_Table *h = check_hash_table (hash_table);
   ptrdiff_t size = HASH_TABLE_SIZE (h);
-  ptrdiff_t *freq = xzalloc (size * sizeof *freq);
+  ptrdiff_t *freq = xcalloc (size, sizeof *freq);
   ptrdiff_t index_size = hash_table_index_size (h);
   for (ptrdiff_t i = 0; i < index_size; i++)
     {

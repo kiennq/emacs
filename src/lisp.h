@@ -6372,7 +6372,7 @@ safe_free_unbind_to (specpdl_ref count, specpdl_ref sa_count, Lisp_Object val)
     ptrdiff_t alloca_nbytes;					\
     if (ckd_mul (&alloca_nbytes, nelt, word_size)		\
 	|| SIZE_MAX < alloca_nbytes)				\
-      memory_full (SIZE_MAX);					\
+      memory_full_up ();					\
     else if (alloca_nbytes <= sa_avail)				\
       (buf) = AVAIL_ALLOCA (alloca_nbytes);			\
     else							\

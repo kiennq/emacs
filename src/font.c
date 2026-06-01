@@ -5807,7 +5807,7 @@ If the named font cannot be opened and loaded, return nil.  */)
 #endif
 
 #define BUILD_STYLE_TABLE(TBL) \
-  build_style_table (TBL, ARRAYELTS (TBL))
+  build_style_table (TBL, countof (TBL))
 
 static Lisp_Object
 build_style_table (const struct table_entry *entry, int nelement)
