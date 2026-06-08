@@ -2996,36 +2996,10 @@ fix_weak_hash_table_strong_part (mps_ss_t ss, struct Lisp_Weak_Hash_Table_Strong
 {
   MPS_SCAN_BEGIN (ss)
   {
-    if (t->weak && t->weak->strong == t)
-      {
-	bool scan_key = true;
-	bool scan_value = true;
-	switch (t->h.weakness)
-	  {
-	  case Weak_Key:
-	    scan_key = false;
-	    break;
-	  case Weak_Value:
-	    scan_value = false;
-	    break;
-	  case Weak_Key_And_Value:
-	  case Weak_Key_Or_Value:
-	    scan_key = false;
-	    scan_value = false;
-	    break;
-	  case Weak_None:
-	    emacs_abort ();
-	  }
-
-	for (ssize_t i = 0; i < t->h.table_size; i++)
-	  {
-	    if (scan_key)
-	      IGC_FIX12_OBJ (ss, &t->h.kv.keys->contents[i]);
-
-	    if (scan_value)
-	      IGC_FIX12_OBJ (ss, &t->h.kv.values->contents[i]);
-	  }
-      }
+    if (t->weak && t->weak->strong == t
+	&& t->h.weakness == Weak_Key_Strong_Value)
+      for (ssize_t i = 0; i < t->h.table_size; i++)
+	IGC_FIX12_OBJ (ss, &t->h.kv.values->contents[i]);
   }
   MPS_SCAN_END (ss);
   return MPS_RES_OK;
@@ -3040,45 +3014,25 @@ fix_weak_hash_table_weak_part (mps_ss_t ss, struct Lisp_Weak_Hash_Table_Weak_Par
     struct Lisp_Weak_Hash_Table_Strong_Part *t = w->strong;
     if (t && t->weak == w)
       {
-	bool scan_key = false;
-	bool scan_value = false;
-	switch (t->h.weakness)
-	  {
-	  case Weak_Key:
-	    scan_key = true;
-	    break;
-	  case Weak_Value:
-	    scan_value = true;
-	    break;
-	  case Weak_Key_And_Value:
-	  case Weak_Key_Or_Value:
-	    scan_key = true;
-	    scan_value = true;
-	    break;
-	  case Weak_None:
-	    emacs_abort ();
-	  }
-
 	for (ssize_t i = 0; i < t->h.table_size; i++)
 	  {
-	    if (scan_key)
-	      {
-		bool was_nil = NILP (t->h.kv.keys->contents[i]);
-		IGC_FIX12_OBJ (ss, &t->h.kv.keys->contents[i]);
-		bool is_now_nil = NILP (t->h.kv.keys->contents[i]);
+	    {
+	      bool was_nil = NILP (t->h.kv.keys->contents[i]);
+	      IGC_FIX12_OBJ (ss, &t->h.kv.keys->contents[i]);
+	      bool is_now_nil = NILP (t->h.kv.keys->contents[i]);
 
-		if (is_now_nil && !was_nil)
-		  {
-		    struct Lisp_Weak_Hash_Table pseudo_h =
-		      {
-			.strong = t,
-			.weak = w,
-		      };
-		    weak_hash_splat_from_table (&pseudo_h, i);
-		  }
-	      }
+	      if (is_now_nil && !was_nil)
+		{
+		  struct Lisp_Weak_Hash_Table pseudo_h =
+		    {
+		      .strong = t,
+		      .weak = w,
+		    };
+		  weak_hash_splat_from_table (&pseudo_h, i);
+		}
+	    }
 
-	    if (scan_value)
+	    if (t->h.weakness != Weak_Key_Strong_Value)
 	      {
 		bool was_nil = NILP (t->h.kv.values->contents[i]);
 		IGC_FIX12_OBJ (ss, &t->h.kv.values->contents[i]);
@@ -4566,7 +4520,6 @@ finalize_vector (mps_addr_t v)
     case PVEC_MARKER:
     case PVEC_MODULE_GLOBAL_REFERENCE:
     case PVEC_BIGNUM:
-      igc_assert (!"finalization not implemented");
       break;
 
     case PVEC_FREE:
@@ -5418,25 +5371,12 @@ igc_make_weak_hash_table_strong_part (hash_table_weakness_t weak,
   sizes[1] = sizeof (struct Lisp_String_Data) + size * sizeof (hash_idx_t);
   sizes[2] = sizeof (struct Lisp_String_Data) + size * sizeof (hash_hash_t);
   sizes[3] = sizeof (struct Lisp_String_Data) + ((ptrdiff_t) 1 << index_bits) * sizeof (hash_idx_t);
-  sizes[4] = header_size + size * word_size;
+  sizes[4] = weak == Weak_Key_Strong_Value ? (header_size + size * word_size) : 0;
   types[0] = IGC_OBJ_WEAK_HASH_TABLE_STRONG_PART;
   types[1] = IGC_OBJ_STRING_DATA;
   types[2] = IGC_OBJ_STRING_DATA;
   types[3] = IGC_OBJ_STRING_DATA;
   types[4] = IGC_OBJ_VECTOR;
-  switch (weak)
-    {
-    case Weak_Key:
-      break;
-    case Weak_Value:
-      break;
-    case Weak_Key_And_Value:
-    case Weak_Key_Or_Value:
-      sizes[4] = 0;
-      break;
-    case Weak_None:
-      emacs_abort ();
-    }
   alloc_multi (sizes[4] ? 5 : 4, pointers, sizes, types,
 	       thread_ap (types[0]));
 }
@@ -5450,23 +5390,10 @@ igc_make_weak_hash_table_weak_part (hash_table_weakness_t weak,
   enum igc_obj_type types[3] = { };
   sizes[0] = sizeof (struct Lisp_Weak_Hash_Table_Weak_Part);
   sizes[1] = header_size + size * word_size;
-  sizes[2] = 0;
+  sizes[2] = weak == Weak_Key_Strong_Value ? 0 : (header_size + size * word_size);
   types[0] = IGC_OBJ_WEAK_HASH_TABLE_WEAK_PART;
   types[1] = IGC_OBJ_VECTOR;
   types[2] = IGC_OBJ_VECTOR;
-  switch (weak)
-    {
-    case Weak_Key:
-      break;
-    case Weak_Value:
-      break;
-    case Weak_Key_And_Value:
-    case Weak_Key_Or_Value:
-      sizes[2] = header_size + size * word_size;
-      break;
-    case Weak_None:
-      emacs_abort ();
-    }
   alloc_multi (sizes[2] ? 3 : 2, pointers, sizes, types,
 	       thread_ap (types[0]));
 }
@@ -5798,7 +5725,7 @@ root.  Each element has the form (LABEL TYPE START END), where
   return roots;
 }
 
-static struct igc_exthdr *
+static struct igc_exthdr
 igc_external_header (union igc_header *h, bool is_builtin)
 {
   if (header_tag (h) != IGC_TAG_EXTHDR)
@@ -5817,10 +5744,24 @@ igc_external_header (union igc_header *h, bool is_builtin)
 	  mps_res_t res = mps_finalize (global_igc->arena, &ref);
 	  IGC_CHECK_RES (res);
 	}
-      return exthdr;
+      return *exthdr;
     }
 
-  return header_exthdr (h);
+  return *header_exthdr (h);
+}
+
+static void
+igc_update_exthdr (union igc_header *h, struct igc_exthdr exthdr_data)
+{
+  struct igc_exthdr *exthdr = xmalloc (sizeof *exthdr);
+  *exthdr = exthdr_data;
+  struct igc_exthdr *old_hdr = (header_tag (h) == IGC_TAG_EXTHDR
+				? header_exthdr (h) : NULL);
+  /* On IA-32, the upper 32-bit word is 0 after this, which is okay.  */
+  uint64_t v = (intptr_t) exthdr + IGC_TAG_EXTHDR;
+  *(uint64_t *) h = v;
+  if (old_hdr)
+    xfree (old_hdr);
 }
 
 DEFUN ("igc--set-commit-limit", Figc__set_commit_limit,
@@ -6205,7 +6146,7 @@ igc_dump_finish_obj (void *client, enum igc_obj_type type,
 	if (type != IGC_OBJ_DUMPED_BYTES &&
 	    type != IGC_OBJ_DUMPED_CODE_SPACE_MASKS &&
 	    type != IGC_OBJ_DUMPED_BUFFER_TEXT)
-	  *out = *h;
+	  set_header (out, type, obj_size (h), igc_header_hash (h));
 	igc_assert (header_nwords (out) > 0);
 	return base + obj_size (h);
       }
@@ -6400,8 +6341,8 @@ Internal use only.  */)
     return Qnil;
 
   union igc_header *h = addr;
-  struct igc_exthdr *exthdr = igc_external_header (h, is_builtin_obj (obj));
-  return exthdr->extra_dependency;
+  struct igc_exthdr exthdr = igc_external_header (h, is_builtin_obj (obj));
+  return exthdr.extra_dependency;
 }
 
 DEFUN ("igc--add-extra-dependency", Figc__add_extra_dependency,
@@ -6417,12 +6358,13 @@ KEY is the key to associate with DEPENDENCY in a hash table.  */)
     return Qnil;
 
   union igc_header *h = addr;
-  struct igc_exthdr *exthdr = igc_external_header (h, is_builtin_obj (obj));
-  Lisp_Object hash = exthdr->extra_dependency;
+  struct igc_exthdr exthdr = igc_external_header (h, is_builtin_obj (obj));
+  Lisp_Object hash = exthdr.extra_dependency;
 #ifndef USE_EPHEMERON_POOL
   if (!WEAK_HASH_TABLE_P (hash))
-    exthdr->extra_dependency = hash =
-      CALLN (Fmake_hash_table, QCtest, Qeq, QCweakness, Qkey);
+    exthdr.extra_dependency = hash
+      = make_hash_table (&hashtest_eq, DEFAULT_HASH_SIZE,
+			 Weak_Key_Strong_Value);
 #endif
 
   Lisp_Object hash2 = Fgethash (key, hash, Qnil);
@@ -6434,6 +6376,7 @@ KEY is the key to associate with DEPENDENCY in a hash table.  */)
   Lisp_Object count = Fgethash (dependency, hash2, make_fixnum (0));
   count = Fadd1 (count);
   Fputhash (dependency, count, hash2);
+  igc_update_exthdr (h, exthdr);
   return Qt;
 }
 
@@ -6449,8 +6392,8 @@ KEY is the key associated with DEPENDENCY in a hash table.  */)
     return Qnil;
 
   union igc_header *h = addr;
-  struct igc_exthdr *exthdr = igc_external_header (h, is_builtin_obj (repl));
-  Lisp_Object hash = exthdr->extra_dependency;
+  struct igc_exthdr exthdr = igc_external_header (h, is_builtin_obj (repl));
+  Lisp_Object hash = exthdr.extra_dependency;
 #ifndef USE_EPHEMERON_POOL
   if (!WEAK_HASH_TABLE_P (hash))
     return Qnil;
@@ -6474,13 +6417,14 @@ KEY is the key associated with DEPENDENCY in a hash table.  */)
 	     remove_dependency_replacement.  */
 	  if (BASE_EQ (Fhash_table_count (hash), make_fixnum (0)))
 	    {
-	      exthdr->extra_dependency = Qnil;
+	      exthdr.extra_dependency = Qnil;
 	      remove_dependency_replacement (obj);
 	    }
 	}
     }
   else
     Fputhash (dependency, count, hash2);
+  igc_update_exthdr (h, exthdr);
 
   return Qt;
 }
@@ -6759,6 +6703,7 @@ were the default value.  */);
 
   DEFVAR_LISP ("igc--dependency-replacements", Vigc__dependency_replacements,
      doc: /* Internal use only.  */);
-  Vigc__dependency_replacements = CALLN (Fmake_hash_table, QCtest, Qeq,
-					 QCweakness, Qkey);
+  Vigc__dependency_replacements
+    = make_hash_table (&hashtest_eq, DEFAULT_HASH_SIZE,
+		       Weak_Key_Strong_Value);
 }

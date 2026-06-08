@@ -2656,6 +2656,7 @@ typedef enum hash_table_weakness_t {
   Weak_Key_And_Value,	 /* References to key and value are weak:
 			    element kept as long as strong references to
 			    both key and value remain.  */
+  Weak_Key_Strong_Value,
 } hash_table_weakness_t;
 
 /* The type of a hash table index, both for table indices and index
@@ -2829,7 +2830,7 @@ struct Lisp_Hash_Table
   unsigned char index_bits;	/* log2 (size of the index vector).  */
 
   /* Weakness of the table.  */
-  ENUM_BF (hash_table_weakness_t) weakness : 3;
+  ENUM_BF (hash_table_weakness_t) weakness : 4;
 
   /* Hash table test (only used when frozen in dump)  */
   ENUM_BF (hash_table_std_test_t) frozen_test : 2;
@@ -4664,8 +4665,6 @@ void hash_remove_from_table (struct Lisp_Hash_Table *, Lisp_Object);
 Lisp_Object strong_copy_hash_table (Lisp_Object);
 void strengthen_hash_table_for_dump (struct Lisp_Weak_Hash_Table *);
 ptrdiff_t weak_hash_lookup (struct Lisp_Weak_Hash_Table *, Lisp_Object);
-ptrdiff_t weak_hash_put (struct Lisp_Weak_Hash_Table *, Lisp_Object, Lisp_Object,
-			 hash_hash_t);
 void weak_hash_remove_from_table (struct Lisp_Weak_Hash_Table *, Lisp_Object);
 void weak_hash_splat_from_table (struct Lisp_Weak_Hash_Table *h, ptrdiff_t i0);
 #endif
