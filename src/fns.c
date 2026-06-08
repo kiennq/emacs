@@ -1827,7 +1827,10 @@ DEFUN ("nthcdr", Fnthcdr, Snthcdr, 2, 2, 0,
 	  mpz_export (&iz, NULL, -1, sizeof iz, 0, 0, mpz[0]);
 	  num += iz;
 	}
-      num += cycle_length - large_num % cycle_length;
+      if (num < cycle_length)
+	num += cycle_length;
+      num -= large_num % cycle_length;
+      eassume (num >= 0);
     }
   num %= cycle_length;
 
@@ -3962,14 +3965,14 @@ The data read from the system are decoded using `locale-coding-system'.  */)
 # endif
 # ifdef HAVE_LANGINFO__NL_PAPER_WIDTH
   if (EQ (item, Qpaper))
-    /* We have to cast twice here: first to a correctly-sized integer,
+    /* We have to convert twice here: first to a correctly-sized integer,
        then to int, because that's what nl_langinfo is documented to
-       return for _NO_PAPER_{WIDTH,HEIGHT}.  The first cast doesn't
+       return for _NO_PAPER_{WIDTH,HEIGHT}.  The cast doesn't
        suffice because it could overflow an Emacs fixnum.  This can
        happen when running under ASan, which fills allocated but
        uninitialized memory with 0xBE bytes.  */
-    return list2i ((int) (intptr_t) nl_langinfo (_NL_PAPER_WIDTH),
-		   (int) (intptr_t) nl_langinfo (_NL_PAPER_HEIGHT));
+    return list2i ((int) {(intptr_t) nl_langinfo (_NL_PAPER_WIDTH)},
+		   (int) {(intptr_t) nl_langinfo (_NL_PAPER_HEIGHT)});
 # endif
 #endif	/* HAVE_LANGINFO_CODESET*/
   return Qnil;
