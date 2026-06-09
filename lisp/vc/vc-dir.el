@@ -1313,8 +1313,7 @@ that file."
 
 (defun vc-dir-resynch-file (&optional fname)
   "Update the entries for FNAME in any directory buffers that list it."
-  (let* ((file  (or fname buffer-file-name))
-         (file-tn (file-truename file))
+  (let* ((file (file-truename (or fname buffer-file-name)))
          (drop '()))
     (save-current-buffer
       ;; look for a vc-dir buffer that might show this file.
@@ -1333,20 +1332,20 @@ that file."
                          ;; `default-directory' in order to do its work,
                          ;; but that's irrelevant to us here.
                          (buffer-local-toplevel-value 'default-directory))))
-              (when (file-in-directory-p file-tn ddir)
-                (if (file-directory-p file-tn)
+              (when (file-in-directory-p file ddir)
+                (if (file-directory-p file)
 		    (progn
-		      (vc-dir-resync-directory-files file-tn)
+		      (vc-dir-resync-directory-files file)
 		      (ewoc-set-hf vc-ewoc
 				   (vc-dir-headers vc-dir-backend ddir) ""))
                   (let* ((complete-state
-                          ;; Pass FILE not FILE-TN here.  See bug#80967.
-                          (vc-dir-recompute-file-state file ddir))
+                          (vc-dir-recompute-file-state file
+                                                       (file-truename ddir)))
 			 (state (cadr complete-state)))
-                    (vc-dir-update
-                     (list complete-state)
-                     status-buf (or (not state)
-				    (eq state 'up-to-date)))))))))))
+                    (vc-dir-update (list complete-state)
+                                   status-buf
+                                   (or (not state)
+				       (eq state 'up-to-date)))))))))))
     ;; Remove out-of-date entries from vc-dir-buffers.
     (setq vc-dir-buffers
           (cl-nset-difference vc-dir-buffers drop :test #'eq))))
@@ -1414,15 +1413,14 @@ the *vc-dir* buffer.
 
 (defcustom vc-dir-show-outgoing-count t
   "Whether to display the number of unpushed revisions in VC-Dir.
-For some combinations of VC backends and remotes, determining how many
-outgoing revisions there are is slow, because the backend must fetch
-from the remote, and your connection to the remote is slow.  Customize
-this variable to nil to disable calculating the outgoing count and
-therefore also disable the fetching."
+This variable was for when the number of unpushed revisions was counted
+synchronously.  As that is now done asynchronously, this toggle is no
+longer needed."
   :type 'boolean
   :safe #'booleanp
   :group 'vc
   :version "31.1")
+(make-obsolete-variable 'vc-dir-show-outgoing-count nil "32.1")
 
 (defvar log-view-message-re)
 
@@ -1471,12 +1469,9 @@ uses OVERLAY."
                (kill-buffer buf))))))
 
 (defvar-local vc-dir-async-header-values
-  '((vc-dir-show-outgoing-count "Outgoing" vc-dir--count-outgoing))
+  '(("Outgoing" . vc-dir--count-outgoing))
   "List of specifications for asynchronously computed VC-Dir header values.
-Each element is a list (VAR HEADER FUN) where
-- VAR is the name of a variable.
-  If the variable's value is nil, the async header will not be included.
-  This is so the user can turn off including the header.
+Each element is a pair (HEADER . FUN) where
 - HEADER is a string label for the header in the VC-Dir buffer.
 - FUN is a function of two arguments (BACKEND OVERLAY) that starts the
   asynchronous computation of the header's value.  BACKEND is the VC
@@ -1507,11 +1502,10 @@ specific headers."
                'face 'vc-dir-header-value)
    (vc-call-backend backend 'dir-extra-headers dir)
    "\n"
-   (mapconcat (pcase-lambda (`(,var ,header ,_))
-                (and (symbol-value var)
-                     (concat (propertize (format "%-11s: " header)
-                                         'face 'vc-dir-header)
-                             "\n")))
+   (mapconcat (pcase-lambda (`(,header . ,_))
+                (concat (propertize (format "%-11s: " header)
+                                    'face 'vc-dir-header)
+                        "\n"))
               vc-dir-async-header-values)))
 
 (defun vc-dir-refresh-files (files)
@@ -1605,7 +1599,7 @@ Throw an error if another update process is in progress."
         (delete-overlay overlay))
       ;; Set up new async header overlays.
       (save-excursion
-        (pcase-dolist (`(,_ ,field ,fun) vc-dir-async-header-values)
+        (pcase-dolist (`(,field . ,fun) vc-dir-async-header-values)
           (goto-char (point-min))
           (when (re-search-forward (format "^%s\\s-" field) nil t)
             (funcall fun backend (make-overlay (pos-eol) (pos-eol))))))
