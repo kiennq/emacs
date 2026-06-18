@@ -15414,6 +15414,12 @@ note_tab_bar_highlight (struct frame *f, int x, int y)
 
   clear_mouse_face (hlinfo);
 
+  /* clear_mouse_face may have redrawn the row.  Hit-test again before
+     using glyph positions from the current matrix.  */
+  if (get_tab_bar_item (f, x, y, &glyph, &hpos, &vpos, &prop_idx,
+			&close_p) < 0)
+    return;
+
   bool mouse_down_p = false;
   /* Mouse is down, but on different tab-bar item?  Or alternatively,
      the mouse might've been pressed somewhere we don't know about,
