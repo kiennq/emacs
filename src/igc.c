@@ -4862,8 +4862,6 @@ igc_on_idle (void)
   record_unwind_protect_void (allow_on_idle);
   inhibit_on_idle = true;
 
-  shrink_regexp_cache ();
-
   struct igc_buffer_it buffer_it = make_buffer_it ();
   IGC_WITH_CLOCK (clock, 0.1)
   {
