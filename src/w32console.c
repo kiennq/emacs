@@ -1134,7 +1134,7 @@ initialize_w32_display (struct terminal *term, int *width, int *height)
   EnumThreadWindows (GetCurrentThreadId (), find_ime_window, (LPARAM) &hwnd);
 
   /* Set up the keyboard hook.  */
-  setup_w32_kbdhook (hwnd);
+  /* setup_w32_kbdhook (hwnd); */
 
   /* Set current_tty to the tty of this terminal */
   current_tty = term->display_info.tty;
