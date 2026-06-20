@@ -196,6 +196,19 @@
     (should (equal (json-parse-string input :object-type 'plist)
                    '(:abc [1 2 t]  :def :null :abc [9 :false])))))
 
+(ert-deftest json-parse-string/large-object ()
+  (let* ((input (concat "{"
+                        (mapconcat
+                         (lambda (i) (format "\"k%d\":[%d]" i i))
+                         (number-sequence 0 99)
+                         ",")
+                        "}"))
+         (actual (json-parse-string input)))
+    (should (hash-table-p actual))
+    (should (= (hash-table-count actual) 100))
+    (dotimes (i 100)
+      (should (equal (gethash (format "k%d" i) actual) (vector i))))))
+
 (ert-deftest json-parse-string/object-unicode-keys ()
   (let ((input "{\"é\":1,\"☃\":2,\"𐌐\":3}"))
     (let ((actual (json-parse-string input)))
