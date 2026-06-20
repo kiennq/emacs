@@ -33,6 +33,8 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "blockinput.h"
 #include "xwidget.h"
 #include "dynlib.h"
+#include "igc.h"
+#include "pdumper.h"
 
 #include <c-ctype.h>
 #include <float.h>
@@ -61,7 +63,6 @@ static ptrdiff_t new_backquote_output;
 
 /* Detect most circularities to print finite output.  */
 #define PRINT_CIRCLE 200
-static Lisp_Object being_printed[PRINT_CIRCLE];
 
 /* Last char printed to stdout by printchar.  */
 static unsigned int printchar_stdout_last;
@@ -87,7 +88,7 @@ static struct print_buffer print_buffer;
    print_number_index holds the largest N already used.
    N has to be strictly larger than 0 since we need to distinguish -N.  */
 static ptrdiff_t print_number_index;
-static void print_interval (INTERVAL interval, void *pprintcharfun);
+static void print_interval (INTERVAL interval, void *print_context);
 
 /* GDB resets this to zero on W32 to disable OutputDebugString calls.  */
 extern bool print_output_debug_flag;
@@ -126,6 +127,7 @@ struct print_context
   ptrdiff_t old_point, start_point;
   ptrdiff_t old_point_byte, start_point_byte;
   specpdl_ref specpdl_count;
+  Lisp_Object being_printed[PRINT_CIRCLE];
 };
 
 static inline struct print_context
@@ -619,10 +621,10 @@ temp_output_buffer_setup (const char *bufname)
   specbind (Qstandard_output, buf);
 }
 
-static void print (Lisp_Object, Lisp_Object, bool);
+static void print (Lisp_Object, bool, struct print_context *);
 static void print_preprocess (Lisp_Object);
 static void print_preprocess_string (INTERVAL, void *);
-static void print_object (Lisp_Object, Lisp_Object, bool);
+static void print_object (Lisp_Object, bool, struct print_context *);
 
 DEFUN ("terpri", Fterpri, Sterpri, 0, 2, 0,
        doc: /* Output a newline to stream PRINTCHARFUN.
@@ -783,7 +785,7 @@ means "use default values for all the print-related settings".  */)
     print_bind_overrides (overrides);
 
   struct print_context pc = print_prepare (printcharfun);
-  print (object, pc.printcharfun, 1);
+  print (object, 1, &pc);
   print_finish (&pc);
 
   return unbind_to (count, object);
@@ -820,7 +822,7 @@ A printed representation of an object is text which describes that object.  */)
   Lisp_Object save_deactivate_mark = Vdeactivate_mark;
 
   struct print_context pc = print_prepare (Vprin1_to_string_buffer);
-  print (object, pc.printcharfun, NILP (noescape));
+  print (object, NILP (noescape), &pc);
   /* Make Vprin1_to_string_buffer be the default buffer after print_finish */
   print_finish (&pc);
 
@@ -874,7 +876,7 @@ is used instead.  */)
     /* fast path for plain strings */
     print_string (object, pc.printcharfun);
   else
-    print (object, pc.printcharfun, 0);
+    print (object, 0, &pc);
   print_finish (&pc);
   return object;
 }
@@ -908,7 +910,7 @@ is used instead.  */)
     printcharfun = Vstandard_output;
   struct print_context pc = print_prepare (printcharfun);
   printchar ('\n', pc.printcharfun);
-  print (object, pc.printcharfun, 1);
+  print (object, 1, &pc);
   printchar ('\n', pc.printcharfun);
   print_finish (&pc);
   return object;
@@ -1289,7 +1291,7 @@ float_to_string (char *buf, double data)
 
 
 static void
-print (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
+print (Lisp_Object obj, bool escapeflag, struct print_context *pc)
 {
   new_backquote_output = 0;
 
@@ -1322,7 +1324,7 @@ print (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
     }
 
   print_depth = 0;
-  print_object (obj, printcharfun, escapeflag);
+  print_object (obj, escapeflag, pc);
 }
 
 static inline bool
@@ -1348,30 +1350,18 @@ print_circle_candidate_p (Lisp_Object obj)
     return false;
 }
 
-/* The print preprocess stack, used to traverse data structures.  */
-
-struct print_pp_entry {
-  ptrdiff_t n;			/* number of values, or 0 if a single value */
-  union {
-    Lisp_Object value;		/* when n = 0 */
-    Lisp_Object *values;	/* when n > 0 */
-  } u;
-};
-
-struct print_pp_stack {
-  struct print_pp_entry *stack;	 /* base of stack */
-  ptrdiff_t size;		 /* allocated size in entries */
-  ptrdiff_t sp;			 /* current number of entries */
-};
-
-static struct print_pp_stack ppstack = {NULL, 0, 0};
+struct print_pp_stack ppstack = {NULL, 0, 0};
 
 NO_INLINE static void
 grow_pp_stack (void)
 {
   struct print_pp_stack *ps = &ppstack;
   eassert (ps->sp == ps->size);
+#ifdef HAVE_MPS
+  igc_grow_pp_stack (ps);
+#else
   ps->stack = xpalloc (ps->stack, &ps->size, 1, -1, sizeof *ps->stack);
+#endif
   eassert (ps->sp < ps->size);
 }
 
@@ -1380,10 +1370,39 @@ pp_stack_push_value (Lisp_Object value)
 {
   if (ppstack.sp >= ppstack.size)
     grow_pp_stack ();
-  ppstack.stack[ppstack.sp++] = (struct print_pp_entry){.n = 0,
-							.u.value = value};
+  volatile struct print_pp_entry entry =
+    {
+      .n = 0,
+      .u.value = value,
+#ifdef HAVE_MPS
+      .is_in_use = true,
+#endif
+    };
+  ppstack.stack[ppstack.sp++] = entry;
+  eassert (memcmp ((void *)&entry, (void *)&ppstack.stack[ppstack.sp - 1], sizeof entry) == 0);
 }
 
+#ifdef HAVE_MPS
+static inline void
+pp_stack_push_values (Lisp_Object vectorlike, ptrdiff_t start, ptrdiff_t n)
+{
+  eassert (VECTORLIKEP (vectorlike));
+  eassume (n >= 0);
+  if (n == 0)
+    return;
+  if (ppstack.sp >= ppstack.size)
+    grow_pp_stack ();
+  volatile struct print_pp_entry entry =
+    {
+      .start = start,
+      .n = n,
+      .u.vectorlike = vectorlike,
+      .is_in_use = true,
+    };
+  ppstack.stack[ppstack.sp++] = entry;
+  eassert (memcmp ((void *)&entry, (void *)&ppstack.stack[ppstack.sp - 1], sizeof entry) == 0);
+}
+#else
 static inline void
 pp_stack_push_values (Lisp_Object *values, ptrdiff_t n)
 {
@@ -1395,6 +1414,7 @@ pp_stack_push_values (Lisp_Object *values, ptrdiff_t n)
   ppstack.stack[ppstack.sp++] = (struct print_pp_entry){.n = n,
 							.u.values = values};
 }
+#endif
 
 static inline bool
 pp_stack_empty_p (void)
@@ -1406,18 +1426,34 @@ static inline Lisp_Object
 pp_stack_pop (void)
 {
   eassume (!pp_stack_empty_p ());
-  struct print_pp_entry *e = &ppstack.stack[ppstack.sp - 1];
-  if (e->n == 0)		/* single value */
+  struct print_pp_entry *ep = &ppstack.stack[ppstack.sp - 1];
+  volatile struct print_pp_entry e = *ep;
+  if (e.n == 0)			/* single value */
     {
       --ppstack.sp;
-      return e->u.value;
+#ifdef HAVE_MPS
+      ep->is_in_use = false;
+#endif
+      return e.u.value;
     }
   /* Array of values: pop them left to right, which seems to be slightly
      faster than right to left.  */
-  e->n--;
-  if (e->n == 0)
-    --ppstack.sp;		/* last value consumed */
-  return (++e->u.values)[-1];
+  ep->n--;
+  Lisp_Object result;
+#ifdef HAVE_MPS
+  result = AREF (e.u.vectorlike, e.start);
+  ep->start++;
+#else
+  result = (++ep->u.values)[-1];
+#endif
+  if (ep->n == 0)
+    {
+      --ppstack.sp;
+#ifdef HAVE_MPS
+      ep->is_in_use = false;
+#endif
+    }
+  return result;
 }
 
 /* Construct Vprint_number_table for the print-circle feature
@@ -1483,20 +1519,25 @@ print_preprocess (Lisp_Object obj)
 
 		case Lisp_Vectorlike:
 		  {
-		    struct Lisp_Vector *vec = XVECTOR (obj);
 		    ptrdiff_t size = ASIZE (obj);
 		    if (size & PSEUDOVECTOR_FLAG)
 		      size &= PSEUDOVECTOR_SIZE_MASK;
 		    ptrdiff_t start = (SUB_CHAR_TABLE_P (obj)
 				       ? SUB_CHAR_TABLE_OFFSET : 0);
+#ifdef HAVE_MPS
+		    pp_stack_push_values (obj, start, size - start);
+#else
+		    struct Lisp_Vector *vec = XVECTOR (obj);
 		    pp_stack_push_values (vec->contents + start, size - start);
+#endif
 		    if (HASH_TABLE_P (obj))
 		      {
 			struct Lisp_Hash_Table *h = XHASH_TABLE (obj);
-			/* The values pushed here may include
-			   HASH_UNUSED_ENTRY_KEY; see top of this function.  */
-			pp_stack_push_values (h->key_and_value,
-					      2 * h->table_size);
+			DOHASH (h, k, v)
+			  {
+			    pp_stack_push_value (k);
+			    pp_stack_push_value (v);
+			  }
 		      }
 		    break;
 		  }
@@ -1697,9 +1738,10 @@ print_bool_vector (Lisp_Object obj, Lisp_Object printcharfun)
 
 /* Print a pseudovector that has no readable syntax.  */
 static void
-print_vectorlike_unreadable (Lisp_Object obj, Lisp_Object printcharfun,
-			     bool escapeflag, char *buf)
+print_vectorlike_unreadable (Lisp_Object obj, bool escapeflag, char *buf,
+			     struct print_context *pc)
 {
+  Lisp_Object printcharfun = pc->printcharfun;
   /* First check whether this is handled by `print-unreadable-function'.  */
   if (!NILP (Vprint_unreadable_function)
       && FUNCTIONP (Vprint_unreadable_function))
@@ -1755,18 +1797,18 @@ print_vectorlike_unreadable (Lisp_Object obj, Lisp_Object printcharfun,
       {
         struct Lisp_Symbol_With_Pos *sp = XSYMBOL_WITH_POS (obj);
         if (print_symbols_bare)
-          print_object (sp->sym, printcharfun, escapeflag);
+          print_object (sp->sym, escapeflag, pc);
         else
           {
             print_c_string ("#<symbol ", printcharfun);
             if (BARE_SYMBOL_P (sp->sym))
-              print_object (sp->sym, printcharfun, escapeflag);
+              print_object (sp->sym, escapeflag, pc);
             else
               print_c_string ("NOT A SYMBOL!!", printcharfun);
             if (FIXNUMP (sp->pos))
               {
                 print_c_string (" at ", printcharfun);
-                print_object (sp->pos, printcharfun, escapeflag);
+                print_object (sp->pos, escapeflag, pc);
               }
             else
               print_c_string (" NOT A POSITION!!", printcharfun);
@@ -1949,18 +1991,17 @@ print_vectorlike_unreadable (Lisp_Object obj, Lisp_Object printcharfun,
 		  {
 		    printchar (' ', printcharfun);
 		    if (i < FONT_WEIGHT_INDEX || i > FONT_WIDTH_INDEX)
-		      print_object (AREF (obj, i), printcharfun, escapeflag);
+		      print_object (AREF (obj, i), escapeflag, pc);
 		    else
 		      print_object (font_style_symbolic (obj, i, 0),
-				    printcharfun, escapeflag);
+				    escapeflag, pc);
 		  }
 	      }
 	  }
 	else
 	  {
 	    print_c_string ("#<font-object ", printcharfun);
-	    print_object (AREF (obj, FONT_NAME_INDEX), printcharfun,
-			  escapeflag);
+	    print_object (AREF (obj, FONT_NAME_INDEX), escapeflag, pc);
 	  }
 	printchar ('>', printcharfun);
       }
@@ -2041,9 +2082,9 @@ print_vectorlike_unreadable (Lisp_Object obj, Lisp_Object printcharfun,
       {
 	struct Lisp_Native_Comp_Unit *cu = XNATIVE_COMP_UNIT (obj);
 	print_c_string ("#<native compilation unit: ", printcharfun);
-	print_object (cu->file, printcharfun, escapeflag);
+	print_object (cu->file, escapeflag, pc);
 	printchar (' ', printcharfun);
-	print_object (cu->optimize_qualities, printcharfun, escapeflag);
+	print_object (cu->optimize_qualities, escapeflag, pc);
 	printchar ('>', printcharfun);
 	return;
       }
@@ -2092,9 +2133,9 @@ print_vectorlike_unreadable (Lisp_Object obj, Lisp_Object printcharfun,
       print_string (Ftreesit_node_type (obj), printcharfun);
       print_c_string (delim2, printcharfun);
       print_c_string (" in ", printcharfun);
-      print_object (Ftreesit_node_start (obj), printcharfun, escapeflag);
+      print_object (Ftreesit_node_start (obj), escapeflag, pc);
       printchar ('-', printcharfun);
-      print_object (Ftreesit_node_end (obj), printcharfun, escapeflag);
+      print_object (Ftreesit_node_end (obj), escapeflag, pc);
       printchar ('>', printcharfun);
       return;
 #endif
@@ -2140,11 +2181,15 @@ print_vectorlike_unreadable (Lisp_Object obj, Lisp_Object printcharfun,
     case PVEC_CHAR_TABLE:
     case PVEC_SUB_CHAR_TABLE:
     case PVEC_HASH_TABLE:
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
+    case PVEC_WEAK_HASH_TABLE:
+#endif
     case PVEC_BIGNUM:
     case PVEC_BOOL_VECTOR:
     /* Impossible cases.  */
     case PVEC_FREE:
     case PVEC_OTHER:
+    case PVEC_MODULE_GLOBAL_REFERENCE:
       break;
     }
   emacs_abort ();
@@ -2168,73 +2213,18 @@ named_escape (int i)
   return 0;
 }
 
-enum print_entry_type
-  {
-    PE_list,			/* print rest of list */
-    PE_rbrac,			/* print ")" */
-    PE_vector,			/* print rest of vector */
-    PE_hash,			/* print rest of hash data */
-  };
-
-struct print_stack_entry
-{
-  enum print_entry_type type;
-
-  union
-  {
-    struct
-    {
-      Lisp_Object last;		/* cons whose car was just printed  */
-      intmax_t maxlen;		/* max number of elements left to print */
-      /* State for Brent cycle detection.  See
-	 Brent RP. BIT. 1980;20(2):176-184. doi:10.1007/BF01933190
-	 https://maths-people.anu.edu.au/~brent/pd/rpb051i.pdf */
-      Lisp_Object tortoise;     /* slow pointer */
-      ptrdiff_t n;		/* tortoise step countdown */
-      ptrdiff_t m;		/* tortoise step period */
-      intmax_t tortoise_idx;	/* index of tortoise */
-    } list;
-
-    struct
-    {
-      Lisp_Object obj;		/* object to print after " . " */
-    } dotted_cdr;
-
-    struct
-    {
-      Lisp_Object obj;		/* vector object */
-      ptrdiff_t size;		/* length of vector */
-      ptrdiff_t idx;		/* index of next element */
-      const char *end;		/* string to print at end */
-      bool truncated;		/* whether to print "..." before end */
-    } vector;
-
-    struct
-    {
-      Lisp_Object obj;		/* hash-table object */
-      ptrdiff_t nobjs;		/* number of keys and values to print */
-      ptrdiff_t idx;		/* index of key-value pair */
-      ptrdiff_t printed;	/* number of keys and values printed */
-      bool truncated;		/* whether to print "..." before end */
-    } hash;
-  } u;
-};
-
-struct print_stack
-{
-  struct print_stack_entry *stack;  /* base of stack */
-  ptrdiff_t size;		    /* allocated size in entries */
-  ptrdiff_t sp;			    /* current number of entries */
-};
-
-static struct print_stack prstack = {NULL, 0, 0};
+struct print_stack prstack = {NULL, 0, 0};
 
 NO_INLINE static void
 grow_print_stack (void)
 {
   struct print_stack *ps = &prstack;
   eassert (ps->sp == ps->size);
+#ifdef HAVE_MPS
+  igc_grow_print_stack (ps);
+#else
   ps->stack = xpalloc (ps->stack, &ps->size, 1, -1, sizeof *ps->stack);
+#endif
   eassert (ps->sp < ps->size);
 }
 
@@ -2244,6 +2234,16 @@ print_stack_push (struct print_stack_entry e)
   if (prstack.sp >= prstack.size)
     grow_print_stack ();
   prstack.stack[prstack.sp++] = e;
+}
+
+static void
+print_stack_pop (void)
+{
+  --prstack.sp;
+  --print_depth;
+#ifdef HAVE_MPS
+  prstack.stack[prstack.sp].type = PE_free;
+#endif
 }
 
 static void
@@ -2267,8 +2267,9 @@ print_stack_push_vector (const char *lbrac, const char *rbrac,
 }
 
 static void
-print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
+print_object (Lisp_Object obj, bool escapeflag, struct print_context *pc)
 {
+  Lisp_Object printcharfun = pc->printcharfun;
   ptrdiff_t base_depth = print_depth;
   ptrdiff_t base_sp = prstack.sp;
   char buf[max (sizeof "from..to..in " + 2 * INT_STRLEN_BOUND (EMACS_INT),
@@ -2289,13 +2290,13 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	error ("Apparently circular structure being printed");
 
       for (int i = 0; i < print_depth; i++)
-	if (BASE_EQ (obj, being_printed[i]))
+	if (BASE_EQ (obj, pc->being_printed[i]))
 	  {
 	    int len = sprintf (buf, "#%d", i);
 	    strout (buf, len, len, printcharfun);
 	    goto next_obj;
 	  }
-      being_printed[print_depth] = obj;
+      pc->being_printed[print_depth] = obj;
     }
   else if (print_circle_candidate_p (obj))
     {
@@ -2460,9 +2461,8 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 
 	  if (string_intervals (obj))
 	    {
-	      Lisp_Object pcf = printcharfun;
 	      traverse_intervals (string_intervals (obj),
-				  0, print_interval, &pcf);
+				  0, print_interval, pc);
 	      printchar (')', printcharfun);
 	    }
 	}
@@ -2555,7 +2555,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	{
 	  printchar ('`', printcharfun);
 	  new_backquote_output++;
-	  print_object (XCAR (XCDR (obj)), printcharfun, escapeflag);
+	  print_object (XCAR (XCDR (obj)), escapeflag, pc);
 	  new_backquote_output--;
 	}
       else if (print_quoted && CONSP (XCDR (obj)) && NILP (XCDR (XCDR (obj)))
@@ -2563,9 +2563,9 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 		   || EQ (XCAR (obj), Qcomma_at))
 	       && new_backquote_output)
 	{
-	  print_object (XCAR (obj), printcharfun, false);
+	  print_object (XCAR (obj), false, pc);
 	  new_backquote_output--;
-	  print_object (XCAR (XCDR (obj)), printcharfun, escapeflag);
+	  print_object (XCAR (XCDR (obj)), escapeflag, pc);
 	  new_backquote_output++;
 	}
       else
@@ -2631,6 +2631,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	case PVEC_HASH_TABLE:
 	  {
 	    struct Lisp_Hash_Table *h = XHASH_TABLE (obj);
+	    EMACS_INT count;
 	    /* Implement a readable output, e.g.:
 	       #s(hash-table test equal data (k1 v1 k2 v2)) */
 	    print_c_string ("#s(hash-table", printcharfun);
@@ -2638,32 +2639,38 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	    if (!BASE_EQ (h->test->name, Qeql))
 	      {
 		print_c_string (" test ", printcharfun);
-		print_object (h->test->name, printcharfun, escapeflag);
+		print_object (h->test->name, escapeflag, pc);
 	      }
 
 	    if (h->weakness != Weak_None)
 	      {
 		print_c_string (" weakness ", printcharfun);
 		print_object (hash_table_weakness_symbol (h->weakness),
-			      printcharfun, escapeflag);
+			      escapeflag, pc);
 	      }
 
-	    ptrdiff_t size = h->count;
-	    if (size > 0)
+	  hash_table_data:
+	    count = XFIXNAT (Fhash_table_count (obj));
+	    if (count > 0)
 	      {
+		ptrdiff_t size = count;
 		print_c_string (" data (", printcharfun);
 
 		/* Don't print more elements than the specified maximum.  */
 		if (FIXNATP (Vprint_length) && XFIXNAT (Vprint_length) < size)
 		  size = XFIXNAT (Vprint_length);
 
+		/* FIXME: For weak hash tables, the GC can delete
+		   entries.  This can lead to an out-of-bounds access
+		   before the test .u.hash.printed >= .u.hash.nobjs
+		   becomes true. */
 		print_stack_push ((struct print_stack_entry){
 		    .type = PE_hash,
 		    .u.hash.obj = obj,
 		    .u.hash.nobjs = size * 2,
 		    .u.hash.idx = 0,
 		    .u.hash.printed = 0,
-		    .u.hash.truncated = (size < h->count),
+		    .u.hash.truncated = (size < count),
 		  });
 	      }
 	    else
@@ -2673,7 +2680,39 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 		--print_depth;   /* Done with this.  */
 	      }
 	    goto next_obj;
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
+	  strong_hash_table:
+#endif
+	    h = XHASH_TABLE (obj);
+	    goto hash_table_data;
 	  }
+
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
+	case PVEC_WEAK_HASH_TABLE:
+	  {
+	    struct Lisp_Weak_Hash_Table *h = XWEAK_HASH_TABLE (obj);
+	    /* Implement a readable output, e.g.:
+	       #s(hash-table test equal data (k1 v1 k2 v2)) */
+	    print_c_string ("#s(hash-table", printcharfun);
+
+	    if (!BASE_EQ (h->strong->h.test->name, Qeql))
+	      {
+		print_c_string (" test ", printcharfun);
+		print_object (h->strong->h.test->name, escapeflag, pc);
+	      }
+
+	    if (h->strong->h.weakness != Weak_None)
+	      {
+		print_c_string (" weakness ", printcharfun);
+		print_object (hash_table_weakness_symbol
+			      (h->strong->h.weakness),
+			      escapeflag, pc);
+	      }
+
+	    obj = strong_copy_hash_table (obj);
+	    goto strong_hash_table;
+	  }
+#endif
 
 	case PVEC_BIGNUM:
 	  print_bignum (obj, printcharfun);
@@ -2684,7 +2723,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	  break;
 
 	default:
-	  print_vectorlike_unreadable (obj, printcharfun, escapeflag, buf);
+	  print_vectorlike_unreadable (obj, escapeflag, buf, pc);
 	  break;
 	}
 	break;
@@ -2701,6 +2740,10 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
       struct print_stack_entry *e = &prstack.stack[prstack.sp - 1];
       switch (e->type)
 	{
+#ifdef HAVE_MPS
+	case PE_free:
+	  emacs_abort ();
+#endif
 	case PE_list:
 	  {
 	    /* after "(" ELEM (* " " ELEM) */
@@ -2709,8 +2752,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	      {
 		/* end of list: print ")" */
 		printchar (')', printcharfun);
-		--prstack.sp;
-		--print_depth;
+		print_stack_pop ();
 		goto next_obj;
 	      }
 	    else if (CONSP (next))
@@ -2737,8 +2779,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 		if (e->u.list.maxlen <= 0)
 		  {
 		    print_c_string ("...)", printcharfun);
-		    --prstack.sp;
-		    --print_depth;
+		    print_stack_pop ();
 		    goto next_obj;
 		  }
 
@@ -2759,8 +2800,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 		    int len = sprintf (buf, ". #%" PRIdMAX ")",
 				       e->u.list.tortoise_idx);
 		    strout (buf, len, len, printcharfun);
-		    --prstack.sp;
-		    --print_depth;
+		    print_stack_pop ();
 		    goto next_obj;
 		  }
 		obj = XCAR (next);
@@ -2777,8 +2817,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 
 	case PE_rbrac:
 	  printchar (')', printcharfun);
-	  --prstack.sp;
-	  --print_depth;
+	  print_stack_pop ();
 	  goto next_obj;
 
 	case PE_vector:
@@ -2791,8 +2830,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 		  print_c_string ("...", printcharfun);
 		}
 	      print_c_string (e->u.vector.end, printcharfun);
-	      --prstack.sp;
-	      --print_depth;
+	      print_stack_pop ();
 	      goto next_obj;
 	    }
 	  if (e->u.vector.idx > 0)
@@ -2811,8 +2849,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 		  print_c_string ("...", printcharfun);
 		}
 	      print_c_string ("))", printcharfun);
-	      --prstack.sp;
-	      --print_depth;
+	      print_stack_pop ();
 	      goto next_obj;
 	    }
 
@@ -2847,18 +2884,18 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
    This is part of printing a string that has text properties.  */
 
 static void
-print_interval (INTERVAL interval, void *pprintcharfun)
+print_interval (INTERVAL interval, void *print_context)
 {
   if (NILP (interval->plist))
     return;
-  Lisp_Object printcharfun = *(Lisp_Object *)pprintcharfun;
+  struct print_context *pc = print_context;
+  Lisp_Object printcharfun = pc->printcharfun;
   printchar (' ', printcharfun);
-  print_object (make_fixnum (interval->position), printcharfun, 1);
+  print_object (make_fixnum (interval->position), 1, pc);
   printchar (' ', printcharfun);
-  print_object (make_fixnum (interval->position + LENGTH (interval)),
-		printcharfun, 1);
+  print_object (make_fixnum (interval->position + LENGTH (interval)), 1, pc);
   printchar (' ', printcharfun);
-  print_object (interval->plist, printcharfun, 1);
+  print_object (interval->plist, 1, pc);
 }
 
 /* Initialize debug_print stuff early to have it working from the very
@@ -3066,4 +3103,5 @@ be printed.  */);
 
   /* Initialized in print_create_variable_mapping.  */
   staticpro (&Vprint_variable_mapping);
+
 }

@@ -25,6 +25,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <unistd.h>
 
 #include "lisp.h"
+#include "igc.h"
 #include "termchar.h"
 /* cm.h must come after dispextern.h on Windows.  */
 #include "dispextern.h"
@@ -255,7 +256,12 @@ __executable_start (void)
 static struct glyph_matrix *
 new_glyph_matrix (struct glyph_pool *pool)
 {
+#ifdef HAVE_MPS
+  struct glyph_matrix *result
+    = pool ? xzalloc (sizeof *result) : igc_alloc_glyph_matrix ();
+#else
   struct glyph_matrix *result = xzalloc (sizeof *result);
+#endif
 
 #if defined GLYPH_DEBUG && defined ENABLE_CHECKING
   /* Increment number of allocated matrices.  This count is used
@@ -298,10 +304,16 @@ free_glyph_matrix (struct glyph_matrix *matrix)
       if (matrix->pool == NULL)
 	for (i = 0; i < matrix->rows_allocated; ++i)
 	  xfree (matrix->rows[i].glyphs[LEFT_MARGIN_AREA]);
-
       /* Free row structures and the matrix itself.  */
       xfree (matrix->rows);
+#ifdef HAVE_MPS
+      if (matrix->pool == NULL)
+	igc_xfree (matrix);
+      else
+	xfree (matrix);
+#else
       xfree (matrix);
+#endif
     }
 }
 
@@ -418,7 +430,8 @@ adjust_glyph_matrix (struct window *w, struct glyph_matrix *matrix, int x, int y
       matrix->rows = xpalloc (matrix->rows, &matrix->rows_allocated,
 			      new_rows, INT_MAX, sizeof *matrix->rows);
       memset (matrix->rows + old_alloc, 0,
-	      (matrix->rows_allocated - old_alloc) * sizeof *matrix->rows);
+	      (matrix->rows_allocated - old_alloc)
+		* sizeof *matrix->rows);
     }
   else
     new_rows = 0;
@@ -1347,7 +1360,11 @@ row_equal_p (struct glyph_row *a, struct glyph_row *b, bool mouse_face_p)
 static struct glyph_pool * ATTRIBUTE_MALLOC
 new_glyph_pool (void)
 {
+#ifdef HAVE_MPS
+  struct glyph_pool *result = igc_alloc_glyph_pool ();
+#else
   struct glyph_pool *result = xzalloc (sizeof *result);
+#endif
 
 #if defined GLYPH_DEBUG && defined ENABLE_CHECKING
   /* For memory leak and double deletion checking.  */
@@ -1376,7 +1393,11 @@ free_glyph_pool (struct glyph_pool *pool)
       eassert (glyph_pool_count >= 0);
 #endif
       xfree (pool->glyphs);
+#ifdef HAVE_MPS
+      igc_xfree (pool);
+#else
       xfree (pool);
+#endif
     }
 }
 
@@ -1406,8 +1427,10 @@ realloc_glyph_pool (struct glyph_pool *pool, struct dim matrix_dim)
   if (needed > pool->nglyphs)
     {
       ptrdiff_t old_nglyphs = pool->nglyphs;
-      pool->glyphs = xpalloc (pool->glyphs, &pool->nglyphs,
-			      needed - old_nglyphs, -1, sizeof *pool->glyphs);
+      pool->glyphs
+	= xpalloc (pool->glyphs, &pool->nglyphs, needed - old_nglyphs,
+		   -1, sizeof *pool->glyphs);
+
       memclear (pool->glyphs + old_nglyphs,
 		(pool->nglyphs - old_nglyphs) * sizeof *pool->glyphs);
     }
@@ -1970,7 +1993,11 @@ save_current_matrix (struct frame *f)
       struct glyph_row *to = saved->rows + i;
       ptrdiff_t nbytes = from->used[TEXT_AREA] * sizeof (struct glyph);
 
+#ifdef HAVE_MPS
+      to->glyphs[TEXT_AREA] = igc_xzalloc_ambig (nbytes, __func__);
+#else
       to->glyphs[TEXT_AREA] = xmalloc (nbytes);
+#endif
       memcpy (to->glyphs[TEXT_AREA], from->glyphs[TEXT_AREA], nbytes);
       to->used[TEXT_AREA] = from->used[TEXT_AREA];
       to->enabled_p = from->enabled_p;
@@ -1978,7 +2005,12 @@ save_current_matrix (struct frame *f)
       if (from->used[LEFT_MARGIN_AREA])
 	{
 	  nbytes = from->used[LEFT_MARGIN_AREA] * sizeof (struct glyph);
+#ifdef HAVE_MPS
+	  to->glyphs[LEFT_MARGIN_AREA]
+	    = igc_xzalloc_ambig (nbytes, __func__);
+#else
 	  to->glyphs[LEFT_MARGIN_AREA] = xmalloc (nbytes);
+#endif
 	  memcpy (to->glyphs[LEFT_MARGIN_AREA],
 		  from->glyphs[LEFT_MARGIN_AREA], nbytes);
 	  to->used[LEFT_MARGIN_AREA] = from->used[LEFT_MARGIN_AREA];
@@ -1986,7 +2018,12 @@ save_current_matrix (struct frame *f)
       if (from->used[RIGHT_MARGIN_AREA])
 	{
 	  nbytes = from->used[RIGHT_MARGIN_AREA] * sizeof (struct glyph);
+#ifdef HAVE_MPS
+	  to->glyphs[RIGHT_MARGIN_AREA]
+	    = igc_xzalloc_ambig (nbytes, __func__);
+#else
 	  to->glyphs[RIGHT_MARGIN_AREA] = xmalloc (nbytes);
+#endif
 	  memcpy (to->glyphs[RIGHT_MARGIN_AREA],
 		  from->glyphs[RIGHT_MARGIN_AREA], nbytes);
 	  to->used[RIGHT_MARGIN_AREA] = from->used[RIGHT_MARGIN_AREA];
@@ -2013,14 +2050,22 @@ restore_current_matrix (struct frame *f, struct glyph_matrix *saved)
 
       memcpy (to->glyphs[TEXT_AREA], from->glyphs[TEXT_AREA], nbytes);
       to->used[TEXT_AREA] = from->used[TEXT_AREA];
+#ifdef HAVE_MPS
+      igc_xfree (from->glyphs[TEXT_AREA]);
+#else
       xfree (from->glyphs[TEXT_AREA]);
+#endif
       nbytes = from->used[LEFT_MARGIN_AREA] * sizeof (struct glyph);
       if (nbytes)
 	{
 	  memcpy (to->glyphs[LEFT_MARGIN_AREA],
 		  from->glyphs[LEFT_MARGIN_AREA], nbytes);
 	  to->used[LEFT_MARGIN_AREA] = from->used[LEFT_MARGIN_AREA];
+#ifdef HAVE_MPS
+	  igc_xfree (from->glyphs[LEFT_MARGIN_AREA]);
+#else
 	  xfree (from->glyphs[LEFT_MARGIN_AREA]);
+#endif
 	}
       else
 	to->used[LEFT_MARGIN_AREA] = 0;
@@ -2030,7 +2075,12 @@ restore_current_matrix (struct frame *f, struct glyph_matrix *saved)
 	  memcpy (to->glyphs[RIGHT_MARGIN_AREA],
 		  from->glyphs[RIGHT_MARGIN_AREA], nbytes);
 	  to->used[RIGHT_MARGIN_AREA] = from->used[RIGHT_MARGIN_AREA];
+
+#ifdef HAVE_MPS
+	  igc_xfree (from->glyphs[RIGHT_MARGIN_AREA]);
+#else
 	  xfree (from->glyphs[RIGHT_MARGIN_AREA]);
+#endif
 	}
       else
 	to->used[RIGHT_MARGIN_AREA] = 0;
@@ -7476,6 +7526,10 @@ syms_of_display (void)
   defsubr (&Sdump_redisplay_history);
 #endif
 
+#ifdef HAVE_MPS
+  space_glyph.object = Qnil;
+  staticpro (&space_glyph.object);
+#endif
   frame_and_buffer_state = make_vector (20, Qlambda);
   staticpro (&frame_and_buffer_state);
 

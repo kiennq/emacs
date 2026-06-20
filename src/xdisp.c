@@ -500,6 +500,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #ifdef HAVE_WINDOW_SYSTEM
 #include TERM_HEADER
 #endif /* HAVE_WINDOW_SYSTEM */
+#ifdef HAVE_MPS
+#include "igc.h"
+#endif
+#include "pdumper.h"
 
 #ifndef FRAME_OUTPUT_DATA
 #define FRAME_OUTPUT_DATA(f) (NULL)
@@ -7524,6 +7528,12 @@ pop_it (struct it *it)
   if (it->bidi_p)
     {
       bidi_pop_it (&it->bidi_it);
+#ifdef HAVE_MPS
+      /* Make sure we have up-to-date collectable objects in bidi_it,
+         even if GC happened meanwhile.  */
+      it->bidi_it.string.lstring = it->string;
+      it->bidi_it.w = it->w;
+#endif
       /* Bidi-iterate until we get out of the portion of text, if any,
 	 covered by a `display' text property or by an overlay with
 	 `display' property.  (We cannot just jump there, because the
@@ -13155,12 +13165,16 @@ display_echo_area (struct window *w)
 {
   bool no_message_p, window_height_changed_p;
 
+#ifdef HAVE_MPS
+  specpdl_ref count = SPECPDL_INDEX ();
+#else
   /* Temporarily disable garbage collections while displaying the echo
      area.  This is done because a GC can print a message itself.
      That message would modify the echo area buffer's contents while a
      redisplay of the buffer is going on, and seriously confuse
      redisplay.  */
   specpdl_ref count = inhibit_garbage_collection ();
+#endif
 
   /* If there is no message, we must call display_echo_area_1
      nevertheless because it resizes the window.  But we will have to
@@ -14010,11 +14024,15 @@ unwind_format_mode_line (Lisp_Object vector)
 
 	      current_buffer = XBUFFER (buffer);
 	      set_point_from_marker (AREF (vector, 11));
+	      unchain_marker (XMARKER (AREF (vector, 11)));
 	      ASET (vector, 11, Qnil);
 	      current_buffer = cb;
 	    }
 	}
     }
+
+  if (MARKERP (AREF (vector, 11)))
+    unchain_marker (XMARKER (AREF (vector, 11)));
 
   if (!NILP (AREF (vector, 6)))
     {
@@ -29754,7 +29772,11 @@ decode_mode_spec (struct window *w, register int c, int field_width,
 
     case '@':
       {
+#ifdef HAVE_MPS
+	specpdl_ref count = SPECPDL_INDEX ();
+#else
 	specpdl_ref count = inhibit_garbage_collection ();
+#endif
 	Lisp_Object curdir = BVAR (current_buffer, directory);
 	Lisp_Object val = Qnil;
 
@@ -32232,6 +32254,7 @@ append_glyph (struct it *it)
 	}
       glyph->charpos = CHARPOS (it->position);
       glyph->object = it->object;
+      glyph->frame = NULL;
       if (it->pixel_width > 0)
 	{
 	  eassert (it->pixel_width <= SHRT_MAX);
@@ -32314,6 +32337,7 @@ append_composite_glyph (struct it *it)
 	}
       glyph->charpos = it->cmp_it.charpos;
       glyph->object = it->object;
+      glyph->frame = NULL;
       eassert (it->pixel_width <= SHRT_MAX);
       glyph->pixel_width = it->pixel_width;
       glyph->ascent = it->ascent;
@@ -32536,6 +32560,7 @@ produce_image_glyph (struct it *it)
 	{
 	  glyph->charpos = CHARPOS (it->position);
 	  glyph->object = it->object;
+	  glyph->frame = NULL;
 	  glyph->pixel_width = clip_to_bounds (-1, it->pixel_width, SHRT_MAX);
 	  glyph->ascent = glyph_ascent;
 	  glyph->descent = it->descent;
@@ -32642,6 +32667,7 @@ produce_xwidget_glyph (struct it *it)
 	{
 	  glyph->charpos = CHARPOS (it->position);
 	  glyph->object = it->object;
+	  glyph->frame = NULL;
 	  glyph->pixel_width = clip_to_bounds (-1, it->pixel_width, SHRT_MAX);
 	  glyph->ascent = glyph_ascent;
 	  glyph->descent = it->descent;
@@ -32728,6 +32754,7 @@ append_stretch_glyph (struct it *it, Lisp_Object object,
 	}
       glyph->charpos = CHARPOS (it->position);
       glyph->object = object;
+      glyph->frame = NULL;
       /* FIXME: It would be better to use TYPE_MAX here, but
 	 __typeof__ is not portable enough...  */
       glyph->pixel_width = clip_to_bounds (-1, width, SHRT_MAX);
@@ -33379,6 +33406,7 @@ append_glyphless_glyph (struct it *it, int face_id, bool for_no_font, int len,
 	}
       glyph->charpos = CHARPOS (it->position);
       glyph->object = it->object;
+      glyph->frame = NULL;
       eassert (it->pixel_width <= SHRT_MAX);
       glyph->pixel_width = it->pixel_width;
       glyph->ascent = it->ascent;
@@ -38235,6 +38263,16 @@ gui_union_rectangles (const Emacs_Rectangle *a, const Emacs_Rectangle *b,
 /***********************************************************************
 			    Initialization
  ***********************************************************************/
+#ifdef HAVE_MPS
+static void
+protect_global_values (void)
+{
+  igc_root_create_exact_ptr (&this_line_buffer);
+  igc_root_create_exact_ptr (&displayed_buffer);
+  igc_root_create_exact_ptr (&last_escape_glyph_frame);
+  igc_root_create_exact_ptr (&last_glyphless_glyph_frame);
+}
+#endif
 
 void
 syms_of_xdisp (void)
@@ -38459,6 +38497,32 @@ doesn't exist, it will be created and put into
   previous_help_echo_string = Qnil;
   staticpro (&previous_help_echo_string);
   help_echo_pos = -1;
+
+#ifdef HAVE_MPS
+  this_line_buffer = NULL;
+
+  for (size_t i = 0; i < countof (default_invis_vector); i++)
+    {
+      default_invis_vector[i] = Qnil;
+      staticpro (&default_invis_vector[i]);
+    }
+
+  echo_area_window = Qnil;
+  staticpro (&echo_area_window);
+  staticpro (&echo_message_buffer);
+
+  for (size_t i = 0; i < countof (scratch_glyphs); i++)
+    {
+      Lisp_Object *ptr = &scratch_glyphs[i].object;
+      *ptr = Qnil;
+      staticpro (ptr);
+    }
+
+  pdumper_do_now_and_after_load (protect_global_values);
+  displayed_buffer = NULL;
+  last_escape_glyph_frame = NULL;
+  last_glyphless_glyph_frame = NULL;
+#endif /* HAVE_MPS */
 
   DEFSYM (Qright_to_left, "right-to-left");
   DEFSYM (Qleft_to_right, "left-to-right");

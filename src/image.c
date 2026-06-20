@@ -51,6 +51,9 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "coding.h"
 #include "termhooks.h"
 #include "font.h"
+#include "pdumper.h"
+#include "igc.h"
+#include "gc-handles.h"
 
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
@@ -1744,7 +1747,11 @@ or omitted means use the selected frame.  */)
 static struct image *
 make_image (Lisp_Object spec, EMACS_UINT hash)
 {
+#ifdef HAVE_MPS
+  struct image *img = igc_make_image ();
+#else
   struct image *img = xzalloc (sizeof *img);
+#endif
   Lisp_Object file = image_spec_value (spec, QCfile, NULL);
 
   eassert (valid_image_p (spec));
@@ -1802,7 +1809,9 @@ free_image (struct frame *f, struct image *img)
 	img->type->free_img (f, img);
 
       xfree (img->face_font_family);
+#ifndef HAVE_MPS
       xfree (img);
+#endif
     }
 }
 
@@ -2199,12 +2208,21 @@ static void cache_image (struct frame *f, struct image *img);
 struct image_cache *
 make_image_cache (void)
 {
+#ifdef HAVE_MPS
+  struct image_cache *c = igc_make_image_cache ();
+#else
   struct image_cache *c = xmalloc (sizeof *c);
+#endif
 
   c->size = 50;
   c->used = c->refcount = 0;
+#ifndef HAVE_MPS
   c->images = xmalloc (c->size * sizeof *c->images);
   c->buckets = xzalloc (IMAGE_CACHE_BUCKETS_SIZE * sizeof *c->buckets);
+#else
+  c->images = igc_xalloc_raw (c->size, __func__);
+  c->buckets = igc_xalloc_raw (IMAGE_CACHE_BUCKETS_SIZE, __func__);
+#endif
   /* This value should never be encountered.  */
   c->scaling_col_width = -1;
   return c;
@@ -2326,9 +2344,21 @@ free_image_cache (struct frame *f)
 
   for (i = 0; i < c->used; ++i)
     free_image (f, c->images[i]);
+#ifdef HAVE_MPS
+  igc_xfree (c->images);
+#else
   xfree (c->images);
+#endif
+  c->images = NULL;
+#ifdef HAVE_MPS
+  igc_xfree (c->buckets);
+#else
   xfree (c->buckets);
+#endif
+  c->buckets = NULL;
+#ifndef HAVE_MPS
   xfree (c);
+#endif
 }
 
 /* Clear image cache of frame F.  FILTER=t means free all images.
@@ -3670,7 +3700,14 @@ cache_image (struct frame *f, struct image *img)
 
   /* If no free slot found, maybe enlarge c->images.  */
   if (i == c->used && c->used == c->size)
-    c->images = xpalloc (c->images, &c->size, 1, -1, sizeof *c->images);
+    {
+#ifndef HAVE_MPS
+      c->images = xpalloc (c->images, &c->size, 1, -1, sizeof *c->images);
+#else
+      c->images
+	= igc_xpalloc_raw (c->images, &c->size, 1, -1, "image cache");
+#endif
+    }
 
   /* Add IMG to c->images, and assign IMG an id.  */
   c->images[i] = img;
@@ -3718,7 +3755,7 @@ struct anim_cache
 {
   /* 'Key' of this cache entry.
      Typically the cdr (plist) of an image spec.  */
-  Lisp_Object spec;
+  gc_handle spec;
   /* Image type dependent animation handle (e.g., WebP iterator), freed
      by 'destructor'.  The union allows maintaining multiple fields per
      image type and image frame without further heap allocations.  */
@@ -3757,12 +3794,25 @@ static ATTRIBUTE_MALLOC struct anim_cache *
 anim_create_cache (Lisp_Object spec)
 {
   struct anim_cache *cache = xzalloc (sizeof *cache);
-  cache->spec = spec;
+  cache->spec = gc_handle_for (spec);
   cache->index = -1;
   cache->frames = -1;
   cache->width = -1;
   cache->height = -1;
   return cache;
+}
+
+static void
+anim_cache_free (struct anim_cache *cache)
+{
+  free_gc_handle (cache->spec);
+  xfree (cache);
+}
+
+static Lisp_Object
+anim_cache_spec (struct anim_cache *cache)
+{
+  return gc_handle_value (cache->spec);
 }
 
 /* Discard cached images that haven't been used for a minute.  If
@@ -3781,12 +3831,12 @@ anim_prune_animation_cache (Lisp_Object clear)
       struct anim_cache *cache = *pcache;
       if (EQ (clear, Qt)
 	  || (NILP (clear) && timespec_cmp (old, cache->update_time) > 0)
-	  || EQ (clear, cache->spec))
+	  || EQ (clear, anim_cache_spec (cache)))
 	{
 	  if (cache->destructor)
 	    cache->destructor (&cache->handle);
 	  *pcache = cache->next;
-	  xfree (cache);
+	  anim_cache_free (cache);
 	}
       else
 	pcache = &cache->next;
@@ -3809,7 +3859,7 @@ anim_get_animation_cache (Lisp_Object spec)
           *pcache = cache = anim_create_cache (spec);
           break;
         }
-      if (EQ (spec, cache->spec))
+      if (EQ (spec, anim_cache_spec (cache)))
 	break;
       pcache = &cache->next;
     }
@@ -3820,6 +3870,7 @@ anim_get_animation_cache (Lisp_Object spec)
 
 #endif  /* HAVE_WEBP || HAVE_GIF */
 
+#ifndef HAVE_MPS
 /* Mark Lisp objects in image IMG.  */
 static void
 mark_image (struct image *img)
@@ -3843,13 +3894,9 @@ mark_image_cache (struct image_cache *c)
 	if (c->images[i])
 	  mark_image (c->images[i]);
     }
-
-#if defined HAVE_WEBP || defined HAVE_GIF
-  for (struct anim_cache *cache = anim_cache; cache; cache = cache->next)
-    mark_object (cache->spec);
-#endif
 }
 
+#endif // not HAVE_MPS
 
 
 /***********************************************************************

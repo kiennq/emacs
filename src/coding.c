@@ -322,12 +322,21 @@ static Lisp_Object Vbig5_coding_system;
 		 reg))
 
 
+#ifndef HAVE_MPS
 #define CODING_ISO_REQUEST(coding, charset_id)		\
   (((charset_id) <= (coding)->max_charset_id		\
     ? ((coding)->safe_charsets[charset_id] != 255	\
        ? (coding)->safe_charsets[charset_id]		\
        : -1)						\
     : -1))
+#else
+#define CODING_ISO_REQUEST(coding, charset_id)			\
+  (((charset_id) <= (coding)->max_charset_id			\
+    ? (SREF ((coding)->safe_charsets_string, charset_id) != 255	\
+       ? SREF ((coding)->safe_charsets_string, charset_id)	\
+       : -1)							\
+    : -1))
+#endif
 
 
 #define CODING_ISO_FLAGS(coding)	\
@@ -2847,9 +2856,15 @@ encode_coding_emacs_mule (struct coding_system *coding)
 
 static enum iso_code_class_type iso_code_class[256];
 
+#ifndef HAVE_MPS
 #define SAFE_CHARSET_P(coding, id)	\
   ((id) <= (coding)->max_charset_id	\
    && (coding)->safe_charsets[id] != 255)
+#else
+#define SAFE_CHARSET_P(coding, id)	\
+  ((id) <= (coding)->max_charset_id	\
+   && SREF ((coding)->safe_charsets_string, id) != 255)
+#endif
 
 static void
 setup_iso_safe_charsets (Lisp_Object attrs)
@@ -2950,7 +2965,11 @@ detect_coding_iso_2022 (struct coding_system *coding,
 	setup_iso_safe_charsets (attrs);
       val = CODING_ATTR_SAFE_CHARSETS (attrs);
       this->max_charset_id = SCHARS (val) - 1;
+#ifndef HAVE_MPS
       this->safe_charsets = SDATA (val);
+#else
+      this->safe_charsets_string = val;
+#endif
     }
 
   /* A coding system of this category is always ASCII compatible.  */
@@ -3475,7 +3494,11 @@ decode_coding_iso_2022 (struct coding_system *coding)
   int i;
 
   setup_iso_safe_charsets (attrs);
+#ifndef HAVE_MPS
   coding->safe_charsets = SDATA (CODING_ATTR_SAFE_CHARSETS (attrs));
+#else
+  coding->safe_charsets_string = CODING_ATTR_SAFE_CHARSETS (attrs);
+#endif
 
   if (cmp_status->state != COMPOSING_NO)
     {
@@ -4386,7 +4409,11 @@ encode_coding_iso_2022 (struct coding_system *coding)
   setup_iso_safe_charsets (attrs);
   /* Charset list may have been changed.  */
   charset_list = CODING_ATTR_CHARSET_LIST (attrs);
+#ifndef HAVE_MPS
   coding->safe_charsets = SDATA (CODING_ATTR_SAFE_CHARSETS (attrs));
+#else
+  coding->safe_charsets_string = CODING_ATTR_SAFE_CHARSETS (attrs);
+#endif
 
   ascii_compatible
     = (! NILP (CODING_ATTR_ASCII_COMPAT (attrs))
@@ -5696,7 +5723,11 @@ setup_coding_system (Lisp_Object coding_system, struct coding_system *coding)
 
   val = CODING_ATTR_SAFE_CHARSETS (attrs);
   coding->max_charset_id = SCHARS (val) - 1;
+#ifndef HAVE_MPS
   coding->safe_charsets = SDATA (val);
+#else
+  coding->safe_charsets_string = val;
+#endif
   coding->default_char = XFIXNUM (CODING_ATTR_DEFAULT_CHAR (attrs));
   coding->carryover_bytes = 0;
   coding->raw_destination = 0;
@@ -5752,7 +5783,11 @@ setup_coding_system (Lisp_Object coding_system, struct coding_system *coding)
 	  setup_iso_safe_charsets (attrs);
 	  val = CODING_ATTR_SAFE_CHARSETS (attrs);
 	  coding->max_charset_id = SCHARS (val) - 1;
+#ifndef HAVE_MPS
 	  coding->safe_charsets = SDATA (val);
+#else
+	  coding->safe_charsets_string = val;
+#endif
 	}
       CODING_ISO_FLAGS (coding) = flags;
       CODING_ISO_CMP_STATUS (coding)->state = COMPOSING_NO;
@@ -5832,7 +5867,11 @@ setup_coding_system (Lisp_Object coding_system, struct coding_system *coding)
 	       tail = XCDR (tail))
 	    SSET (safe_charsets, XFIXNAT (XCAR (tail)), 0);
 	  coding->max_charset_id = max_charset_id;
+#ifndef HAVE_MPS
 	  coding->safe_charsets = SDATA (safe_charsets);
+#else
+	  coding->safe_charsets_string = safe_charsets;
+#endif
 	}
       coding->spec.emacs_mule.cmp_status.state = COMPOSING_NO;
       coding->spec.emacs_mule.cmp_status.method = COMPOSITION_NO;
@@ -8101,14 +8140,13 @@ decode_coding_object (struct coding_system *coding,
 	move_gap_both (from, from_byte);
       if (BASE_EQ (src_object, dst_object))
 	{
-	  struct Lisp_Marker *tail;
-
-	  for (tail = BUF_MARKERS (current_buffer); tail; tail = tail->next)
+	  DO_MARKERS (current_buffer, tail)
 	    {
 	      tail->need_adjustment
 		= tail->charpos == (tail->insertion_type ? from : to);
 	      need_marker_adjustment |= tail->need_adjustment;
 	    }
+	  END_DO_MARKERS;
 	  saved_pt = PT, saved_pt_byte = PT_BYTE;
 	  TEMP_SET_PT_BOTH (from, from_byte);
 	  current_buffer->text->inhibit_shrinking = true;
@@ -8233,25 +8271,26 @@ decode_coding_object (struct coding_system *coding,
 
       if (need_marker_adjustment)
 	{
-	  struct Lisp_Marker *tail;
-
-	  for (tail = BUF_MARKERS (current_buffer); tail; tail = tail->next)
-	    if (tail->need_adjustment)
-	      {
-		tail->need_adjustment = 0;
-		if (tail->insertion_type)
-		  {
-		    tail->bytepos = from_byte;
-		    tail->charpos = from;
-		  }
-		else
-		  {
-		    tail->bytepos = from_byte + coding->produced;
-		    tail->charpos
-		      = (NILP (BVAR (current_buffer, enable_multibyte_characters))
-			 ? tail->bytepos : from + coding->produced_char);
-		  }
-	      }
+	  DO_MARKERS (current_buffer, tail)
+	    {
+	      if (tail->need_adjustment)
+		{
+		  tail->need_adjustment = 0;
+		  if (tail->insertion_type)
+		    {
+		      tail->bytepos = from_byte;
+		      tail->charpos = from;
+		    }
+		  else
+		    {
+		      tail->bytepos = from_byte + coding->produced;
+		      tail->charpos
+			= (NILP (BVAR (current_buffer, enable_multibyte_characters))
+			   ? tail->bytepos : from + coding->produced_char);
+		    }
+		}
+	    }
+	  END_DO_MARKERS;
 	}
     }
 
@@ -8321,16 +8360,14 @@ encode_coding_object (struct coding_system *coding,
   bool same_buffer = false;
   if (BASE_EQ (src_object, dst_object) && BUFFERP (src_object))
     {
-      struct Lisp_Marker *tail;
-
       same_buffer = true;
-
-      for (tail = BUF_MARKERS (XBUFFER (src_object)); tail; tail = tail->next)
+      DO_MARKERS (XBUFFER (src_object), tail)
 	{
 	  tail->need_adjustment
 	    = tail->charpos == (tail->insertion_type ? from : to);
 	  need_marker_adjustment |= tail->need_adjustment;
 	}
+      END_DO_MARKERS;
     }
 
   if (! NILP (CODING_ATTR_PRE_WRITE (attrs)))
@@ -8488,25 +8525,26 @@ encode_coding_object (struct coding_system *coding,
 
       if (need_marker_adjustment)
 	{
-	  struct Lisp_Marker *tail;
-
-	  for (tail = BUF_MARKERS (current_buffer); tail; tail = tail->next)
-	    if (tail->need_adjustment)
-	      {
-		tail->need_adjustment = 0;
-		if (tail->insertion_type)
-		  {
-		    tail->bytepos = from_byte;
-		    tail->charpos = from;
-		  }
-		else
-		  {
-		    tail->bytepos = from_byte + coding->produced;
-		    tail->charpos
-		      = (NILP (BVAR (current_buffer, enable_multibyte_characters))
-			 ? tail->bytepos : from + coding->produced_char);
-		  }
-	      }
+	  DO_MARKERS (current_buffer, tail)
+	    {
+	      if (tail->need_adjustment)
+		{
+		  tail->need_adjustment = 0;
+		  if (tail->insertion_type)
+		    {
+		      tail->bytepos = from_byte;
+		      tail->charpos = from;
+		    }
+		  else
+		    {
+		      tail->bytepos = from_byte + coding->produced;
+		      tail->charpos
+			= (NILP (BVAR (current_buffer, enable_multibyte_characters))
+			   ? tail->bytepos : from + coding->produced_char);
+		    }
+		}
+	    }
+	  END_DO_MARKERS;
 	}
     }
 
@@ -11746,6 +11784,12 @@ syms_of_coding (void)
   staticpro (&Vbig5_coding_system);
   Vbig5_coding_system = Qnil;
 
+#ifdef HAVE_MPS
+  staticpro (&safe_terminal_coding.src_object);
+  staticpro (&safe_terminal_coding.dst_object);
+  staticpro (&safe_terminal_coding.safe_charsets_string);
+#endif
+
   staticpro (&Vcode_conversion_reused_workbuf);
   Vcode_conversion_reused_workbuf = Qnil;
 
@@ -11837,6 +11881,27 @@ syms_of_coding (void)
 
   Vcoding_category_table = make_nil_vector (coding_category_max);
   staticpro (&Vcoding_category_table);
+#ifdef HAVE_MPS
+  /* FIXME/igc: Do we really need this?  coding_categories[] are not real
+     coding-systems, and are not used for actual encoding/decoding of
+     text.  They are coding categories; we use 'struct coding_system'
+     here because it's convenient: it allows us to call
+     'setup_coding_system' to fill the categories with relevant data.
+     Thus, the 'src_object' and 'dst_object' members of these
+     "coding-systems" are never set and never used, and therefore do not
+     need to be protected.  */
+  for (size_t i = 0; i < countof (coding_categories); i++)
+    {
+      struct coding_system* cs = &coding_categories[i];
+      Lisp_Object *src = &cs->src_object;
+      *src = Qnil;
+      staticpro (src);
+      Lisp_Object *dst = &cs->dst_object;
+      *dst = Qnil;
+      staticpro (dst);
+      staticpro (&cs->safe_charsets_string);
+    }
+#endif
   /* Followings are target of code detection.  */
   ASET (Vcoding_category_table, coding_category_iso_7,
 	intern_c_string ("coding-category-iso-7"));
@@ -12309,4 +12374,11 @@ reset_coding_after_pdumper_load (void)
      by the above loop, and mule-conf.el will not be loaded, so we set
      it up now; otherwise safe_terminal_coding will remain zeroed.  */
   Fset_safe_terminal_coding_system_internal (Qus_ascii);
+}
+
+struct coding_system *
+coding_system_categories (int *n)
+{
+  *n = coding_category_max;
+  return coding_categories;
 }

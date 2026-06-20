@@ -27,6 +27,8 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "syntax.h"
 #include "intervals.h"
 #include "category.h"
+#include "pdumper.h"
+#include "igc.h"
 
 /* Make syntax table lookup grant data in gl_state.  */
 #define SYNTAX(c) syntax_property (c, 1)
@@ -236,7 +238,12 @@ SYNTAX_MATCH (int c)
 }
 
 /* A "dummy" value we never dereference, distinct from NULL.  */
-#define uninitialized_interval ((INTERVAL) (intptr_t) 1u)
+#ifdef HAVE_MPS
+# define uninitialized_interval (((INTERVAL) NULL) + 2)
+static_assert ((size_t) uninitialized_interval % word_size == 0);
+#else
+# define uninitialized_interval ((INTERVAL) (intptr_t) 1u)
+#endif
 
 /* This should be called with FROM at the start of forward
    search, or after the last position of the backward search.  It
@@ -3738,6 +3745,16 @@ init_syntax_once (void)
   char_table_set_range (Vstandard_syntax_table, 0x80, MAX_CHAR, temp);
 }
 
+#ifdef HAVE_MPS
+static void
+protect_global_intervals (void)
+{
+  igc_root_create_exact_ptr (&gl_state.forward_i);
+  igc_root_create_exact_ptr (&gl_state.backward_i);
+  igc_root_create_exact_ptr (&find_start_buffer);
+}
+#endif
+
 void
 syms_of_syntax (void)
 {
@@ -3754,6 +3771,9 @@ syms_of_syntax (void)
   staticpro (&gl_state.global_code);
   staticpro (&gl_state.current_syntax_table);
   staticpro (&gl_state.old_prop);
+#ifdef HAVE_MPS
+  pdumper_do_now_and_after_load (protect_global_intervals);
+#endif
 
   DEFSYM (Qscan_error, "scan-error");
   Fput (Qscan_error, Qerror_conditions,

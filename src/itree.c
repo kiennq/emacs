@@ -19,6 +19,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <config.h>
 #include <math.h>
+#include "igc.h"
 
 #include "itree.h"
 
@@ -135,8 +136,8 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 struct itree_stack
 {
   struct itree_node **nodes;
-  size_t size;
-  size_t length;
+  ptrdiff_t size;
+  ptrdiff_t length;
 };
 
 /* This is just a simple dynamic array with stack semantics. */
@@ -145,8 +146,13 @@ static struct itree_stack*
 itree_stack_create (intmax_t initial_size)
 {
   struct itree_stack *stack = xmalloc (sizeof (struct itree_stack));
+#ifndef HAVE_MPS
   stack->size = max (0, initial_size);
   stack->nodes = xmalloc (stack->size * sizeof (struct itree_node*));
+#else
+  stack->size = max (1, initial_size);
+  stack->nodes = igc_xalloc_raw (stack->size, __func__);
+#endif
   stack->length = 0;
   return stack;
 }
@@ -157,7 +163,13 @@ itree_stack_destroy (struct itree_stack *stack)
   if (! stack)
     return;
   if (stack->nodes)
-    xfree (stack->nodes);
+    {
+#ifndef HAVE_MPS
+      xfree (stack->nodes);
+#else
+      igc_xfree (stack->nodes);
+#endif
+    }
   xfree (stack);
 }
 
@@ -166,9 +178,15 @@ itree_stack_ensure_space (struct itree_stack *stack, uintmax_t nelements)
 {
   if (nelements > stack->size)
     {
+#ifndef HAVE_MPS
       stack->size = (nelements + 1) * 2;
       stack->nodes = xrealloc (stack->nodes,
 			       stack->size * sizeof (*stack->nodes));
+#else
+      stack->nodes = igc_xpalloc_raw (stack->nodes, &stack->size,
+				      nelements - stack->size, -1,
+				      "itree stack");
+#endif
     }
 }
 
@@ -468,7 +486,11 @@ itree_node_end (struct itree_tree *tree,
 struct itree_tree *
 itree_create (void)
 {
+#ifdef HAVE_MPS
+  struct itree_tree *tree = igc_make_itree_tree ();
+#else
   struct itree_tree *tree = xmalloc (sizeof (*tree));
+#endif
   itree_clear (tree);
   return tree;
 }
@@ -498,7 +520,9 @@ void
 itree_destroy (struct itree_tree *tree)
 {
   eassert (tree->root == NULL);
+#ifndef HAVE_MPS
   xfree (tree);
+#endif
 }
 
 /* Return the number of nodes in TREE.  */

@@ -33,6 +33,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "process.h"
 #include "frame.h"
 #include "keymap.h"
+#include "igc.h"
 
 static void swap_in_symval_forwarding (struct Lisp_Symbol *,
 				       struct Lisp_Buffer_Local_Value *);
@@ -229,7 +230,8 @@ a fixed set of types.  */)
     case Lisp_Vectorlike:
       /* WARNING!!  Keep 'cl--type-hierarchy' in sync with this code!!  */
       switch (PSEUDOVECTOR_TYPE (XVECTOR (object)))
-        {
+	{
+	case PVEC_MODULE_GLOBAL_REFERENCE: return Qmodule_global_reference;
         case PVEC_NORMAL_VECTOR: return Qvector;
 	case PVEC_BIGNUM: return Qbignum;
 	case PVEC_MARKER: return Qmarker;
@@ -252,6 +254,9 @@ a fixed set of types.  */)
         case PVEC_BOOL_VECTOR: return Qbool_vector;
         case PVEC_FRAME: return Qframe;
         case PVEC_HASH_TABLE: return Qhash_table;
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
+        case PVEC_WEAK_HASH_TABLE: return Qhash_table;
+#endif
         case PVEC_OBARRAY: return Qobarray;
         case PVEC_FONT:
           if (FONT_SPEC_P (object))
@@ -293,7 +298,8 @@ a fixed set of types.  */)
           return Qsqlite;
         case PVEC_SUB_CHAR_TABLE:
           return Qsub_char_table;
-        /* "Impossible" cases.  */
+
+	/* "Impossible" cases.  */
 	case PVEC_MISC_PTR:
         case PVEC_OTHER:
         case PVEC_FREE: ;
@@ -2149,7 +2155,12 @@ static struct Lisp_Buffer_Local_Value *
 make_blv (struct Lisp_Symbol *sym, bool forwarded,
 	  union Lisp_Val_Fwd valcontents)
 {
-  struct Lisp_Buffer_Local_Value *blv = xmalloc (sizeof *blv);
+  struct Lisp_Buffer_Local_Value *blv;
+#ifdef HAVE_MPS
+  blv = igc_make_blv ();
+#else
+  blv = xmalloc (sizeof *blv);
+#endif
   Lisp_Object symbol;
   Lisp_Object tem;
 
@@ -4201,6 +4212,7 @@ syms_of_data (void)
   DEFSYM (Qcons, "cons");
   DEFSYM (Qmarker, "marker");
   DEFSYM (Qsymbol_with_pos, "symbol-with-pos");
+  DEFSYM (Qmodule_global_reference, "module-global-reference");
   DEFSYM (Qoverlay, "overlay");
   DEFSYM (Qfinalizer, "finalizer");
   DEFSYM (Qmodule_function, "module-function");

@@ -28,6 +28,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "lisp.h"
 #include "buffer.h"
 #include "coding.h"
+#include "igc.h"
 
 enum json_object_type
   {
@@ -143,7 +144,13 @@ make_symset_table (int bits, struct symset_tbl *up)
   int maxbits = min (SIZE_WIDTH - 2 - (word_size < 8 ? 2 : 3), 32);
   if (bits > maxbits)
     memory_full_up ();	/* Will never happen in practice.  */
+#ifdef HAVE_MPS
+  struct symset_tbl *st
+    = igc_xzalloc_ambig (sizeof *st + (sizeof *st->entries << bits),
+			 __func__);
+#else
   struct symset_tbl *st = xmalloc (sizeof *st + (sizeof *st->entries << bits));
+#endif
   st->up = up;
   ptrdiff_t size = symset_size (bits);
   for (ptrdiff_t i = 0; i < size; i++)
@@ -166,7 +173,11 @@ static void
 pop_symset (json_out_t *jo, symset_t *ss)
 {
   jo->ss_table = ss->table->up;
+#ifdef HAVE_MPS
+  igc_xfree (ss->table);
+#else
   xfree (ss->table);
+#endif
 }
 
 /* Remove all heap-allocated symset tables, in case an error occurred.  */
@@ -176,7 +187,11 @@ cleanup_symset_tables (struct symset_tbl *st)
   while (st)
     {
       struct symset_tbl *up = st->up;
+#ifdef HAVE_MPS
+      igc_xfree (st);
+#else
       xfree (st);
+#endif
       st = up;
     }
 }
@@ -184,7 +199,13 @@ cleanup_symset_tables (struct symset_tbl *st)
 static inline uint32_t
 symset_hash (Lisp_Object sym, int bits)
 {
-  return knuth_hash (reduce_emacs_uint_to_hash_hash (XHASH (sym)), bits);
+  EMACS_UINT hash;
+#ifdef HAVE_MPS
+  hash = igc_hash (sym);
+#else
+  hash = XHASH (sym);
+#endif
+  return knuth_hash (reduce_emacs_uint_to_hash_hash (hash), bits);
 }
 
 /* Enlarge the table used by a symset.  */
@@ -211,7 +232,11 @@ symset_expand (symset_t *ss)
 	  tbl->entries[j] = sym;
 	}
     }
+#ifdef HAVE_MPS
+  igc_xfree (old_table);
+#else
   xfree (old_table);
+#endif
 }
 
 /* If sym is in ss, return false; otherwise add it and return true.
@@ -792,7 +817,11 @@ json_parser_done (void *parser)
 {
   struct json_parser *p = (struct json_parser *) parser;
   if (p->object_workspace != p->internal_object_workspace)
+#ifdef HAVE_MPS
+    igc_xfree (p->object_workspace);
+#else
     xfree (p->object_workspace);
+#endif
   if (p->byte_workspace != p->internal_byte_workspace)
     xfree (p->byte_workspace);
 }
@@ -805,12 +834,21 @@ json_make_object_workspace_for_slow_path (struct json_parser *parser,
 {
   bool internal = (parser->object_workspace_size
 		   == JSON_PARSER_INTERNAL_OBJECT_WORKSPACE_SIZE);
+#ifdef HAVE_MPS
+  Lisp_Object *new_workspace_ptr
+    = igc_xpalloc_lisp (internal ? NULL : parser->object_workspace,
+			&parser->object_workspace_size,
+			size - (parser->object_workspace_size
+				- parser->object_workspace_current),
+			-1, "json-parser-object-workspace");
+#else
   Lisp_Object *new_workspace_ptr
     = xpalloc (internal ? NULL : parser->object_workspace,
 	       &parser->object_workspace_size,
 	       size - (parser->object_workspace_size
 		       - parser->object_workspace_current),
 	       -1, sizeof (Lisp_Object));
+#endif
   if (internal)
     memcpy (new_workspace_ptr, parser->object_workspace,
 	    sizeof (Lisp_Object) * parser->object_workspace_current);

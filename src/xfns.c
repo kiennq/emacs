@@ -24,6 +24,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <unistd.h>
 
 #include "lisp.h"
+#include "igc.h"
 #include "character.h"
 #include "xterm.h"
 #include "frame.h"
@@ -4224,12 +4225,20 @@ x_window (struct frame *f, long window_prompting)
   /* mappedWhenManaged to false tells to the paned window to not map/unmap
      the emacs screen when changing menubar.  This reduces flickering.  */
 
+  struct frame **framep;
+#ifdef HAVE_MPS
+  framep = igc_xzalloc_ambig (sizeof *framep, __func__);
+#else
+  framep = xmalloc (sizeof *framep);
+#endif
+  *framep = f;
+
   ac = 0;
   XtSetArg (al[ac], XtNmappedWhenManaged, 0); ac++;
   XtSetArg (al[ac], (char *) XtNshowGrip, 0); ac++;
   XtSetArg (al[ac], (char *) XtNallowResize, 1); ac++;
   XtSetArg (al[ac], (char *) XtNresizeToPreferred, 1); ac++;
-  XtSetArg (al[ac], (char *) XtNemacsFrame, f); ac++;
+  XtSetArg (al[ac], (char *) XtNemacsFrame, framep); ac++;
   XtSetArg (al[ac], XtNvisual, FRAME_X_VISUAL (f)); ac++;
   XtSetArg (al[ac], XtNdepth, FRAME_DISPLAY_INFO (f)->n_planes); ac++;
   XtSetArg (al[ac], XtNcolormap, FRAME_X_COLORMAP (f)); ac++;
@@ -5045,6 +5054,9 @@ This function is an internal primitive--use `make-frame' instead.  */)
 
   f->output_method = output_x_window;
   f->output_data.x = xzalloc (sizeof *f->output_data.x);
+#ifdef HAVE_MPS
+  igc_root_create_exact_ptr (&f->output_data.x->font);
+#endif
   f->output_data.x->icon_bitmap = -1;
   FRAME_FONTSET (f) = -1;
   f->output_data.x->scroll_bar_foreground_pixel = -1;
@@ -8446,6 +8458,9 @@ x_create_tip_frame (struct x_display_info *dpyinfo, Lisp_Object parms)
      counts etc.  */
   f->output_method = output_x_window;
   f->output_data.x = xzalloc (sizeof *f->output_data.x);
+#ifdef HAVE_MPS
+  igc_root_create_exact_ptr (&f->output_data.x->font);
+#endif
   f->output_data.x->icon_bitmap = -1;
   FRAME_FONTSET (f) = -1;
   f->output_data.x->scroll_bar_foreground_pixel = -1;

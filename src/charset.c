@@ -40,6 +40,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "buffer.h"
 #include "sysstdio.h"
 #include "pdumper.h"
+#include "igc.h"
 
 /*** GENERAL NOTES on CODED CHARACTER SETS (CHARSETS) ***
 
@@ -2370,6 +2371,14 @@ syms_of_charset (void)
 
   staticpro (&Vcharset_ordered_list);
   Vcharset_ordered_list = Qnil;
+
+#ifdef HAVE_MPS
+  staticpro (&Vcharset_non_preferred_head);
+  Vcharset_non_preferred_head = Qnil;
+
+  staticpro (&charset_work);
+  charset_work = Qnil;
+#endif
 
   staticpro (&Viso_2022_charset_list);
   Viso_2022_charset_list = Qnil;

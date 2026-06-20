@@ -25,6 +25,9 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "blockinput.h"
 #include "termhooks.h"
 #include "keyboard.h"
+#ifdef HAVE_MPS
+#include "igc.h"
+#endif
 
 #if HAVE_STRUCT_UNIPAIR_UNICODE
 # include <errno.h>
@@ -39,7 +42,11 @@ struct terminal *terminal_list;
 static int next_terminal_id;
 
 /* The initial terminal device, created by initial_term_init.  */
+#ifndef HAVE_MPS
 struct terminal *initial_terminal;
+#else
+Lisp_Object initial_terminal_lisp;
+#endif
 
 static void delete_initial_terminal (struct terminal *);
 
@@ -300,8 +307,13 @@ create_terminal (enum output_method type, struct redisplay_interface *rif)
   terminal->rif = rif;
   terminal->id = next_terminal_id++;
 
+#ifdef HAVE_MPS
+  terminal->keyboard_coding = igc_alloc_coding_system ();
+  terminal->terminal_coding = igc_alloc_coding_system ();
+#else
   terminal->keyboard_coding = xmalloc (sizeof (struct coding_system));
   terminal->terminal_coding = xmalloc (sizeof (struct coding_system));
+#endif
 
   /* If default coding systems for the terminal and the keyboard are
      already defined, use them in preference to the defaults.  This is
@@ -366,9 +378,14 @@ delete_terminal_internal (struct terminal *terminal)
       emacs_abort ();
   *tp = terminal->next_terminal;
 
+#ifdef HAVE_MPS
+  igc_xfree (terminal->keyboard_coding);
+  igc_xfree (terminal->terminal_coding);
+#else
   xfree (terminal->keyboard_coding);
-  terminal->keyboard_coding = NULL;
   xfree (terminal->terminal_coding);
+#endif
+  terminal->keyboard_coding = NULL;
   terminal->terminal_coding = NULL;
 
   if (terminal->kboard && --terminal->kboard->reference_count == 0)
@@ -665,7 +682,11 @@ init_initial_terminal (void)
   if (initialized || terminal_list || tty_list)
     emacs_abort ();
 
+#ifndef HAVE_MPS
   initial_terminal = create_terminal (output_initial, NULL);
+#else
+  initial_terminal_lisp = make_lisp_ptr (create_terminal (output_initial, NULL), Lisp_Vectorlike);
+#endif
   initial_terminal->name = xstrdup ("initial_terminal");
   initial_terminal->kboard = initial_kboard;
   initial_terminal->delete_terminal_hook = &delete_initial_terminal;
@@ -686,7 +707,11 @@ delete_initial_terminal (struct terminal *terminal)
     emacs_abort ();
 
   delete_terminal (terminal);
+#ifdef HAVE_MPS
+  initial_terminal_lisp = Qnil;
+#else
   initial_terminal = NULL;
+#endif
 }
 
 void
@@ -709,6 +734,9 @@ or some time later.  */);
   DEFSYM (Qdelete_terminal_functions, "delete-terminal-functions");
   DEFSYM (Qrun_hook_with_args, "run-hook-with-args");
 
+#ifdef HAVE_MPS
+  staticpro (&initial_terminal_lisp);
+#endif
   defsubr (&Sdelete_terminal);
   defsubr (&Sframe_terminal);
   defsubr (&Sterminal_live_p);

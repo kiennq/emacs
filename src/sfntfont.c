@@ -41,6 +41,8 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 /* For FRAME_FONT.  */
 #include TERM_HEADER
 
+#include "igc.h"
+
 /* Generic font driver for sfnt-based fonts (currently TrueType, but
    it would be easy to add CFF support in the future with a PostScript
    renderer.)
@@ -966,7 +968,12 @@ sfnt_enum_font_1 (int fd, const char *file,
   char buffer[5];
 
   /* Create the font desc and copy in the file name.  */
+#ifdef HAVE_MPS
+  desc
+    = igc_xzalloc_ambig (sizeof *desc + strlen (file) + 1, __func__);
+#else
   desc = xzalloc (sizeof *desc + strlen (file) + 1);
+#endif
   desc->path = (char *) (desc + 1);
   memcpy (desc->path, file, strlen (file) + 1);
   desc->offset = offset;
@@ -1964,7 +1971,7 @@ sfntfont_compare_font_entities (Lisp_Object a, Lisp_Object b)
 static union Aligned_Lisp_Subr Scompare_font_entities =
   {
     {
-      { PSEUDOVECTOR_FLAG | (PVEC_SUBR << PSEUDOVECTOR_AREA_BITS), },
+      { GC_HEADER_INIT PSEUDOVECTOR_FLAG | (PVEC_SUBR << PSEUDOVECTOR_AREA_BITS), },
       { .a2 = sfntfont_compare_font_entities, },
       2, 2, "sfntfont_compare_font_entities", {0}, lisp_h_Qnil,
     },
@@ -3200,6 +3207,17 @@ sfntfont_open (struct frame *f, Lisp_Object font_entity,
 				  font_entity, pixel_size);
   font_info = (struct sfnt_font_info *) XFONT_OBJECT (font_object);
 
+#ifdef HAVE_MPS
+  /* FIXME/igc: don't leak memory here. */
+  /* This unfortunate hack (which leaks memory) is necessary because the
+     font implementation utilizes internal pointers
+     (font_info->outline_cache.next, for example). When the font object
+     moves, those pointers become invalid and we infloop. */
+  struct sfnt_font_info **leak
+    = igc_xzalloc_ambig (sizeof *leak, __func__);
+  *leak = font_info;
+#endif
+
   block_input ();
 
   /* Initialize all the font driver specific data.  */
@@ -4176,6 +4194,7 @@ are slow.  */);
   sfnt_raster_glyphs_exactly = true;
 }
 
+#ifndef HAVE_MPS
 void
 mark_sfntfont (void)
 {
@@ -4194,6 +4213,7 @@ mark_sfntfont (void)
       mark_object (desc->designer);
     }
 }
+#endif
 
 void
 init_sfntfont (void)

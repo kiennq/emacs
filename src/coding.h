@@ -452,7 +452,11 @@ struct coding_system
       struct undecided_spec undecided;
     } spec;
 
+#ifndef HAVE_MPS
   unsigned char *safe_charsets;
+#else
+  Lisp_Object safe_charsets_string;
+#endif
 
   /* How many heading bytes we can skip for decoding.  This is set to
      -1 in setup_coding_system, and updated by detect_coding.  So,
@@ -784,6 +788,8 @@ extern Lisp_Object preferred_coding_system (void);
 extern struct coding_system safe_terminal_coding;
 
 extern char emacs_mule_bytes[256];
+
+struct coding_system *coding_system_categories (int *n);
 
 INLINE_HEADER_END
 

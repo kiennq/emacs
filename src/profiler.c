@@ -22,6 +22,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "syssignal.h"
 #include "systime.h"
 #include "pdumper.h"
+#include "igc.h"
 
 /* Return A + B, but return the maximum fixnum if the result would overflow.
    Assume A and B are nonnegative and in fixnum range.  */
@@ -51,6 +52,7 @@ typedef struct {
   int next_free;		/* next free entry, -1 if all taken */
 } log_t;
 
+#ifndef HAVE_MPS
 static void
 mark_log (log_t *log)
 {
@@ -62,6 +64,7 @@ mark_log (log_t *log)
     if (log->counts[i] > 0)	/* Only mark valid keys.  */
       mark_objects (log->keys + i * depth, depth);
 }
+#endif // not HAVE_MPS
 
 static log_t *
 make_log (int size, int depth)
@@ -75,7 +78,12 @@ make_log (int size, int depth)
   int index_size = size * 2 + 1;
   log->index_size = index_size;
 
+#ifdef HAVE_MPS
+  log->trace
+    = igc_xzalloc_ambig (depth * sizeof *log->trace, __func__);
+#else
   log->trace = xnmalloc (depth, sizeof *log->trace);
+#endif
 
   log->index = xnmalloc (index_size, sizeof *log->index);
   for (int i = 0; i < index_size; i++)
@@ -88,10 +96,15 @@ make_log (int size, int depth)
   log->next_free = 0;
 
   log->hash = xnmalloc (size, sizeof *log->hash);
+#ifdef HAVE_MPS
+  log->keys
+    = igc_xzalloc_ambig (size * depth * sizeof *log->keys, __func__);
+#else
   size_t size_x_depth;
   if (ckd_mul (&size_x_depth, size, depth))
     memory_full_up ();
   log->keys = xcalloc (size_x_depth, sizeof *log->keys);
+#endif
   log->counts = xcalloc (size, sizeof *log->counts);
 
   return log;
@@ -100,11 +113,16 @@ make_log (int size, int depth)
 static void
 free_log (log_t *log)
 {
+#ifdef HAVE_MPS
+  igc_xfree (log->trace);
+  igc_xfree (log->keys);
+#else
   xfree (log->trace);
+  xfree (log->keys);
+#endif
   xfree (log->index);
   xfree (log->next);
   xfree (log->hash);
-  xfree (log->keys);
   xfree (log->counts);
   xfree (log);
 }
@@ -172,9 +190,14 @@ trace_hash (Lisp_Object *trace, int depth)
   for (int i = 0; i < depth; i++)
     {
       Lisp_Object f = trace[i];
-      EMACS_UINT hash1
-	= (CLOSUREP (f) ? XHASH (AREF (f, CLOSURE_CODE)) : XHASH (f));
-      hash = sxhash_combine (hash, hash1);
+      EMACS_UINT hash1;
+#ifdef HAVE_MPS
+      hash1 = (CLOSUREP (f) ? igc_hash (AREF (f, CLOSURE_CODE)) : igc_hash (f));
+#else
+      hash1 = (CLOSUREP (f) ? XHASH (AREF (f, CLOSURE_CODE)) : XHASH (f));
+#endif
+     hash = sxhash_combine (hash, hash1);
+
     }
   return hash;
 }
@@ -328,7 +351,11 @@ record_backtrace (struct profiler_log *plog, EMACS_INT count)
 static void
 add_sample (struct profiler_log *plog, EMACS_INT count)
 {
+#ifdef HAVE_MPS
+  if (igc_busy_p ())
+#else
   if (BASE_EQ (backtrace_top_function (), QAutomatic_GC)) /* bug#60237 */
+#endif
     /* Special case the time-count inside GC because the hash-table
        code is not prepared to be used while the GC is running.
        More specifically it uses ASIZE at many places where it does
@@ -343,6 +370,7 @@ add_sample (struct profiler_log *plog, EMACS_INT count)
 #ifdef PROFILER_CPU_SUPPORT
 
 /* The sampling interval specified.  */
+/* FIXME/igc: Make this an EMACS_INT to avoid the staticpro.  */
 static Lisp_Object profiler_cpu_interval = LISPSYM_INITIALLY (Qnil);
 
 /* The profiler timer and whether it was properly initialized, if
@@ -365,6 +393,9 @@ static enum profiler_cpu_running
 /* Hash-table log of CPU profiler.  */
 static struct profiler_log cpu;
 
+/* Number of unprocessed profiler signals. */
+static uintptr_t pending_profiler_signals;
+
 /* The current sampling interval in nanoseconds.  */
 static EMACS_INT current_sampling_interval;
 
@@ -380,7 +411,19 @@ handle_profiler_signal (int signal)
       count += overruns;
     }
 #endif
-  add_sample (&cpu, count);
+  pending_signals = true;
+  pending_profiler_signals += count;
+}
+
+void
+process_pending_profiler_signals (void)
+{
+  uintptr_t count = pending_profiler_signals;
+  if (count)
+    {
+      pending_profiler_signals = 0;
+      add_sample (&cpu, count);
+    }
 }
 
 static void
@@ -693,6 +736,7 @@ the same lambda expression, or are really unrelated function.  */)
   return res ? Qt : Qnil;
 }
 
+#ifndef HAVE_MPS
 void
 mark_profiler (void)
 {
@@ -701,6 +745,7 @@ mark_profiler (void)
 #endif
   mark_log (memory.log);
 }
+#endif // not HAVE_MPS
 
 void
 syms_of_profiler (void)
@@ -724,6 +769,8 @@ to make room for new entries.  */);
   defsubr (&Sprofiler_cpu_stop);
   defsubr (&Sprofiler_cpu_running_p);
   defsubr (&Sprofiler_cpu_log);
+  profiler_cpu_interval = Qnil;
+  staticpro (&profiler_cpu_interval);
 #endif
   profiler_memory_running = false;
   defsubr (&Sprofiler_memory_start);

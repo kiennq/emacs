@@ -32,6 +32,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "termhooks.h"
 #include "blockinput.h"
 #include "buffer.h"
+#include "igc.h"
 
 #ifdef HAVE_WINDOW_SYSTEM
 #include TERM_HEADER
@@ -574,13 +575,17 @@ make_widget_value (const char *name, char *value,
   widget_value *wv;
 
   block_input ();
+#ifdef HAVE_MPS
+  wv = igc_xzalloc_ambig (sizeof (widget_value), __func__);
+#else
   wv = xzalloc (sizeof (widget_value));
+#endif
   unblock_input ();
 
   wv->name = (char *) name;
   wv->value = value;
   wv->enabled = enabled;
-  wv->help = help;
+  wv->help = gc_handle_for (help);
   return wv;
 }
 
@@ -595,6 +600,7 @@ free_menubar_widget_value_tree (widget_value *wv)
   if (! wv) return;
 
   wv->name = wv->value = wv->key = (char *) 0xDEADBEEF;
+  free_gc_handle (wv->help);
 
   if (wv->contents && (wv->contents != (widget_value *) 1))
     {
@@ -607,7 +613,11 @@ free_menubar_widget_value_tree (widget_value *wv)
       wv->next = (widget_value *) 0xDEADBEEF;
     }
   block_input ();
+#ifdef HAVE_MPS
+  igc_xfree (wv);
+#else
   xfree (wv);
+#endif
   unblock_input ();
 }
 
@@ -830,7 +840,12 @@ digest_single_submenu (int start, int end, bool top_level_items)
     {
       wv = first_wv;
       first_wv = first_wv->contents;
+#ifdef HAVE_MPS
+      free_gc_handle (wv->help);
+      igc_xfree (wv);
+#else
       xfree (wv);
+#endif
     }
 
   SAFE_FREE ();

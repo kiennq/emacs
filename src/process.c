@@ -31,6 +31,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <fcntl.h>
 
 #include "lisp.h"
+#include "igc.h"
 
 /* Only MS-DOS does not define `subprocesses'.  */
 #ifdef subprocesses
@@ -318,6 +319,8 @@ static Lisp_Object Vprocess_alist;
 static int proc_buffered_char[FD_SETSIZE];
 
 /* Table of `struct coding-system' for each process.  */
+/* FIXME/igc: this is a large structure containing only a few MPS
+   references, and never freed after allocation.  Use exact refs.  */
 static struct coding_system *proc_decode_coding_system[FD_SETSIZE];
 static struct coding_system *proc_encode_coding_system[FD_SETSIZE];
 
@@ -2608,7 +2611,7 @@ usage:  (make-pipe-process &rest ARGS)  */)
   eassert (p->decoding_carryover == 0);
   pset_encoding_buf (p, empty_unibyte_string);
 
-  specpdl_ptr = specpdl_ref_to_ptr (specpdl_count);
+  unbind_discard_to (specpdl_count);
 
   return proc;
 }
@@ -3315,7 +3318,7 @@ usage:  (make-serial-process &rest ARGS)  */)
 
   Fserial_process_configure (nargs, args);
 
-  specpdl_ptr = specpdl_ref_to_ptr (specpdl_count);
+  unbind_discard_to (specpdl_count);
 
   return proc;
 }
@@ -3656,7 +3659,7 @@ connect_network_socket (Lisp_Object proc, Lisp_Object addrinfos,
 #endif /* !WINDOWSNT */
 
       /* Discard the unwind protect closing S.  */
-      specpdl_ptr = specpdl_ref_to_ptr (count1);
+      unbind_discard_to (count1);
       emacs_close (s);
       s = -1;
       if (0 <= socket_to_use)
@@ -3749,7 +3752,7 @@ connect_network_socket (Lisp_Object proc, Lisp_Object addrinfos,
   p->outfd = outch;
 
   /* Discard the unwind protect for closing S, if any.  */
-  specpdl_ptr = specpdl_ref_to_ptr (count1);
+  unbind_discard_to (count1);
 
   if (p->is_server && p->socktype != SOCK_DGRAM)
     pset_status (p, Qlisten);
@@ -4337,7 +4340,7 @@ usage: (make-network-process &rest ARGS)  */)
   if (! postpone_connection)
     connect_network_socket (proc, addrinfos, use_external_socket_p);
 
-  specpdl_ptr = specpdl_ref_to_ptr (count);
+  unbind_discard_to (count);
   return proc;
 }
 
@@ -5139,7 +5142,7 @@ server_accept_connection (Lisp_Object server, int channel)
   eassert (p->pid == 0);
 
   /* Discard the unwind protect for closing S.  */
-  specpdl_ptr = specpdl_ref_to_ptr (count);
+  unbind_discard_to (count);
 
   p->open_fd[SUBPROCESS_STDIN] = s;
   p->infd  = s;
@@ -7509,8 +7512,15 @@ process has been transmitted to the serial port.  */)
 
       eassert (0 <= new_outfd && new_outfd < FD_SETSIZE);
       if (!proc_encode_coding_system[new_outfd])
-	proc_encode_coding_system[new_outfd]
-	  = xmalloc (sizeof (struct coding_system));
+	{
+#ifdef HAVE_MPS
+	  proc_encode_coding_system[new_outfd]
+	    = igc_alloc_coding_system ();
+#else
+	  proc_encode_coding_system[new_outfd]
+	    = xmalloc (sizeof (struct coding_system));
+#endif
+	}
       if (old_outfd >= 0)
 	{
 	  eassert (old_outfd < FD_SETSIZE);
@@ -7693,8 +7703,8 @@ bool glib_installs_sigchld_handler;
    ** Malloc WARNING: This should never call malloc either directly or
    indirectly; if it does, that is a bug.  */
 
-static void
-handle_child_signal (int sig)
+void
+process_sigchld_async (int sig)
 {
   Lisp_Object tail, proc;
   bool changed = false;
@@ -7771,6 +7781,39 @@ handle_child_signal (int sig)
   if (changed)
     /* Wake up `wait_reading_process_output'.  */
     child_signal_notify ();
+
+}
+
+/* Handle a SIGCHLD signal by looking for known child processes of
+   Emacs whose status have changed.  For each one found, record its
+   new status.
+
+   All we do is change the status; we do not run sentinels or print
+   notifications.  That is saved for the next time keyboard input is
+   done, in order to avoid timing errors.
+
+   ** WARNING: this can be called during garbage collection.
+   Therefore, it must not be fooled by the presence of mark bits in
+   Lisp objects.
+
+   ** USG WARNING: Although it is not obvious from the documentation
+   in signal(2), on a USG system the SIGCLD handler MUST NOT call
+   signal() before executing at least one wait(), otherwise the
+   handler will be called again, resulting in an infinite loop.  The
+   relevant portion of the documentation reads "SIGCLD signals will be
+   queued and the signal-catching function will be continually
+   reentered until the queue is empty".  Invoking signal() causes the
+   kernel to reexamine the SIGCLD queue.  Fred Fish, UniSoft Systems
+   Inc.
+
+   ** Malloc WARNING: This should never call malloc either directly or
+   indirectly; if it does, that is a bug.  */
+
+static void
+handle_child_signal (int sig)
+{
+  struct async_work_item item = {ASYNCWORK_SIGCHLD, .u.sigchld = sig};
+  enqueue_async_work (item);
 
   lib_child_handler (sig);
 #ifdef NS_IMPL_GNUSTEP
@@ -8396,7 +8439,14 @@ setup_process_coding_systems (Lisp_Object process)
 
   eassert (0 <= inch && inch < FD_SETSIZE);
   if (!proc_decode_coding_system[inch])
-    proc_decode_coding_system[inch] = xmalloc (sizeof (struct coding_system));
+    {
+#ifdef HAVE_MPS
+      proc_decode_coding_system[inch] = igc_alloc_coding_system ();
+#else
+      proc_decode_coding_system[inch]
+	= xmalloc (sizeof (struct coding_system));
+#endif
+    }
   coding_system = p->decode_coding_system;
   if (EQ (p->filter, Qinternal_default_process_filter)
       && BUFFERP (p->buffer))
@@ -8408,7 +8458,14 @@ setup_process_coding_systems (Lisp_Object process)
 
   eassert (0 <= outch && outch < FD_SETSIZE);
   if (!proc_encode_coding_system[outch])
-    proc_encode_coding_system[outch] = xmalloc (sizeof (struct coding_system));
+    {
+#ifdef HAVE_MPS
+      proc_encode_coding_system[outch] = igc_alloc_coding_system ();
+#else
+      proc_encode_coding_system[outch]
+	= xmalloc (sizeof (struct coding_system));
+#endif
+    }
   setup_coding_system (p->encode_coding_system,
 		       proc_encode_coding_system[outch]);
 #endif
@@ -8802,6 +8859,10 @@ init_process_emacs (int sockfd)
 
 #endif	/* subprocesses */
   kbd_is_on_hold = 0;
+
+#ifdef HAVE_MPS
+  igc_root_create_exact (chan_process, chan_process + countof (chan_process));
+#endif
 }
 
 void

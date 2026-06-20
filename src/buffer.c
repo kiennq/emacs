@@ -43,6 +43,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "xwidget.h"
 #include "itree.h"
 #include "pdumper.h"
+#include "igc.h"
 
 #ifdef WINDOWSNT
 #include "w32heap.h"		/* for mmap_* */
@@ -670,8 +671,11 @@ even if it is dead.  The return value is never nil.  */)
   reset_buffer_local_variables (b, 1);
 
   bset_mark (b, Fmake_marker ());
+#ifdef HAVE_MPS
+  BUF_MARKERS (b) = Qnil;
+#else
   BUF_MARKERS (b) = NULL;
-
+#endif
   /* Put this in the alist of all live buffers.  */
   XSETBUFFER (buffer, b);
   Vbuffer_alist = nconc2 (Vbuffer_alist, list1 (Fcons (name, buffer)));
@@ -1908,7 +1912,6 @@ cleaning up all windows currently displaying the buffer to be killed. */)
   Lisp_Object buffer;
   struct buffer *b;
   Lisp_Object tem;
-  struct Lisp_Marker *m;
 
   if (NILP (buffer_or_name))
     buffer = Fcurrent_buffer ();
@@ -2100,7 +2103,16 @@ cleaning up all windows currently displaying the buffer to be killed. */)
       /* Unchain all markers that belong to this indirect buffer.
 	 Don't unchain the markers that belong to the base buffer
 	 or its other indirect buffers.  */
+#ifdef HAVE_MPS
+      DO_MARKERS (b, m)
+	{
+	  if (m->buffer == b)
+	    igc_remove_marker (b, m);
+	}
+      END_DO_MARKERS;
+#else
       struct Lisp_Marker **mp = &BUF_MARKERS (b);
+      struct Lisp_Marker *m;
       while ((m = *mp))
 	{
 	  if (m->buffer == b)
@@ -2111,7 +2123,8 @@ cleaning up all windows currently displaying the buffer to be killed. */)
 	  else
 	    mp = &m->next;
 	}
-      /* Intervals should be owned by the base buffer (Bug#16502).  */
+ #endif
+     /* Intervals should be owned by the base buffer (Bug#16502).  */
       i = buffer_intervals (b);
       if (i)
 	{
@@ -2124,7 +2137,10 @@ cleaning up all windows currently displaying the buffer to be killed. */)
     {
       /* Unchain all markers of this buffer and its indirect buffers.
 	 and leave them pointing nowhere.  */
-      for (m = BUF_MARKERS (b); m; )
+#ifdef HAVE_MPS
+      igc_remove_all_markers (b);
+#else
+      for (struct Lisp_Marker *m = BUF_MARKERS (b); m; )
 	{
 	  struct Lisp_Marker *next = m->next;
 	  m->buffer = 0;
@@ -2132,6 +2148,7 @@ cleaning up all windows currently displaying the buffer to be killed. */)
 	  m = next;
 	}
       BUF_MARKERS (b) = NULL;
+#endif
       set_buffer_intervals (b, NULL);
 
       /* Perhaps we should explicitly free the interval tree here...  */
@@ -2662,21 +2679,26 @@ results, see Info node `(elisp)Swapping Text'.  */)
   other_buffer->text->end_unchanged = other_buffer->text->gpt;
   swap_buffer_overlays (current_buffer, other_buffer);
   {
-    struct Lisp_Marker *m;
-    for (m = BUF_MARKERS (current_buffer); m; m = m->next)
-      if (m->buffer == other_buffer)
-	m->buffer = current_buffer;
-      else
-	/* Since there's no indirect buffer in sight, markers on
-	   BUF_MARKERS(buf) should either be for `buf' or dead.  */
-	eassert (!m->buffer);
-    for (m = BUF_MARKERS (other_buffer); m; m = m->next)
-      if (m->buffer == current_buffer)
-	m->buffer = other_buffer;
-      else
-	/* Since there's no indirect buffer in sight, markers on
-	   BUF_MARKERS(buf) should either be for `buf' or dead.  */
-	eassert (!m->buffer);
+    DO_MARKERS (current_buffer, m)
+      {
+	if (m->buffer == other_buffer)
+	  m->buffer = current_buffer;
+	else
+	  /* Since there's no indirect buffer in sight, markers on
+	     BUF_MARKERS(buf) should either be for `buf' or dead.  */
+	  eassert (!m->buffer);
+      }
+    END_DO_MARKERS;
+    DO_MARKERS (other_buffer, m)
+      {
+	if (m->buffer == current_buffer)
+	  m->buffer = other_buffer;
+	else
+	  /* Since there's no indirect buffer in sight, markers on
+	     BUF_MARKERS(buf) should either be for `buf' or dead.  */
+	  eassert (!m->buffer);
+      }
+    END_DO_MARKERS;
   }
   { /* Some of the C code expects that both window markers of a
        live window points to that window's buffer.  So since we
@@ -2739,7 +2761,9 @@ If the multibyte flag was really changed, undo information of the
 current buffer is cleared.  */)
   (Lisp_Object flag)
 {
+#ifndef HAVE_MPS
   struct Lisp_Marker *tail, *markers;
+#endif
   Lisp_Object btail, other;
   ptrdiff_t begv, zv;
   bool narrowed = (BEG != BEGV || Z != ZV);
@@ -2788,9 +2812,11 @@ current buffer is cleared.  */)
       GPT = GPT_BYTE;
       TEMP_SET_PT_BOTH (PT_BYTE, PT_BYTE);
 
-
-      for (tail = BUF_MARKERS (current_buffer); tail; tail = tail->next)
-	tail->charpos = tail->bytepos;
+      DO_MARKERS (current_buffer, tail)
+	{
+	  tail->charpos = tail->bytepos;
+	}
+      END_DO_MARKERS;
 
       /* Convert multibyte form of 8-bit characters to unibyte.  */
       pos = BEG;
@@ -2940,6 +2966,17 @@ current buffer is cleared.  */)
 	TEMP_SET_PT_BOTH (position, byte);
       }
 
+#ifdef HAVE_MPS
+      DO_MARKERS (current_buffer, tail)
+	{
+	  Lisp_Object buf_markers = BUF_MARKERS (current_buffer);
+	  BUF_MARKERS (current_buffer) = Qnil;
+	  tail->bytepos = advance_to_char_boundary (tail->bytepos);
+	  tail->charpos = BYTE_TO_CHAR (tail->bytepos);
+	  BUF_MARKERS (current_buffer) = buf_markers;
+	}
+      END_DO_MARKERS;
+#else
       tail = markers = BUF_MARKERS (current_buffer);
 
       /* This prevents BYTE_TO_CHAR (that is, buf_bytepos_to_charpos) from
@@ -2959,6 +2996,7 @@ current buffer is cleared.  */)
 	emacs_abort ();
 
       BUF_MARKERS (current_buffer) = markers;
+#endif
 
       /* Do this last, so it can calculate the new correspondences
 	 between chars and bytes.  */
@@ -3133,8 +3171,13 @@ overlays_in (ptrdiff_t beg, ptrdiff_t end, bool extend,
 
       if (extend && idx == len)
         {
+#ifdef HAVE_MPS
+          vec = igc_xpalloc_ambig (vec, len_ptr, 1, OVERLAY_COUNT_MAX,
+				   sizeof *vec, "overlays_in");
+#else
           vec = xpalloc (vec, len_ptr, 1, OVERLAY_COUNT_MAX,
                          sizeof *vec);
+#endif
           *vec_ptr = vec;
           len = *len_ptr;
         }
@@ -3415,7 +3458,17 @@ record_overlay_string (struct sortstrlist *ssl, Lisp_Object str,
   ptrdiff_t nbytes;
 
   if (ssl->used == ssl->size)
-    ssl->buf = xpalloc (ssl->buf, &ssl->size, 5, -1, sizeof *ssl->buf);
+    {
+#ifdef HAVE_MPS
+      /* Never freed. */
+      eassert (ssl == &overlay_heads || ssl == &overlay_tails);
+      ssl->buf = igc_xpalloc_ambig (ssl->buf, &ssl->size, 5, -1,
+				    sizeof *ssl->buf,
+				    "record_overlay_string");
+#else
+      ssl->buf = xpalloc (ssl->buf, &ssl->size, 5, -1, sizeof *ssl->buf);
+#endif
+    }
   ssl->buf[ssl->used].string = str;
   ssl->buf[ssl->used].string2 = str2;
   ssl->buf[ssl->used].size = size;
@@ -3914,7 +3967,11 @@ the buffer if POS is outside of the narrowing.  */)
 
   len = 10;
   /* We can't use alloca here because overlays_at can call xrealloc.  */
+#ifdef HAVE_MPS
+  overlay_vec = igc_xzalloc_ambig (len * sizeof *overlay_vec, __func__);
+#else
   overlay_vec = xmalloc (len * sizeof *overlay_vec);
+#endif
 
   /* Put all the overlays we want in a vector in overlay_vec.
      Store the length in len.  */
@@ -3933,7 +3990,11 @@ the buffer if POS is outside of the narrowing.  */)
   if (!NILP (sorted))
     result = Fnreverse (result);
 
+#ifdef HAVE_MPS
+  igc_xfree (overlay_vec);
+#else
   xfree (overlay_vec);
+#endif
   return result;
 }
 
@@ -3966,7 +4027,11 @@ the buffer if BEG and/or END are outside of the narrowing.  */)
     return Qnil;
 
   len = 10;
+ #ifdef HAVE_MPS
+  overlay_vec = igc_xzalloc_ambig (len * sizeof *overlay_vec, __func__);
+#else
   overlay_vec = xmalloc (len * sizeof *overlay_vec);
+#endif
 
   /* Put all the overlays we want in a vector in overlay_vec.
      Store the length in len.  */
@@ -3976,7 +4041,11 @@ the buffer if BEG and/or END are outside of the narrowing.  */)
   /* Make a list of them all.  */
   result = Flist (noverlays, overlay_vec);
 
+#ifdef HAVE_MPS
+  igc_xfree (overlay_vec);
+#else
   xfree (overlay_vec);
+#endif
   return result;
 }
 

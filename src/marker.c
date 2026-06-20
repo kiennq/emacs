@@ -29,6 +29,8 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "character.h"
 #include "buffer.h"
 #include "window.h"
+#include "igc.h"
+#include "pdumper.h"
 
 /* Record one cached position found recently by
    buf_charpos_to_bytepos or buf_bytepos_to_charpos.  */
@@ -166,7 +168,6 @@ CHECK_MARKER (Lisp_Object x)
 ptrdiff_t
 buf_charpos_to_bytepos (struct buffer *b, ptrdiff_t charpos)
 {
-  struct Lisp_Marker *tail;
   ptrdiff_t best_above, best_above_byte;
   ptrdiff_t best_below, best_below_byte;
   ptrdiff_t distance = BYTECHAR_DISTANCE_INITIAL;
@@ -202,15 +203,19 @@ buf_charpos_to_bytepos (struct buffer *b, ptrdiff_t charpos)
   if (b == cached_buffer && BUF_MODIFF (b) == cached_modiff)
     CONSIDER (cached_charpos, cached_bytepos);
 
-  for (tail = BUF_MARKERS (b);
-       /* If we are down to a range of DISTANCE chars,
-          don't bother checking any other markers;
-          scan the intervening chars directly now.  */
-       tail && !(best_above - charpos < distance
-		 || charpos - best_below < distance);
-       tail = tail->next,
-       distance += BYTECHAR_DISTANCE_INCREMENT)
-    CONSIDER (tail->charpos, tail->bytepos);
+  DO_MARKERS (b, tail)
+    {
+      /* If we are down to a range of DISTANCE chars,
+	 don't bother checking any other markers;
+	 scan the intervening chars directly now.  */
+      if (best_above - charpos < distance
+          || charpos - best_below < distance)
+	break;
+
+      CONSIDER (tail->charpos, tail->bytepos);
+      distance += BYTECHAR_DISTANCE_INCREMENT;
+    }
+  END_DO_MARKERS;
 
   /* We get here if we did not exactly hit one of the known places.
      We have one known above and one known below.
@@ -319,7 +324,6 @@ buf_charpos_to_bytepos (struct buffer *b, ptrdiff_t charpos)
 ptrdiff_t
 buf_bytepos_to_charpos (struct buffer *b, ptrdiff_t bytepos)
 {
-  struct Lisp_Marker *tail;
   ptrdiff_t best_above, best_above_byte;
   ptrdiff_t best_below, best_below_byte;
   ptrdiff_t distance = BYTECHAR_DISTANCE_INITIAL;
@@ -350,15 +354,19 @@ buf_bytepos_to_charpos (struct buffer *b, ptrdiff_t bytepos)
   if (b == cached_buffer && BUF_MODIFF (b) == cached_modiff)
     CONSIDER (cached_bytepos, cached_charpos);
 
-  for (tail = BUF_MARKERS (b);
-       /* If we are down to a range of DISTANCE bytes,
-          don't bother checking any other markers;
-          scan the intervening chars directly now.  */
-       tail && !(best_above_byte - bytepos < distance
-		 || bytepos - best_below_byte < distance);
-       tail = tail->next,
-       distance += BYTECHAR_DISTANCE_INCREMENT)
-    CONSIDER (tail->bytepos, tail->charpos);
+  DO_MARKERS (b, tail)
+    {
+      /* If we are down to a range of DISTANCE chars,
+	 don't bother checking any other markers;
+	 scan the intervening chars directly now.  */
+      if (best_above_byte - bytepos < distance
+          || bytepos - best_below_byte < distance)
+	break;
+
+      CONSIDER (tail->bytepos, tail->charpos);
+      distance += BYTECHAR_DISTANCE_INCREMENT;
+    }
+  END_DO_MARKERS;
 
   /* We get here if we did not exactly hit one of the known places.
      We have one known above and one known below.
@@ -379,8 +387,13 @@ buf_bytepos_to_charpos (struct buffer *b, ptrdiff_t bytepos)
 	 It will last until the next GC.
 	 But don't do it if BUF_MARKERS is nil;
 	 that is a signal from Fset_buffer_multibyte.  */
+#ifdef HAVE_MPS
+      if (record && !NILP (BUF_MARKERS (b)))
+	build_marker (b, best_below, best_below_byte);
+#else
       if (record && BUF_MARKERS (b))
 	build_marker (b, best_below, best_below_byte);
+#endif
 
       byte_char_debug_check (b, best_below, best_below_byte);
 
@@ -406,9 +419,13 @@ buf_bytepos_to_charpos (struct buffer *b, ptrdiff_t bytepos)
 	 It will last until the next GC.
 	 But don't do it if BUF_MARKERS is nil;
 	 that is a signal from Fset_buffer_multibyte.  */
+#ifdef HAVE_MPS
+      if (record && VECTORP (BUF_MARKERS (b)))
+	build_marker (b, best_above, best_above_byte);
+#else
       if (record && BUF_MARKERS (b))
 	build_marker (b, best_above, best_above_byte);
-
+#endif
       byte_char_debug_check (b, best_above, best_above_byte);
 
       cached_buffer = b;
@@ -487,8 +504,12 @@ attach_marker (struct Lisp_Marker *m, struct buffer *b,
     {
       unchain_marker (m);
       m->buffer = b;
+#ifdef HAVE_MPS
+      igc_add_marker (b, m);
+#else
       m->next = BUF_MARKERS (b);
       BUF_MARKERS (b) = m;
+#endif
     }
 }
 
@@ -687,6 +708,9 @@ unchain_marker (register struct Lisp_Marker *marker)
 
   if (b)
     {
+#ifdef HAVE_MPS
+      igc_remove_marker (b, marker);
+#else
       register struct Lisp_Marker *tail, **prev;
 
       /* No dead buffers here.  */
@@ -715,6 +739,7 @@ unchain_marker (register struct Lisp_Marker *marker)
 
       /* Error if marker was not in it's chain.  */
       eassert (tail != NULL);
+#endif
     }
 }
 
@@ -800,7 +825,6 @@ The list includes markers at BEG and at END.  */)
   (Lisp_Object beg, Lisp_Object end)
 {
   Lisp_Object res = Qnil;
-  struct Lisp_Marker *tail;
   ptrdiff_t ibeg, iend;
   if (NILP (beg))
     ibeg = BEGV;
@@ -817,9 +841,12 @@ The list includes markers at BEG and at END.  */)
       iend = clip_to_bounds (BEGV, XFIXNUM (end), ZV);
     }
 
-  for (tail = BUF_MARKERS (current_buffer); tail; tail = tail->next)
-    if (ibeg <= tail->charpos && tail->charpos <= iend)
-      res = Fcons (make_lisp_ptr (tail, Lisp_Vectorlike), res);
+  DO_MARKERS (current_buffer, tail)
+    {
+      if (ibeg <= tail->charpos && tail->charpos <= iend)
+	res = Fcons (make_lisp_ptr (tail, Lisp_Vectorlike), res);
+    }
+  END_DO_MARKERS;
 
   return res;
 }
@@ -860,9 +887,20 @@ verify_bytepos (ptrdiff_t charpos)
 
 #endif /* MARKER_DEBUG */
 
+#ifdef HAVE_MPS
+static void
+protect_cached_buffer (void)
+{
+  igc_root_create_exact_ptr (&cached_buffer);
+}
+#endif
+
 void
 syms_of_marker (void)
 {
+#ifdef HAVE_MPS
+  pdumper_do_now_and_after_load (protect_cached_buffer);
+#endif
   defsubr (&Smarker_position);
   defsubr (&Smarker_last_position);
   defsubr (&Smarker_buffer);

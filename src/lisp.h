@@ -45,6 +45,23 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 INLINE_HEADER_BEGIN
 
+/* Enable this with --enable-checking=igc_check_fwd. */
+# if defined HAVE_MPS && defined IGC_CHECK_FWD
+void igc_check_fwd (void *client, bool is_vector);
+# else
+#define igc_check_fwd(c, v) ((void) 0)
+# endif
+
+/* Enable this with --enable-checking=igc_debug_alloc.  */
+#if defined HAVE_MPS && defined IGC_DEBUG_ALLOC
+extern void register_xmalloc_allocation (void *old, void *new, size_t size,
+					 void *caller);
+extern size_t unregister_xmalloc_allocation (void *old, bool scan);
+#else
+#define register_xmalloc_allocation(old, new, size, caller) (void) 0
+#define unregister_xmalloc_allocation(old, scan) (void) 0
+#endif
+
 /* Define a TYPE constant ID as an externally visible name.  Use like this:
 
       DEFINE_GDB_SYMBOL_BEGIN (TYPE, ID)
@@ -248,12 +265,16 @@ DEFINE_GDB_SYMBOL_END (INTTYPEBITS)
     b. slower, because it typically requires extra masking.
    So, USE_LSB_TAG is true only on hosts where it might be useful.  */
 DEFINE_GDB_SYMBOL_BEGIN (bool, USE_LSB_TAG)
+#ifndef HAVE_MPS
 #if (ALIGNOF_EMACS_INT < IDEAL_GCALIGNMENT \
      && !HAVE_C_ALIGNASOF && !defined alignas \
      && !defined HAVE_STRUCT_ATTRIBUTE_ALIGNED)
 # define USE_LSB_TAG false
 #else
 # define USE_LSB_TAG (VAL_MAX / 2 < INTPTR_MAX)
+#endif
+#else /* HAVE_MPS */
+#define USE_LSB_TAG 1
 #endif
 DEFINE_GDB_SYMBOL_END (USE_LSB_TAG)
 
@@ -307,6 +328,15 @@ DEFINE_GDB_SYMBOL_END (VALMASK)
 # define GCALIGNED_STRUCT
 #endif
 #define GCALIGNED(type) (alignof (type) % GCALIGNMENT == 0)
+
+#ifdef HAVE_MPS
+# include "igc-types.h"
+# define GC_HEADER union igc_header gc_header;
+# define GC_HEADER_INIT { .v = 0 },
+#else
+# define GC_HEADER
+# define GC_HEADER_INIT
+#endif
 
 /* Lisp_Word is a scalar word suitable for holding a tagged pointer or
    integer.  Usually it is a pointer to a deliberately-incomplete type
@@ -404,7 +434,9 @@ typedef EMACS_INT Lisp_Word;
 #define lisp_h_VECTORLIKEP(x) TAGGEDP (x, Lisp_Vectorlike)
 #define lisp_h_XCAR(c) XCONS (c)->u.s.car
 #define lisp_h_XCDR(c) XCONS (c)->u.s.u.cdr
+#ifndef HAVE_MPS
 #define lisp_h_XHASH(a) XUFIXNUM_RAW (a)
+#endif
 #if USE_LSB_TAG
 # define lisp_h_make_fixnum_wrap(n) \
     XIL ((EMACS_INT) (((EMACS_UINT) {(n)} << INTTYPEBITS) + Lisp_Int0))
@@ -454,7 +486,9 @@ typedef EMACS_INT Lisp_Word;
 # define VECTORLIKEP(x) lisp_h_VECTORLIKEP (x)
 # define XCAR(c) lisp_h_XCAR (c)
 # define XCDR(c) lisp_h_XCDR (c)
+#ifndef HAVE_MPS
 # define XHASH(a) lisp_h_XHASH (a)
+#endif
 # if USE_LSB_TAG
 #  define make_fixnum(n) lisp_h_make_fixnum (n)
 #  define XFIXNUM_RAW(a) lisp_h_XFIXNUM_RAW (a)
@@ -491,7 +525,7 @@ typedef EMACS_INT Lisp_Word;
    01........  ........10  fixnum      signed integer of FIXNUM_BITS
    110.......  .......011  cons        pointer to struct Lisp_Cons
    100.......  .......100  string      pointer to struct Lisp_String
-   101.......  .......101  vectorlike  pointer to union vectorlike_header
+   101.......  .......101  vectorlike  pointer to struct vectorlike_header
    111.......  .......111  float       pointer to struct Lisp_Float  */
 enum Lisp_Type
   {
@@ -784,6 +818,7 @@ enum symbol_trapped_write
 
 struct Lisp_Symbol
 {
+  GC_HEADER
   union
   {
     struct
@@ -914,13 +949,11 @@ typedef EMACS_UINT Lisp_Word_tag;
 /* Header of vector-like objects.  This documents the layout constraints on
    vectors and pseudovectors (objects of PVEC_xxx subtype).  It also prevents
    compilers from being fooled by Emacs's type punning: XSETPSEUDOVECTOR
-   and PSEUDOVECTORP cast their pointers to union vectorlike_header *,
+   and PSEUDOVECTORP cast their pointers to struct vectorlike_header *,
    because when two such pointers potentially alias, a compiler won't
    incorrectly reorder loads and stores to their size fields.  See
-   Bug#8546.  This union formerly contained more members, and there's
-   no compelling reason to change it to a struct merely because the
-   number of members has been reduced to one.  */
-union vectorlike_header
+   Bug#8546.   */
+struct vectorlike_header
   {
     /* The `size' header word, W bits wide, has one of two forms
        discriminated by the second-highest bit (PSEUDOVECTOR_FLAG):
@@ -951,12 +984,13 @@ union vectorlike_header
                 (The block size for PVEC_BOOL is computed from its own size
                 field, to avoid being restricted by the 12-bit RESTSIZE field.)
     */
+    GC_HEADER
     ptrdiff_t size;
   };
 
 struct Lisp_Symbol_With_Pos
 {
-  union vectorlike_header header;
+  struct vectorlike_header header;
   Lisp_Object sym;              /* A symbol */
   Lisp_Object pos;              /* A fixnum */
 } GCALIGNED_STRUCT;
@@ -993,6 +1027,9 @@ enum pvec_type
   PVEC_BOOL_VECTOR,
   PVEC_BUFFER,
   PVEC_HASH_TABLE,
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
+  PVEC_WEAK_HASH_TABLE,
+#endif
   PVEC_OBARRAY,
   PVEC_TERMINAL,
   PVEC_WINDOW_CONFIGURATION,
@@ -1004,6 +1041,7 @@ enum pvec_type
   PVEC_MUTEX,
   PVEC_CONDVAR,
   PVEC_MODULE_FUNCTION,
+  PVEC_MODULE_GLOBAL_REFERENCE,
   PVEC_NATIVE_COMP_UNIT,
   PVEC_TS_PARSER,
   PVEC_TS_NODE,
@@ -1054,7 +1092,7 @@ INLINE bool
 PSEUDOVECTORP (Lisp_Object a, int code)
 {
   return (lisp_h_VECTORLIKEP (a)
-	  && ((XUNTAG (a, Lisp_Vectorlike, union vectorlike_header)->size
+	  && ((XUNTAG (a, Lisp_Vectorlike, struct vectorlike_header)->size
 	       & (PSEUDOVECTOR_FLAG | PVEC_TYPE_MASK))
 	      == (PSEUDOVECTOR_FLAG | (code << PSEUDOVECTOR_AREA_BITS))));
 }
@@ -1082,7 +1120,11 @@ INLINE struct Lisp_Symbol_With_Pos *
 XSYMBOL_WITH_POS (Lisp_Object a)
 {
   eassert (SYMBOL_WITH_POS_P (a));
-  return XUNTAG (a, Lisp_Vectorlike, struct Lisp_Symbol_With_Pos);
+
+  struct Lisp_Symbol_With_Pos *s
+    = XUNTAG (a, Lisp_Vectorlike, struct Lisp_Symbol_With_Pos);
+  igc_check_fwd (s, false);
+  return s;
 }
 
 INLINE Lisp_Object
@@ -1112,6 +1154,7 @@ XBARE_SYMBOL (Lisp_Object a)
   eassert (BARE_SYMBOL_P (a));
   intptr_t i = (intptr_t) XUNTAG (a, Lisp_Symbol, struct Lisp_Symbol);
   void *p = (char *) lispsym + i;
+  igc_check_fwd (p, false);
   return p;
 }
 
@@ -1287,11 +1330,13 @@ XUFIXNUM (Lisp_Object a)
 }
 
 /* Return A's hash, which is in the range 0..INTMASK.  */
+#ifndef HAVE_MPS
 INLINE EMACS_INT
 (XHASH) (Lisp_Object a)
 {
   return lisp_h_XHASH (a);
 }
+#endif
 
 /* Like make_fixnum (N), but may be faster.  N must be in nonnegative range.  */
 INLINE Lisp_Object
@@ -1365,11 +1410,11 @@ dead_object (void)
 #define XSETPVECTYPESIZE(v, code, lispsize, restsize)		\
   ((v)->header.size = PVECHEADERSIZE (code, lispsize, restsize))
 
-/* The cast to union vectorlike_header * avoids aliasing issues.  */
+/* The cast to struct vectorlike_header * avoids aliasing issues.  */
 #define XSETPSEUDOVECTOR(a, b, code) \
   XSETTYPED_PSEUDOVECTOR (a, b,					\
 			  (XUNTAG (a, Lisp_Vectorlike,		\
-				   union vectorlike_header)	\
+				   struct vectorlike_header)	\
 			   ->size),				\
 			  code)
 #define XSETTYPED_PSEUDOVECTOR(a, b, size, code)			\
@@ -1424,6 +1469,7 @@ typedef struct interval *INTERVAL;
 
 struct Lisp_Cons
 {
+  GC_HEADER
   union
   {
     struct
@@ -1467,7 +1513,9 @@ INLINE struct Lisp_Cons *
 XCONS (Lisp_Object a)
 {
   eassert (CONSP (a));
-  return XUNTAG (a, Lisp_Cons, struct Lisp_Cons);
+  struct Lisp_Cons *c = XUNTAG (a, Lisp_Cons, struct Lisp_Cons);
+  igc_check_fwd (c, false);
+  return c;
 }
 
 /* Take the car or cdr of something known to be a cons cell.  */
@@ -1549,10 +1597,21 @@ CDR_SAFE (Lisp_Object c)
   return CONSP (c) ? XCDR (c) : Qnil;
 }
 
+#ifdef HAVE_MPS
+/* When using MPS, Lisp_String data is actually a pointer to the
+   flexible "data" array in this struct. */
+struct Lisp_String_Data
+{
+  GC_HEADER
+  unsigned char data[FLEXIBLE_ARRAY_MEMBER];
+};
+#endif
+
 /* In a string or vector, the sign bit of u.s.size is the gc mark bit.  */
 
 struct Lisp_String
 {
+  GC_HEADER
   union
   {
     struct
@@ -1594,7 +1653,9 @@ INLINE struct Lisp_String *
 XSTRING (Lisp_Object a)
 {
   eassert (STRINGP (a));
-  return XUNTAG (a, Lisp_String, struct Lisp_String);
+  struct Lisp_String *s = XUNTAG (a, Lisp_String, struct Lisp_String);
+  igc_check_fwd (s, false);
+  return s;
 }
 
 /* True if STR is a multibyte string.  */
@@ -1684,7 +1745,7 @@ extern ptrdiff_t string_bytes (struct Lisp_String *);
 INLINE ptrdiff_t
 STRING_BYTES (struct Lisp_String *s)
 {
-#ifdef GC_CHECK_STRING_BYTES
+#if defined GC_CHECK_STRING_BYTES && !defined HAVE_MPS
   ptrdiff_t nbytes = string_bytes (s);
 #else
   ptrdiff_t nbytes = s->u.s.size_byte < 0 ? s->u.s.size : s->u.s.size_byte;
@@ -1727,7 +1788,7 @@ string_immovable_p (Lisp_Object str)
 
 struct Lisp_Vector
   {
-    union vectorlike_header header;
+    struct vectorlike_header header;
     Lisp_Object contents[FLEXIBLE_ARRAY_MEMBER];
   } GCALIGNED_STRUCT;
 
@@ -1741,7 +1802,9 @@ INLINE struct Lisp_Vector *
 XVECTOR (Lisp_Object a)
 {
   eassert (VECTORLIKEP (a));
-  return XUNTAG (a, Lisp_Vectorlike, struct Lisp_Vector);
+  struct Lisp_Vector *v = XUNTAG (a, Lisp_Vectorlike, struct Lisp_Vector);
+  igc_check_fwd (v, true);
+  return v;
 }
 
 INLINE ptrdiff_t
@@ -1791,7 +1854,7 @@ PSEUDOVECTOR_TYPE (const struct Lisp_Vector *v)
 
 /* Can't be used with PVEC_NORMAL_VECTOR.  */
 INLINE bool
-PSEUDOVECTOR_TYPEP (const union vectorlike_header *a, enum pvec_type code)
+PSEUDOVECTOR_TYPEP (const struct vectorlike_header *a, enum pvec_type code)
 {
   /* We don't use PSEUDOVECTOR_TYPE here so as to avoid a shift
    * operation when `code' is known.  */
@@ -1805,7 +1868,7 @@ struct Lisp_Bool_Vector
   {
     /* HEADER.SIZE is the vector's size field.  It doesn't have the real size,
        just the subtype information.  */
-    union vectorlike_header header;
+    struct vectorlike_header header;
     /* The size in bits; at most BOOL_VECTOR_LENGTH_MAX.  */
     EMACS_INT size;
     /* The actual bits, packed into bytes.
@@ -1819,7 +1882,7 @@ struct Lisp_Bool_Vector
    and offsets, mostly of vectorlike objects.
 
    The garbage collector assumes that the initial part of any struct
-   that starts with a union vectorlike_header followed by N
+   that starts with a struct vectorlike_header followed by N
    Lisp_Objects (some possibly in arrays and/or a trailing flexible
    array) will be laid out like a struct Lisp_Vector with N
    Lisp_Objects.  This assumption is true in practice on known Emacs
@@ -1902,7 +1965,10 @@ INLINE struct Lisp_Bool_Vector *
 XBOOL_VECTOR (Lisp_Object a)
 {
   eassert (BOOL_VECTOR_P (a));
-  return XUNTAG (a, Lisp_Vectorlike, struct Lisp_Bool_Vector);
+  struct Lisp_Bool_Vector *v
+    = XUNTAG (a, Lisp_Vectorlike, struct Lisp_Bool_Vector);
+  igc_check_fwd (v, true);
+  return v;
 }
 
 INLINE EMACS_INT
@@ -2056,7 +2122,7 @@ struct Lisp_Char_Table
        pseudovector type information.  It holds the size, too.
        The size counts the defalt, parent, purpose, ascii,
        contents, and extras slots.  */
-    union vectorlike_header header;
+    struct vectorlike_header header;
 
     /* This holds the default value, which is used whenever the value
        for a specific character is nil.  */
@@ -2091,14 +2157,16 @@ INLINE struct Lisp_Char_Table *
 XCHAR_TABLE (Lisp_Object a)
 {
   eassert (CHAR_TABLE_P (a));
-  return XUNTAG (a, Lisp_Vectorlike, struct Lisp_Char_Table);
+  struct Lisp_Char_Table *t = XUNTAG (a, Lisp_Vectorlike, struct Lisp_Char_Table);
+  igc_check_fwd (t, true);
+  return t;
 }
 
 struct Lisp_Sub_Char_Table
   {
     /* HEADER.SIZE is the vector's size field, which also holds the
        pseudovector type information.  It holds the size, too.  */
-    union vectorlike_header header;
+    struct vectorlike_header header;
 
     /* Depth of this sub char-table.  It should be 1, 2, or 3.  A sub
        char-table of depth 1 contains 16 elements, and each element
@@ -2173,7 +2241,7 @@ CHAR_TABLE_SET (Lisp_Object ct, int idx, Lisp_Object val)
 
 struct Lisp_Subr
   {
-    union vectorlike_header header;
+    struct vectorlike_header header;
     union {
       Lisp_Object (*a0) (void);
       Lisp_Object (*a1) (Lisp_Object);
@@ -2393,15 +2461,32 @@ INLINE int
    definition is done by lread.c's define_symbol.  */
 #define DEFSYM(sym, name) /* empty */
 
+/* A Lisp_KV_Vector is used for hash tables and obarrays to store keys
+   or values.  */
+#ifdef HAVE_MPS
+typedef struct Lisp_Vector *Lisp_KV_Vector;
+#else
+typedef Lisp_Object *Lisp_KV_Vector;
+#endif
+
+INLINE Lisp_Object *
+kv_vector_data (Lisp_KV_Vector v)
+{
+#ifdef HAVE_MPS
+  return v->contents;
+#else
+  return v;
+#endif
+}
 
 struct Lisp_Obarray
 {
-  union vectorlike_header header;
+  struct vectorlike_header header;
 
   /* Array of 2**size_bits values, each being either a (bare) symbol or
      the fixnum 0.  The symbols for each bucket are chained via
      their s.next field.  */
-  Lisp_Object *buckets;
+  Lisp_KV_Vector buckets;
 
   unsigned size_bits;  /* log2(size of buckets vector) */
   unsigned count;      /* number of symbols in obarray */
@@ -2417,7 +2502,11 @@ INLINE struct Lisp_Obarray *
 XOBARRAY (Lisp_Object a)
 {
   eassert (OBARRAYP (a));
-  return XUNTAG (a, Lisp_Vectorlike, struct Lisp_Obarray);
+  struct Lisp_Obarray *o = XUNTAG (a, Lisp_Vectorlike, struct Lisp_Obarray);
+# if defined HAVE_MPS && defined ENABLE_CHECKING
+  igc_check_fwd (o, true);
+# endif
+  return o;
 }
 
 INLINE void
@@ -2473,7 +2562,7 @@ obarray_iter_at_end (obarray_iter_t *it)
   ptrdiff_t size = obarray_size (it->o);
   while (++it->idx < size)
     {
-      Lisp_Object obj = it->o->buckets[it->idx];
+      Lisp_Object obj = kv_vector_data (it->o->buckets)[it->idx];
       if (!BASE_EQ (obj, make_fixnum (0)))
 	{
 	  it->symbol = XBARE_SYMBOL (obj);
@@ -2512,7 +2601,12 @@ obarray_iter_symbol (obarray_iter_t *it)
 
 /* The structure of a Lisp hash table.  */
 
+#ifndef USE_EPHEMERON_POOL
+struct Lisp_Weak_Hash_Table;
+#endif
+
 struct Lisp_Hash_Table;
+struct hash_impl;
 
 /* The type of a hash value stored in the table.
    It's unsigned and a subtype of EMACS_UINT.  */
@@ -2542,6 +2636,16 @@ struct hash_table_test
   Lisp_Object name;
 };
 
+/* This is a cache of hash_table_test structures so that they can be
+   shared between hash tables using the same test.
+   FIXME: This way of storing and looking up hash_table_test structs
+   isn't wonderful.  Find a better solution.  */
+struct hash_table_user_test
+{
+  struct hash_table_test test;
+  struct hash_table_user_test *next;
+};
+
 typedef enum hash_table_weakness_t {
   Weak_None,		 /* No weak references.  */
   Weak_Key,		 /* Reference to key is weak.  */
@@ -2552,6 +2656,9 @@ typedef enum hash_table_weakness_t {
   Weak_Key_And_Value,	 /* References to key and value are weak:
 			    element kept as long as strong references to
 			    both key and value remain.  */
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
+  Weak_Key_Strong_Value,
+#endif
 } hash_table_weakness_t;
 
 /* The type of a hash table index, both for table indices and index
@@ -2559,9 +2666,107 @@ typedef enum hash_table_weakness_t {
 typedef int_least32_t hash_idx_t;
 #define PRIdHASH_IDX PRIdLEAST32
 
+#ifndef USE_EPHEMERON_POOL
+struct Lisp_Weak_Hash_Table_Strong_Part;
+
+struct Lisp_Weak_Hash_Table_Weak_Part
+{
+  GC_HEADER
+  struct Lisp_Weak_Hash_Table_Strong_Part *strong;
+};
+
+struct Lisp_Weak_Hash_Table
+{
+  struct vectorlike_header header;
+
+  struct Lisp_Weak_Hash_Table_Strong_Part *strong;
+  struct Lisp_Weak_Hash_Table_Weak_Part *weak;
+  Lisp_Object dump_replacement;
+};
+
+struct vector_pair
+{
+  Lisp_KV_Vector keys, values;
+};
+#endif
+
+#ifdef USE_EPHEMERON_POOL
+struct pair_vector
+{
+  GC_HEADER
+  /* nil or a positive fixnum.  If non-nil, it's the number of (weak)
+     entries "splatted" by the GC.  */
+  Lisp_Object ndeleted;
+  struct
+  {
+    Lisp_Object key, value;
+  } pairs[FLEXIBLE_ARRAY_MEMBER];
+};
+
+#endif
+
+#ifndef USE_EPHEMERON_POOL
+typedef struct vector_pair hash_table_kv;
+#else
+typedef struct pair_vector *hash_table_kv;
+#endif
+
+hash_table_kv hash_table_kv_create (size_t size, hash_table_weakness_t);
+void hash_table_kv_free (hash_table_kv, size_t size);
+
+INLINE Lisp_Object
+hash_table_kv_key (hash_table_kv kv, size_t i)
+{
+#ifndef USE_EPHEMERON_POOL
+  return kv_vector_data (kv.keys)[i];
+#else
+  return kv->pairs[i].key;
+#endif
+}
+
+INLINE Lisp_Object
+hash_table_kv_value (hash_table_kv kv, size_t i)
+{
+#ifndef USE_EPHEMERON_POOL
+  return kv_vector_data (kv.values)[i];
+#else
+  return kv->pairs[i].value;
+#endif
+}
+
+INLINE void
+hash_table_kv_set_key (hash_table_kv kv, size_t i, Lisp_Object val)
+{
+#ifndef USE_EPHEMERON_POOL
+  kv_vector_data (kv.keys)[i] = val;
+#else
+  kv->pairs[i].key = val;
+#endif
+}
+
+INLINE void
+hash_table_kv_set_value (hash_table_kv kv, size_t i, Lisp_Object val)
+{
+#ifndef USE_EPHEMERON_POOL
+  kv_vector_data (kv.values)[i] = val;
+#else
+  kv->pairs[i].value = val;
+#endif
+}
+
+INLINE hash_table_kv
+hash_table_kv_null (void)
+{
+#ifndef USE_EPHEMERON_POOL
+  return (struct vector_pair) { NULL, NULL };
+#else
+  return NULL;
+#endif
+}
+
 struct Lisp_Hash_Table
 {
-  union vectorlike_header header;
+  struct vectorlike_header header;
 
   /* Hash table internal structure:
 
@@ -2601,12 +2806,10 @@ struct Lisp_Hash_Table
      This vector is table_size entries long.  */
   hash_hash_t *hash;
 
-  /* Vector of keys and values.  The key of item I is found at index
-     2 * I, the value is found at index 2 * I + 1.
-     If the key is HASH_UNUSED_ENTRY_KEY, then this slot is unused.
-     This is gc_marked specially if the table is weak.
-     This vector is 2 * table_size entries long.  */
-  Lisp_Object *key_and_value;
+  /* Vectors of keys and values.  If the key is HASH_UNUSED_ENTRY_KEY,
+     then this slot is unused.  This is gc_marked specially if the table
+     is weak.  */
+  hash_table_kv kv;
 
   /* The comparison and hash functions.  */
   const struct hash_table_test *test;
@@ -2629,7 +2832,7 @@ struct Lisp_Hash_Table
   unsigned char index_bits;	/* log2 (size of the index vector).  */
 
   /* Weakness of the table.  */
-  ENUM_BF (hash_table_weakness_t) weakness : 3;
+  ENUM_BF (hash_table_weakness_t) weakness : 4;
 
   /* Hash table test (only used when frozen in dump)  */
   ENUM_BF (hash_table_std_test_t) frozen_test : 2;
@@ -2644,6 +2847,13 @@ struct Lisp_Hash_Table
      collection --- at other times, it is NULL.  */
   struct Lisp_Hash_Table *next_weak;
 } GCALIGNED_STRUCT;
+
+struct Lisp_Weak_Hash_Table_Strong_Part
+{
+  GC_HEADER
+  struct Lisp_Hash_Table h;
+  struct Lisp_Weak_Hash_Table_Weak_Part *weak;
+};
 
 /* A specific Lisp_Object that is not a valid Lisp value.
    We need to be careful not to leak this value into machinery
@@ -2670,8 +2880,29 @@ INLINE struct Lisp_Hash_Table *
 XHASH_TABLE (Lisp_Object a)
 {
   eassert (HASH_TABLE_P (a));
-  return XUNTAG (a, Lisp_Vectorlike, struct Lisp_Hash_Table);
+  struct Lisp_Hash_Table *h
+    = XUNTAG (a, Lisp_Vectorlike, struct Lisp_Hash_Table);
+  igc_check_fwd (h, true);
+  return h;
 }
+
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
+INLINE bool
+WEAK_HASH_TABLE_P (Lisp_Object a)
+{
+  return PSEUDOVECTORP (a, PVEC_WEAK_HASH_TABLE);
+}
+
+INLINE struct Lisp_Weak_Hash_Table *
+XWEAK_HASH_TABLE (Lisp_Object a)
+{
+  eassert (WEAK_HASH_TABLE_P (a));
+  struct Lisp_Weak_Hash_Table *h
+    = XUNTAG (a, Lisp_Vectorlike, struct Lisp_Weak_Hash_Table);
+  igc_check_fwd (h, true);
+  return h;
+}
+#endif
 
 INLINE Lisp_Object
 make_lisp_hash_table (struct Lisp_Hash_Table *h)
@@ -2685,7 +2916,7 @@ INLINE Lisp_Object
 HASH_KEY (const struct Lisp_Hash_Table *h, ptrdiff_t idx)
 {
   eassert (idx >= 0 && idx < h->table_size);
-  return h->key_and_value[2 * idx];
+  return hash_table_kv_key (h->kv, idx);
 }
 
 /* Value is the value part of entry IDX in hash table H.  */
@@ -2693,7 +2924,7 @@ INLINE Lisp_Object
 HASH_VALUE (const struct Lisp_Hash_Table *h, ptrdiff_t idx)
 {
   eassert (idx >= 0 && idx < h->table_size);
-  return h->key_and_value[2 * idx + 1];
+  return hash_table_kv_value (h->kv, idx);
 }
 
 /* Value is the hash code computed for entry IDX in hash table H.  */
@@ -2725,27 +2956,117 @@ hash_from_key (struct Lisp_Hash_Table *h, Lisp_Object key)
   return h->test->hashfn (key, h);
 }
 
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
+INLINE Lisp_Object
+make_lisp_weak_hash_table (struct Lisp_Weak_Hash_Table *h)
+{
+  eassert (PSEUDOVECTOR_TYPEP (&h->header, PVEC_WEAK_HASH_TABLE));
+  return make_lisp_ptr (h, Lisp_Vectorlike);
+}
+
+/* Value is the key part of entry IDX in hash table H.  */
+INLINE Lisp_Object
+WEAK_HASH_KEY (const struct Lisp_Weak_Hash_Table *wh, ptrdiff_t idx)
+{
+  eassert (idx >= 0 && idx < wh->strong->h.table_size);
+  return wh->strong->h.kv.keys->contents[idx];
+}
+
+INLINE Lisp_Object
+WEAK_HASH_VALUE (const struct Lisp_Weak_Hash_Table *wh, ptrdiff_t idx)
+{
+  return wh->strong->h.kv.values->contents[idx];
+}
+
+/* Value is the hash code computed for entry IDX in hash table H.  */
+INLINE hash_hash_t
+WEAK_HASH_HASH (const struct Lisp_Weak_Hash_Table *h, ptrdiff_t idx)
+{
+  eassert (idx >= 0 && idx < h->strong->h.table_size);
+  return h->strong->h.hash[idx];
+}
+
+/* Value is the size of hash table H.  */
+INLINE ptrdiff_t
+WEAK_HASH_TABLE_SIZE (const struct Lisp_Weak_Hash_Table *h)
+{
+  return h->strong->h.table_size;
+}
+
+INLINE ptrdiff_t
+weak_hash_table_index_size (const struct Lisp_Weak_Hash_Table *h)
+{
+  return (ptrdiff_t)1 << h->strong->h.index_bits;
+}
+
+/* Hash value for KEY in hash table H.  */
+extern hash_hash_t weak_hash_from_key (struct Lisp_Weak_Hash_Table *h, Lisp_Object key);
+#endif
+
+#ifndef USE_EPHEMERON_POOL
 /* Iterate K and V as key and value of valid entries in hash table H.
    The body may remove the current entry or alter its value slot, but not
    mutate TABLE in any other way.  */
-#define DOHASH(h, k, v)							\
-  for (Lisp_Object *dohash_##k##_##v##_kv = (h)->key_and_value,		\
-                   *dohash_##k##_##v##_end = dohash_##k##_##v##_kv	\
-                                             + 2 * HASH_TABLE_SIZE (h),	\
-	           *dohash_##k##_##v##_base = dohash_##k##_##v##_kv,	\
+# define DOHASH(h, k, v)						\
+  for (Lisp_Object *dohash_##k##_##v##_k = kv_vector_data ((h)->kv.keys),	\
+	           *dohash_##k##_##v##_v = kv_vector_data ((h)->kv.values), \
+                   *dohash_##k##_##v##_end = dohash_##k##_##v##_k	\
+                                             + HASH_TABLE_SIZE (h),	\
+	           *dohash_##k##_##v##_base = dohash_##k##_##v##_k,	\
                    k, v;						\
-       dohash_##k##_##v##_kv < dohash_##k##_##v##_end			\
-       && (k = dohash_##k##_##v##_kv[0],				\
-           v = dohash_##k##_##v##_kv[1], /*maybe unused*/ (void)v,      \
+       dohash_##k##_##v##_k < dohash_##k##_##v##_end			\
+	 && (k = dohash_##k##_##v##_k[0],				\
+	     v = dohash_##k##_##v##_v[0], /*maybe unused*/ (void)v,	\
            true);			                                \
-       eassert (dohash_##k##_##v##_base == (h)->key_and_value		\
+       eassert (dohash_##k##_##v##_base == kv_vector_data ((h)->kv.keys)	\
 		&& dohash_##k##_##v##_end				\
 		   == dohash_##k##_##v##_base				\
-	              + 2 * HASH_TABLE_SIZE (h)),			\
-       dohash_##k##_##v##_kv += 2)					\
+		+ HASH_TABLE_SIZE (h)),					\
+	 ++dohash_##k##_##v##_k, ++dohash_##k##_##v##_v)		\
     if (hash_unused_entry_key_p (k))					\
       ;									\
     else
+#endif
+
+#ifdef USE_EPHEMERON_POOL
+# define DOHASH(h, k, v)                                            \
+  for (Lisp_Object _dohash_i = make_fixnum (0),                     \
+		   _dohash_end = make_fixnum (HASH_TABLE_SIZE (h)), \
+		   k, v;                                            \
+       XFIXNUM (_dohash_i) < XFIXNUM (_dohash_end)                  \
+       && (k = HASH_KEY (h, XFIXNUM (_dohash_i)),                   \
+	  v = HASH_VALUE (h, XFIXNUM (_dohash_i)), true);           \
+       _dohash_i = make_fixnum (XFIXNUM (_dohash_i) + 1))	    \
+    if (hash_unused_entry_key_p (k))                                \
+      continue;                                                     \
+    else
+#endif
+
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
+/* Iterate K and V as key and value of valid entries in weak hash table H.
+   The body may remove the current entry or alter its value slot, but not
+   mutate TABLE in any other way.  */
+# define DOHASH_WEAK(ht, k, v)						\
+  for (Lisp_Object *dohash_##k##_##v##_k = (ht)->strong->h.kv.keys->contents, \
+	 *dohash_##k##_##v##_v = (ht)->strong->h.kv.values->contents,	\
+	 *dohash_##k##_##v##_end = dohash_##k##_##v##_k			\
+	 + WEAK_HASH_TABLE_SIZE (ht),					\
+	 *dohash_##k##_##v##_base = dohash_##k##_##v##_k;		\
+       dohash_##k##_##v##_k < dohash_##k##_##v##_end			\
+	 && (k = dohash_##k##_##v##_k[0],				\
+	     v = dohash_##k##_##v##_v[0],				\
+	     true);			                                \
+       eassert (dohash_##k##_##v##_base == (ht)->strong->h.kv.keys->contents \
+		&& dohash_##k##_##v##_end				\
+		== dohash_##k##_##v##_base				\
+		+ WEAK_HASH_TABLE_SIZE (ht)),				\
+	 ++dohash_##k##_##v##_k, ++dohash_##k##_##v##_v)		\
+    if (hash_unused_entry_key_p (k))					\
+      ;									\
+    else if (PSEUDOVECTORP (k, PVEC_FREE) || PSEUDOVECTORP (v, PVEC_FREE)) \
+      ;									\
+    else
+#endif
 
 /* Iterate I as index of valid entries in hash table H.
    Unlike DOHASH, this construct copes with arbitrary table mutations
@@ -2759,7 +3080,22 @@ hash_from_key (struct Lisp_Hash_Table *h, Lisp_Object key)
       ;								\
     else
 
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
+/* Iterate I as index of valid entries in weak hash table H.
+   Unlike DOHASH, this construct copes with arbitrary table mutations
+   in the body.  The consequences of such mutations are limited to
+   whether and in what order entries are encountered by the loop
+   (which is usually bad enough), but not crashing or corrupting the
+   Lisp state.  */
+#define DOHASH_WEAK_SAFE(h, i)					\
+  for (ptrdiff_t i = 0; i < WEAK_HASH_TABLE_SIZE (h); i++)	\
+    if (hash_unused_entry_key_p (WEAK_HASH_KEY (h, i)))		\
+      ;								\
+    else
+#endif
+
 void hash_table_thaw (Lisp_Object hash_table);
+void hash_table_rehash (struct Lisp_Hash_Table *h);
 
 /* Default size for hash tables if not specified.  */
 
@@ -2810,7 +3146,7 @@ knuth_hash (hash_hash_t hash, unsigned bits)
 
 struct Lisp_Marker
 {
-  union vectorlike_header header;
+  struct vectorlike_header header;
 
   /* This is the buffer that the marker points into, or 0 if it points nowhere.
      Note: a chain of markers can contain markers pointing into different
@@ -2835,6 +3171,7 @@ struct Lisp_Marker
   /* The remaining fields are meaningless in a marker that
      does not point anywhere.  */
 
+#ifndef HAVE_MPS
   /* For markers that point somewhere,
      this is used to chain of all the markers in a given buffer.
      The chain does not preserve markers from garbage collection;
@@ -2843,12 +3180,20 @@ struct Lisp_Marker
      That would also allow us to preserve it ordered.  */
   struct Lisp_Marker *next;
   /* This is the char position where the marker points.  */
+#endif
+
   ptrdiff_t charpos;
   /* This is the byte position.
      It's mostly used as a charpos<->bytepos cache (i.e. it's not directly
      used to implement the functionality of markers, but rather to (ab)use
      markers as a cache for char<->byte mappings).  */
   ptrdiff_t bytepos;
+
+# ifdef HAVE_MPS
+  /* If in a buffer's marker vector, this is the index where it is
+     stored. */
+  ptrdiff_t slot;
+# endif
 } GCALIGNED_STRUCT;
 
 struct Lisp_Overlay
@@ -2860,7 +3205,7 @@ struct Lisp_Overlay
    - end buffer position (field of the itree node)
    - insertion types of both ends (fields of the itree node).  */
   {
-    union vectorlike_header header;
+    struct vectorlike_header header;
     Lisp_Object plist;
     struct buffer *buffer;        /* eassert (live buffer || NULL). */
     struct itree_node *interval;
@@ -2868,7 +3213,7 @@ struct Lisp_Overlay
 
 struct Lisp_Misc_Ptr
   {
-    union vectorlike_header header;
+    struct vectorlike_header header;
     void *pointer;
   } GCALIGNED_STRUCT;
 
@@ -2892,6 +3237,9 @@ extern Lisp_Object make_misc_ptr (void *);
 INLINE Lisp_Object
 make_mint_ptr (void *a)
 {
+#ifdef HAVE_MPS
+  igc_assert_not_an_mps_object (a);
+#endif
   Lisp_Object val = TAG_PTR_INITIALLY (Lisp_Int0, a);
   return FIXNUMP (val) && XFIXNUMPTR (val) == a ? val : make_misc_ptr (a);
 }
@@ -2913,7 +3261,7 @@ xmint_pointer (Lisp_Object a)
 
 struct Lisp_Sqlite
 {
-  union vectorlike_header header;
+  struct vectorlike_header header;
   void *db;
   void *stmt;
   char *name;
@@ -2924,7 +3272,7 @@ struct Lisp_Sqlite
 
 struct Lisp_User_Ptr
 {
-  union vectorlike_header header;
+  struct vectorlike_header header;
   void (*finalizer) (void *);
   void *p;
 } GCALIGNED_STRUCT;
@@ -2932,7 +3280,7 @@ struct Lisp_User_Ptr
 /* A finalizer sentinel.  */
 struct Lisp_Finalizer
   {
-    union vectorlike_header header;
+    struct vectorlike_header header;
 
     /* Call FUNCTION when the finalizer becomes unreachable, even if
        FUNCTION contains a reference to the finalizer; i.e., call
@@ -2946,6 +3294,7 @@ struct Lisp_Finalizer
 
 extern struct Lisp_Finalizer finalizers;
 extern struct Lisp_Finalizer doomed_finalizers;
+void unchain_finalizer (struct Lisp_Finalizer *finalizer);
 
 INLINE bool
 FINALIZERP (Lisp_Object x)
@@ -2970,7 +3319,9 @@ INLINE struct Lisp_Marker *
 XMARKER (Lisp_Object a)
 {
   eassert (MARKERP (a));
-  return XUNTAG (a, Lisp_Vectorlike, struct Lisp_Marker);
+  struct Lisp_Marker *m = XUNTAG (a, Lisp_Vectorlike, struct Lisp_Marker);
+  igc_check_fwd (m, true);
+  return m;
 }
 
 INLINE bool
@@ -2983,7 +3334,9 @@ INLINE struct Lisp_Overlay *
 XOVERLAY (Lisp_Object a)
 {
   eassert (OVERLAYP (a));
-  return XUNTAG (a, Lisp_Vectorlike, struct Lisp_Overlay);
+  struct Lisp_Overlay *o = XUNTAG (a, Lisp_Vectorlike, struct Lisp_Overlay);
+  igc_check_fwd (o, true);
+  return o;
 }
 
 INLINE bool
@@ -3075,6 +3428,7 @@ make_uint (uintmax_t n)
 
 struct Lisp_Buffer_Local_Value
   {
+    GC_HEADER
     /* True means that merely setting the variable creates a local
        binding for the current buffer.  */
     bool_bf local_if_set : 1;
@@ -3160,14 +3514,16 @@ KBOARD_OBJFWDP (lispfwd a)
 
 /* Lisp floating point type.  */
 struct Lisp_Float
+{
+  GC_HEADER
+  int type;
+  union
   {
-    union
-    {
-      double data;
-      struct Lisp_Float *chain;
-      GCALIGNED_UNION_MEMBER
-    } u;
-  };
+    double data;
+    struct Lisp_Float *chain;
+    GCALIGNED_UNION_MEMBER
+  } u;
+};
 static_assert (GCALIGNED (struct Lisp_Float));
 
 INLINE bool
@@ -3180,7 +3536,9 @@ INLINE struct Lisp_Float *
 XFLOAT (Lisp_Object a)
 {
   eassert (FLOATP (a));
-  return XUNTAG (a, Lisp_Float, struct Lisp_Float);
+  struct Lisp_Float *f = XUNTAG (a, Lisp_Float, struct Lisp_Float);
+  igc_check_fwd (f, false);
+  return f;
 }
 
 INLINE double
@@ -3431,13 +3789,24 @@ CHECK_SUBR (Lisp_Object x)
 
 /* This version of DEFUN declares a function prototype with the right
    arguments, so we can catch errors with maxargs at compile-time.  */
-#define DEFUN(lname, fnname, sname, minargs, maxargs, intspec, doc) \
-  SUBR_SECTION_ATTRIBUTE                                            \
-  static union Aligned_Lisp_Subr sname =                            \
-     {{{ PVEC_SUBR << PSEUDOVECTOR_AREA_BITS },			    \
-       { .a ## maxargs = fnname },				    \
-       minargs, maxargs, lname, {intspec}, lisp_h_Qnil}};	    \
+#ifdef HAVE_MPS
+#define DEFUN(lname, fnname, sname, minargs, maxargs, intspec, doc)	\
+  SUBR_SECTION_ATTRIBUTE						\
+  static union Aligned_Lisp_Subr sname =				\
+    { {	{ GC_HEADER_INIT						\
+	  (PSEUDOVECTOR_FLAG | PVEC_SUBR << PSEUDOVECTOR_AREA_BITS) },	\
+        { .a ## maxargs = fnname },					\
+	minargs, maxargs, lname, {intspec}, lisp_h_Qnil}};		\
    Lisp_Object fnname
+#else
+#define DEFUN(lname, fnname, sname, minargs, maxargs, intspec, doc)	\
+  SUBR_SECTION_ATTRIBUTE						\
+  static union Aligned_Lisp_Subr sname =				\
+    { {	{ GC_HEADER_INIT PVEC_SUBR << PSEUDOVECTOR_AREA_BITS },		\
+        { .a ## maxargs = fnname },					\
+	minargs, maxargs, lname, {intspec}, lisp_h_Qnil}};		\
+   Lisp_Object fnname
+#endif
 
 /* defsubr (Sname);
    is how we define the symbol for function `name' at start-up time.  */
@@ -3470,7 +3839,6 @@ call0 (Lisp_Object fn)
 }
 
 extern void defvar_lisp (struct Lisp_Fwd const *, char const *);
-extern void defvar_lisp_nopro (struct Lisp_Fwd const *, char const *);
 extern void defvar_bool (struct Lisp_Fwd const *, char const *);
 extern void defvar_int (struct Lisp_Fwd const *, char const *);
 extern void defvar_kboard (struct Lisp_Fwd const *, char const *);
@@ -3490,19 +3858,15 @@ extern void defvar_kboard (struct Lisp_Fwd const *, char const *);
       #define cons_cells_consed globals.f_cons_cells_consed
 
    All C code uses the `cons_cells_consed' name.  This is all done
-   this way to support indirection for multi-threaded Emacs.  */
+   this way to support indirection for multi-threaded Emacs.
+
+   DEFVAR_LISP staticpro's the variable.  */
 
 #define DEFVAR_LISP(lname, vname, doc)			\
   do {							\
     static struct Lisp_Fwd const o_fwd			\
       = {Lisp_Fwd_Obj, .u.objvar = &globals.f_##vname};	\
     defvar_lisp (&o_fwd, lname);			\
-  } while (false)
-#define DEFVAR_LISP_NOPRO(lname, vname, doc)		\
-  do {							\
-    static struct Lisp_Fwd const o_fwd			\
-      = {Lisp_Fwd_Obj, .u.objvar = &globals.f_##vname};	\
-    defvar_lisp_nopro (&o_fwd, lname);			\
   } while (false)
 #define DEFVAR_BOOL(lname, vname, doc)				\
   do {								\
@@ -3545,7 +3909,12 @@ extern void defvar_kboard (struct Lisp_Fwd const *, char const *);
    used all over the place, needs to be fast, and needs to know the size of
    union specbinding.  But only eval.c should access it.  */
 
-enum specbind_tag {
+enum specbind_tag
+{
+# ifdef HAVE_MPS
+  SPECPDL_FREE = 0,		/* Must be zero so xzalloc'd memory
+				   scans without crashing.  */
+# endif
   SPECPDL_UNWIND,		/* An unwind_protect function on Lisp_Object.  */
   SPECPDL_UNWIND_ARRAY,		/* Likewise, on an array that needs freeing.
 				   Its elements are potential Lisp_Objects.  */
@@ -3730,6 +4099,13 @@ SPECPDL_INDEX (void)
   return wrap_specpdl_ref ((char *)specpdl_ptr - (char *)specpdl);
 }
 
+/* Return the second most recent specpdl entry.  */
+INLINE specpdl_ref
+SPECPDL_INDEX_PREV (void)
+{
+  return wrap_specpdl_ref ((char *)(specpdl_ptr - 1) - (char *)specpdl);
+}
+
 INLINE bool
 backtrace_debug_on_exit (union specbinding *pdl)
 {
@@ -3838,6 +4214,7 @@ enum nonlocal_exit
 
 struct handler
 {
+  GC_HEADER
   enum handlertype type;
   Lisp_Object tag_or_ch;
 
@@ -3975,15 +4352,43 @@ INLINE void
 set_hash_key_slot (struct Lisp_Hash_Table *h, ptrdiff_t idx, Lisp_Object val)
 {
   eassert (idx >= 0 && idx < h->table_size);
-  h->key_and_value[2 * idx] = val;
+#ifndef USE_EPHEMERON_POOL
+  kv_vector_data (h->kv.keys)[idx] = val;
+#else
+  h->kv->pairs[idx].key = val;
+#endif
 }
 
 INLINE void
 set_hash_value_slot (struct Lisp_Hash_Table *h, ptrdiff_t idx, Lisp_Object val)
 {
   eassert (idx >= 0 && idx < h->table_size);
-  h->key_and_value[2 * idx + 1] = val;;
+#ifndef USE_EPHEMERON_POOL
+  kv_vector_data (h->kv.values)[idx] = val;
+#else
+  h->kv->pairs[idx].value = val;
+#endif
 }
+
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
+void weak_hash_table_thaw (Lisp_Object hash_table);
+
+INLINE void
+set_weak_hash_key_slot (struct Lisp_Weak_Hash_Table *h, ptrdiff_t idx,
+			Lisp_Object val)
+{
+  eassert (idx >= 0 && idx < h->strong->h.table_size);
+  h->strong->h.kv.keys->contents[idx] = val;
+}
+
+INLINE void
+set_weak_hash_value_slot (struct Lisp_Weak_Hash_Table *h, ptrdiff_t idx,
+			  Lisp_Object val)
+{
+  eassert (idx >= 0 && idx < h->strong->h.table_size);
+  h->strong->h.kv.values->contents[idx] = val;
+}
+#endif
 
 /* Use these functions to set Lisp_Object
    or pointer slots of struct Lisp_Symbol.  */
@@ -4257,6 +4662,15 @@ ptrdiff_t hash_find_get_hash (struct Lisp_Hash_Table *h, Lisp_Object key,
 ptrdiff_t hash_put (struct Lisp_Hash_Table *, Lisp_Object, Lisp_Object,
 		    hash_hash_t);
 void hash_remove_from_table (struct Lisp_Hash_Table *, Lisp_Object);
+
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
+Lisp_Object strong_copy_hash_table (Lisp_Object);
+void strengthen_hash_table_for_dump (struct Lisp_Weak_Hash_Table *);
+ptrdiff_t weak_hash_lookup (struct Lisp_Weak_Hash_Table *, Lisp_Object);
+void weak_hash_remove_from_table (struct Lisp_Weak_Hash_Table *, Lisp_Object);
+void weak_hash_splat_from_table (struct Lisp_Weak_Hash_Table *h, ptrdiff_t i0);
+#endif
+
 extern struct hash_table_test const hashtest_eq, hashtest_eql, hashtest_equal;
 extern void validate_subarray (Lisp_Object, Lisp_Object, Lisp_Object,
 			       ptrdiff_t, ptrdiff_t *, ptrdiff_t *);
@@ -4427,6 +4841,9 @@ extern void parse_str_as_multibyte (const unsigned char *, ptrdiff_t,
 				    ptrdiff_t *, ptrdiff_t *);
 
 /* Defined in alloc.c.  */
+extern ptrdiff_t pure_bytes_used_lisp;
+struct Lisp_Vector *allocate_vectorlike (ptrdiff_t len, bool clearit);
+extern void run_finalizer_function (Lisp_Object function);
 extern intptr_t garbage_collection_inhibited;
 extern void malloc_warning (const char *);
 extern AVOID memory_full (size_t);
@@ -4542,7 +4959,7 @@ extern Lisp_Object make_string (const char *, ptrdiff_t);
 extern Lisp_Object make_formatted_string (const char *, ...)
   ATTRIBUTE_FORMAT_PRINTF (1, 2);
 extern Lisp_Object make_unibyte_string (const char *, ptrdiff_t);
-extern ptrdiff_t vectorlike_nbytes (const union vectorlike_header *hdr);
+extern ptrdiff_t vectorlike_nbytes (const struct vectorlike_header *hdr);
 
 INLINE ptrdiff_t
 vector_nbytes (const struct Lisp_Vector *v)
@@ -4651,9 +5068,13 @@ extern struct Lisp_Vector *allocate_pseudovector (int, int, int,
 extern bool gc_in_progress;
 extern Lisp_Object make_float (double);
 extern void display_malloc_warning (void);
+#ifndef HAVE_MPS
 extern specpdl_ref inhibit_garbage_collection (void);
+#endif
 extern Lisp_Object build_symbol_with_pos (Lisp_Object, Lisp_Object);
+#ifndef HAVE_MPS
 extern void free_cons (struct Lisp_Cons *);
+#endif
 extern void init_alloc_once (void);
 extern void init_alloc (void);
 extern void syms_of_alloc (void);
@@ -4662,6 +5083,8 @@ extern int valid_lisp_object_p (Lisp_Object);
 
 void *hash_table_alloc_bytes (ptrdiff_t nbytes) ATTRIBUTE_MALLOC_SIZE ((1));
 void hash_table_free_bytes (void *p, ptrdiff_t nbytes);
+Lisp_KV_Vector hash_table_alloc_kv (void *h, ptrdiff_t nobjs);
+void hash_table_free_kv (void *h, Lisp_KV_Vector p, ptrdiff_t nobjs);
 
 /* Defined in gmalloc.c.  */
 #if !defined DOUG_LEA_MALLOC && !defined SYSTEM_MALLOC
@@ -4698,6 +5121,97 @@ extern Lisp_Object get_unicode_property (Lisp_Object, int);
 extern void syms_of_chartab (void);
 
 /* Defined in print.c.  */
+enum print_entry_type
+{
+#ifdef HAVE_MPS
+  PE_free = 0,			/* must be zero so xzalloc'd memory
+				   scans without crashing */
+#endif
+  PE_list,			/* print rest of list */
+  PE_rbrac,			/* print ")" */
+  PE_vector,			/* print rest of vector */
+  PE_hash,			/* print rest of hash data */
+};
+
+struct print_stack_entry
+{
+  enum print_entry_type type;
+
+  union
+  {
+    struct
+    {
+      Lisp_Object last;		/* cons whose car was just printed  */
+      intmax_t maxlen;		/* max number of elements left to print */
+      /* State for Brent cycle detection.  See
+	 Brent RP. BIT. 1980;20(2):176-184. doi:10.1007/BF01933190
+	 https://maths-people.anu.edu.au/~brent/pd/rpb051i.pdf */
+      Lisp_Object tortoise;     /* slow pointer */
+      ptrdiff_t n;		/* tortoise step countdown */
+      ptrdiff_t m;		/* tortoise step period */
+      intmax_t tortoise_idx;	/* index of tortoise */
+    } list;
+
+    struct
+    {
+      Lisp_Object obj;		/* object to print after " . " */
+    } dotted_cdr;
+
+    struct
+    {
+      Lisp_Object obj;		/* vector object */
+      ptrdiff_t size;		/* length of vector */
+      ptrdiff_t idx;		/* index of next element */
+      const char *end;		/* string to print at end */
+      bool truncated;		/* whether to print "..." before end */
+    } vector;
+
+    struct
+    {
+      Lisp_Object obj;		/* hash-table object */
+      ptrdiff_t nobjs;		/* number of keys and values to print */
+      ptrdiff_t idx;		/* index of key-value pair */
+      ptrdiff_t printed;	/* number of keys and values printed */
+      bool truncated;		/* whether to print "..." before end */
+    } hash;
+  } u;
+};
+
+struct print_stack
+{
+  struct print_stack_entry *stack;  /* base of stack */
+  ptrdiff_t size;		    /* allocated size in entries */
+  ptrdiff_t sp;			    /* current number of entries */
+};
+
+extern struct print_stack prstack;
+
+/* The print preprocess stack, used to traverse data structures.  */
+
+struct print_pp_entry {
+  ptrdiff_t n;			/* number of values, or 0 if a single value */
+#ifdef HAVE_MPS
+  bool is_in_use;
+  ptrdiff_t start;
+#endif
+  union {
+    Lisp_Object value;		/* when n = 0 */
+#ifdef HAVE_MPS
+    Lisp_Object vectorlike;	/* when n > 0 */
+#else
+    Lisp_Object *values;	/* when n > 0 */
+#endif
+  } u;
+};
+
+struct print_pp_stack {
+  struct print_pp_entry *stack;	 /* base of stack */
+  ptrdiff_t size;		 /* allocated size in entries */
+  ptrdiff_t sp;			 /* current number of entries */
+};
+
+extern struct print_pp_stack ppstack;
+
 extern Lisp_Object Vprin1_to_string_buffer;
 extern void debug_print (Lisp_Object) EXTERNALLY_VISIBLE;
 extern void temp_output_buffer_setup (const char *);
@@ -4724,6 +5238,70 @@ extern ptrdiff_t evxprintf (char **, ptrdiff_t *, char *, ptrdiff_t,
   ATTRIBUTE_FORMAT_PRINTF (5, 0);
 
 /* Defined in lread.c.  */
+/* When an object is read, the type of the top read stack entry indicates
+   the syntactic context.  */
+enum read_entry_type
+{
+# ifdef HAVE_MPS
+  RE_free,
+# endif
+				/* preceding syntactic context */
+  RE_list_start,		/* "(" */
+
+  RE_list,			/* "(" (+ OBJECT) */
+  RE_list_dot,			/* "(" (+ OBJECT) "." */
+
+  RE_vector,			/* "[" (* OBJECT) */
+  RE_record,			/* "#s(" (* OBJECT) */
+  RE_char_table,		/* "#^[" (* OBJECT) */
+  RE_sub_char_table,		/* "#^^[" (* OBJECT) */
+  RE_byte_code,			/* "#[" (* OBJECT) */
+  RE_string_props,		/* "#(" (* OBJECT) */
+
+  RE_special,			/* "'" | "#'" | "`" | "," | ",@" */
+
+  RE_numbered,			/* "#" (+ DIGIT) "=" */
+};
+
+struct read_stack_entry
+{
+  enum read_entry_type type;
+  union {
+    /* RE_list, RE_list_dot */
+    struct {
+      Lisp_Object head;		/* first cons of list */
+      Lisp_Object tail;		/* last cons of list */
+    } list;
+
+    /* RE_vector, RE_record, RE_char_table, RE_sub_char_table,
+       RE_byte_code, RE_string_props */
+    struct {
+      Lisp_Object elems;	/* list of elements in reverse order */
+      bool old_locate_syms;	/* old value of locate_syms */
+    } vector;
+
+    /* RE_special */
+    struct {
+      Lisp_Object symbol;	/* symbol from special syntax */
+    } special;
+
+    /* RE_numbered */
+    struct {
+      Lisp_Object number;	/* number as a fixnum */
+      Lisp_Object placeholder;	/* placeholder object */
+    } numbered;
+  } u;
+};
+
+struct read_stack
+{
+  struct read_stack_entry *stack;  /* base of stack */
+  ptrdiff_t size;		   /* allocated size in entries */
+  ptrdiff_t sp;			   /* current number of entries */
+};
+
+extern struct read_stack rdstack;
+
 extern Lisp_Object intern_1 (const char *, ptrdiff_t);
 extern Lisp_Object intern_c_string_1 (const char *, ptrdiff_t);
 extern Lisp_Object intern_driver (Lisp_Object, Lisp_Object, Lisp_Object);
@@ -4831,6 +5409,7 @@ extern void set_unwind_protect (specpdl_ref, void (*) (Lisp_Object),
 				Lisp_Object);
 extern void set_unwind_protect_ptr (specpdl_ref, void (*) (void *), void *);
 extern Lisp_Object unbind_to (specpdl_ref, Lisp_Object);
+extern Lisp_Object unbind_discard_to (specpdl_ref);
 void specpdl_unrewind (union specbinding *pdl, int distance, bool vars_only);
 extern AVOID error (const char *, ...) ATTRIBUTE_FORMAT_PRINTF (1, 2);
 extern AVOID verror (const char *, va_list)
@@ -4879,7 +5458,10 @@ INLINE struct Lisp_Module_Function *
 XMODULE_FUNCTION (Lisp_Object o)
 {
   eassert (MODULE_FUNCTIONP (o));
-  return XUNTAG (o, Lisp_Vectorlike, struct Lisp_Module_Function);
+  struct Lisp_Module_Function *f
+    = XUNTAG (o, Lisp_Vectorlike, struct Lisp_Module_Function);
+  igc_check_fwd (f, true);
+  return f;
 }
 
 #ifdef HAVE_MODULES
@@ -4889,6 +5471,9 @@ XMODULE_FUNCTION (Lisp_Object o)
 typedef void (*module_funcptr) (void);
 
 /* Defined in alloc.c.  */
+void set_string_marked (struct Lisp_String *s);
+void mark_interval_tree (INTERVAL i);
+
 extern Lisp_Object make_user_ptr (void (*finalizer) (void *), void *p);
 
 /* Defined in emacs-module.c.  */
@@ -5229,17 +5814,20 @@ extern Lisp_Object get_byte_code_arity (Lisp_Object);
 extern void init_bc_thread (struct bc_thread_state *bc);
 extern void free_bc_thread (struct bc_thread_state *bc);
 extern void mark_bytecode (struct bc_thread_state *bc);
+#ifdef HAVE_MPS
+extern void *bc_next_frame (struct bc_frame *bc);
+# endif
 
 INLINE struct bc_frame *
 get_act_rec (struct thread_state *th)
 {
-  return th->bc.fp;
+  return th->bc->fp;
 }
 
 INLINE void
 set_act_rec (struct thread_state *th, struct bc_frame *act_rec)
 {
-  th->bc.fp = act_rec;
+  th->bc->fp = act_rec;
 }
 
 /* Defined in macros.c.  */
@@ -5468,6 +6056,7 @@ extern bool profiler_memory_running;
 extern void malloc_probe (size_t);
 extern void syms_of_profiler (void);
 extern void mark_profiler (void);
+extern void process_pending_profiler_signals (void);
 
 
 #ifdef DOS_NT
@@ -5545,6 +6134,7 @@ extern void *xnmalloc (ptrdiff_t, ptrdiff_t)
   ATTRIBUTE_MALLOC_SIZE ((1,2)) ATTRIBUTE_RETURNS_NONNULL;
 extern void *xnrealloc (void *, ptrdiff_t, ptrdiff_t)
   ATTRIBUTE_ALLOC_SIZE ((2,3)) ATTRIBUTE_RETURNS_NONNULL;
+extern ptrdiff_t xpalloc_nbytes (void *, ptrdiff_t *, ptrdiff_t, ptrdiff_t, ptrdiff_t);
 extern void *xpalloc (void *, ptrdiff_t *, ptrdiff_t, ptrdiff_t, ptrdiff_t)
   ATTRIBUTE_RETURNS_NONNULL;
 
@@ -5618,6 +6208,19 @@ enum MAX_ALLOCA { MAX_ALLOCA = 16 * 1024 };
 extern void *record_xmalloc (size_t)
   ATTRIBUTE_ALLOC_SIZE ((1)) ATTRIBUTE_RETURNS_NONNULL;
 
+#ifdef HAVE_MPS
+/* Prototypes needed for macros and inline functions.  */
+
+extern void *igc_record_xmalloc_ambig (size_t size, const char *label)
+  ATTRIBUTE_ALLOC_SIZE ((1)) ATTRIBUTE_RETURNS_NONNULL;
+extern void *igc_record_xnmalloc_ambig (size_t nitems,
+					size_t item_size,
+					const char *label)
+  ATTRIBUTE_RETURNS_NONNULL;
+extern void igc_xfree (void *p);
+
+#endif
+
 #define USE_SAFE_ALLOCA			\
   ptrdiff_t sa_avail = MAX_ALLOCA;	\
   specpdl_ref sa_count = SPECPDL_INDEX ()
@@ -5626,16 +6229,45 @@ extern void *record_xmalloc (size_t)
 
 /* SAFE_ALLOCA allocates a simple buffer.  */
 
-#define SAFE_ALLOCA(size) ((size) <= sa_avail				\
-			   ? AVAIL_ALLOCA (size)			\
-			   : record_xmalloc (size))
+#ifdef HAVE_MPS
+# define SAFE_ALLOCA(size) SAFE_ALLOCA_AMBIG (size)
+#else
+# define SAFE_ALLOCA(size) SAFE_ALLOCA_NOPRO (size)
+#endif
+
+/* SAFE_ALLOCA_NOPRO allocates a simple buffer.  This may never be used
+   to hold references to objects that are relevant to GC.  */
+
+#define SAFE_ALLOCA_NOPRO(size)                    \
+  (eassert (sa_avail >= 0), eassert ((size) >= 0), \
+   (size) <= sa_avail ? AVAIL_ALLOCA (size) : record_xmalloc (size))
+
+#ifdef HAVE_MPS
+/* SAFE_ALLOCA_AMBIG allocates SIZE bytes.  The GC scans the block
+   ambiguously.  */
+#define SAFE_ALLOCA_AMBIG(size)                    \
+  (eassert (sa_avail >= 0), eassert ((size) >= 0), \
+   (size) <= sa_avail ? AVAIL_ALLOCA (size)        \
+		      : igc_record_xmalloc_ambig (size, __func__))
+#endif
 
 /* SAFE_NALLOCA sets BUF to a newly allocated array of MULTIPLIER *
-   NITEMS items, each of the same type as *BUF.  MULTIPLIER must
+   NITEMS items, each of the same type as *BUF.  MULTIPLIER must be
    positive.  The code is tuned for MULTIPLIER being a constant.  */
 
-#define SAFE_NALLOCA(buf, multiplier, nitems)			 \
+#ifdef HAVE_MPS
+# define SAFE_NALLOCA(buf, multiplier, nitems)	\
+  SAFE_NALLOCA_AMBIG (buf, multiplier, nitems)
+#else
+# define SAFE_NALLOCA(buf, multiplier, nitems)	\
+  SAFE_NALLOCA_NOPRO (buf, multiplier, nitems)
+#endif
+
+#define SAFE_NALLOCA_NOPRO(buf, multiplier, nitems)		 \
   do {								 \
+    eassert (sa_avail >= 0);					 \
+    eassert ((multiplier) > 0);					 \
+    eassert ((nitems) >= 0);					 \
     if ((nitems) <= sa_avail / sizeof *(buf) / (multiplier))	 \
       (buf) = AVAIL_ALLOCA (sizeof *(buf) * (multiplier) * (nitems)); \
     else							 \
@@ -5645,13 +6277,43 @@ extern void *record_xmalloc (size_t)
       }								 \
   } while (false)
 
+#ifdef HAVE_MPS
+/* SAFE_NALLOCA_AMBIG allocates a block like SAFE_NALLOCA.  The GC scans
+   the block ambiguously.  */
+#define SAFE_NALLOCA_AMBIG(buf, multiplier, nitems)                  \
+  do                                                                 \
+    {                                                                \
+      eassert (sa_avail >= 0);                                       \
+      eassert ((multiplier) > 0);                                    \
+      eassert ((nitems) >= 0);                                       \
+      if ((nitems) <= sa_avail / sizeof *(buf) / (multiplier))       \
+	(buf)                                                        \
+	  = AVAIL_ALLOCA (sizeof *(buf) * (multiplier) * (nitems));  \
+      else                                                           \
+	(buf)                                                        \
+	  = igc_record_xnmalloc_ambig (nitems,                       \
+				       sizeof *(buf) * (multiplier), \
+				       __func__);                    \
+    }                                                                \
+  while (false)
+#endif
+
 /* SAFE_ALLOCA_STRING allocates a C copy of a Lisp string.  */
 
 #define SAFE_ALLOCA_STRING(ptr, string)			\
   do {							\
-    (ptr) = SAFE_ALLOCA (SBYTES (string) + 1);		\
+    (ptr) = SAFE_ALLOCA_NOPRO (SBYTES (string) + 1);	\
     memcpy (ptr, SDATA (string), SBYTES (string) + 1);	\
   } while (false)
+
+#ifdef HAVE_MPS
+Lisp_Object *igc_alloc_lisp_obj_vec (size_t n);
+#define SAFE_ALLOCA_XZALLOC(n, nbytes) igc_alloc_lisp_obj_vec (n)
+#define SAFE_ALLOCA_XFREE(p) (void) 0
+#else
+#define SAFE_ALLOCA_XZALLOC(n, nbytes) xzalloc (nbytes)
+#define SAFE_ALLOCA_XFREE(p) xfree (p)
+#endif
 
 /* Free xmalloced memory and enable GC as needed.  */
 
@@ -5662,16 +6324,22 @@ safe_free (specpdl_ref sa_count)
 {
   while (specpdl_ptr != specpdl_ref_to_ptr (sa_count))
     {
-      specpdl_ptr--;
-      if (specpdl_ptr->kind == SPECPDL_UNWIND_PTR)
+      union specbinding binding = specpdl_ptr[-1];
+      unbind_discard_to (SPECPDL_INDEX_PREV ());
+      if (binding.kind == SPECPDL_UNWIND_PTR)
 	{
-	  eassert (specpdl_ptr->unwind_ptr.func == xfree);
-	  xfree (specpdl_ptr->unwind_ptr.arg);
+#ifdef HAVE_MPS
+	  eassert (binding.unwind_ptr.func == xfree
+		   || binding.unwind_ptr.func == igc_xfree);
+#else
+	  eassert (binding.unwind_ptr.func == xfree);
+#endif
+	  binding.unwind_ptr.func (binding.unwind_ptr.arg);
 	}
       else
 	{
-	  eassert (specpdl_ptr->kind == SPECPDL_UNWIND_ARRAY);
-	  xfree (specpdl_ptr->unwind_array.array);
+	  eassert (binding.kind == SPECPDL_UNWIND_ARRAY);
+	  SAFE_ALLOCA_XFREE (binding.unwind_array.array);
 	}
     }
 }
@@ -5700,23 +6368,23 @@ safe_free_unbind_to (specpdl_ref count, specpdl_ref sa_count, Lisp_Object val)
 # pragma GCC diagnostic ignored "-Wanalyzer-allocation-size"
 #endif
 
+
 /* Set BUF to point to an allocated array of NELT Lisp_Objects.  */
 
-#define SAFE_ALLOCA_LISP(buf, nelt)			       \
-  do {							       \
-    ptrdiff_t alloca_nbytes;				       \
-    if (ckd_mul (&alloca_nbytes, nelt, word_size)	       \
-	|| SIZE_MAX < alloca_nbytes)			       \
+#define SAFE_ALLOCA_LISP(buf, nelt)				\
+  do {								\
+    ptrdiff_t alloca_nbytes;					\
+    if (ckd_mul (&alloca_nbytes, nelt, word_size)		\
+	|| SIZE_MAX < alloca_nbytes)				\
       memory_full_up ();				       \
-    else if (alloca_nbytes <= sa_avail)			       \
-      (buf) = AVAIL_ALLOCA (alloca_nbytes);		       \
-    else						       \
-      {							       \
-	(buf) = xzalloc (alloca_nbytes);		       \
-	record_unwind_protect_array (buf, nelt);	       \
-      }							       \
+    else if (alloca_nbytes <= sa_avail)				\
+      (buf) = AVAIL_ALLOCA (alloca_nbytes);			\
+    else							\
+      {								\
+        (buf) = SAFE_ALLOCA_XZALLOC (nelt, alloca_nbytes);	\
+        record_unwind_protect_array (buf, nelt);		\
+      }								\
   } while (false)
-
 
 /* If USE_STACK_LISP_OBJECTS, define macros and functions that
    allocate some Lisp objects on the C stack.  As the storage is not
@@ -5736,6 +6404,12 @@ safe_free_unbind_to (specpdl_ref count, specpdl_ref sa_count, Lisp_Object val)
 #ifndef USE_STACK_LISP_OBJECTS
 # define USE_STACK_LISP_OBJECTS true
 #endif
+
+# ifdef HAVE_MPS
+# undef USE_STACK_LISP_OBJECTS
+# define USE_STACK_LISP_OBJECTS false
+# endif
+
 
 #ifdef GC_CHECK_STRING_BYTES
 enum { defined_GC_CHECK_STRING_BYTES = true };
@@ -5759,7 +6433,8 @@ enum
    use these only in macros like AUTO_CONS that declare a local
    variable whose lifetime will be clear to the programmer.  */
 #define STACK_CONS(a, b) \
-  make_lisp_ptr (&((struct Lisp_Cons) {{{a, {b}}}}), Lisp_Cons)
+  make_lisp_ptr (&((struct Lisp_Cons) { GC_HEADER_INIT { {  a, {b}}}}), \
+		 Lisp_Cons)
 #define AUTO_CONS_EXPR(a, b) \
   (USE_STACK_CONS ? STACK_CONS (a, b) : Fcons (a, b))
 
@@ -5819,8 +6494,9 @@ enum
 #define AUTO_STR_WITH_LEN(str, len)					\
     (USE_STACK_STRING							\
      ? (make_lisp_ptr							\
-	((&(struct Lisp_String) {{{len, -1, 0, (unsigned char *) (str)}}}), \
-	 Lisp_String))							\
+	((&(struct Lisp_String) { GC_HEADER_INIT {			\
+	      {len, -1, 0, (unsigned char *) (str)}}}),			\
+	  Lisp_String))							\
      : make_unibyte_string (str, len))
 
 /* The maximum length of "small" lists, as a heuristic.  These lists
@@ -5918,6 +6594,35 @@ maybe_gc (void)
   if (consing_until_gc < 0)
     maybe_garbage_collect ();
 }
+
+# ifdef HAVE_MODULES
+
+/* An `emacs_value' is just a pointer to a structure holding an
+   internal Lisp object.  */
+struct emacs_value_tag { Lisp_Object v; };
+
+/* Pseudovector type for global references.  The pseudovector tag is
+   PVEC_OTHER since these values are never printed and don't need to
+   be special-cased for garbage collection.  */
+
+struct module_global_reference
+{
+  /* Pseudovector header, must come first. */
+  struct vectorlike_header header;
+
+#  ifdef HAVE_MPS
+  ptrdiff_t pin_index;
+#  endif
+
+  /* Holds the emacs_value for the object.  The Lisp_Object stored
+     therein must be the same as the hash key.  */
+  struct emacs_value_tag value;
+
+  /* Reference count, always positive.  */
+  ptrdiff_t refcount;
+};
+
+# endif /* HAVE_MODULES */
 
 INLINE_HEADER_END
 

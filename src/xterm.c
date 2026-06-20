@@ -719,6 +719,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "sysselect.h"
 #include "menu.h"
 #include "pdumper.h"
+#include "gc-handles.h"
 
 #ifdef USE_X_TOOLKIT
 #include <X11/Shell.h>
@@ -786,6 +787,9 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_XKB
 #include <X11/XKBlib.h>
+#endif
+#ifdef HAVE_MPS
+#include "igc.h"
 #endif
 
 /* Although X11/Xlib.h commonly defines the types XErrorHandler and
@@ -4864,9 +4868,11 @@ x_dnd_cancel_dnd_early (void)
 #endif
 
 static void
-x_dnd_cleanup_drag_and_drop (void *frame)
+x_dnd_cleanup_drag_and_drop (void *data)
 {
-  struct frame *f = frame;
+  gc_handle gch = data;
+  struct frame *f = XFRAME (gc_handle_value (gch));
+  free_gc_handle (gch);
   xm_drop_start_message dmsg;
 
   if (!x_dnd_unwind_flag)
@@ -5399,12 +5405,20 @@ x_free_xi_devices (struct x_display_info *dpyinfo)
 	    {
 	      last = tem;
 	      tem = tem->next;
+#ifdef HAVE_MPS
+	      igc_xfree (last);
+#else
 	      xfree (last);
+#endif
 	    }
 #endif /* HAVE_XINPUT2_2 */
 	}
 
+#ifdef HAVE_MPS
+      igc_xfree (dpyinfo->devices);
+#else
       xfree (dpyinfo->devices);
+#endif
       dpyinfo->devices = NULL;
       dpyinfo->num_devices = 0;
     }
@@ -5724,7 +5738,14 @@ x_cache_xi_devices (struct x_display_info *dpyinfo)
       return;
     }
 
+#ifdef HAVE_MPS
+  // FIXME/igc: use exact references
+  dpyinfo->devices
+    = igc_xzalloc_ambig ((sizeof *dpyinfo->devices * ndevices),
+			 "xi_device_t[]");
+#else
   dpyinfo->devices = xcalloc (ndevices, sizeof *dpyinfo->devices);
+#endif
 
   for (i = 0; i < ndevices; ++i)
     {
@@ -5825,7 +5846,11 @@ xi_link_touch_point (struct xi_device_t *device,
   if (FIXNUM_OVERFLOW_P (local_detail))
     local_detail = 0;
 
+#ifdef HAVE_MPS
+  touchpoint = igc_xzalloc_ambig (sizeof *touchpoint, __func__);
+#else
   touchpoint = xmalloc (sizeof *touchpoint);
+#endif
   touchpoint->next = device->touchpoints;
   touchpoint->x = lrint (x);
   touchpoint->y = lrint (y);
@@ -5865,7 +5890,11 @@ xi_unlink_touch_point (int detail, struct xi_device_t *device,
 
 	  ownership = tem->ownership;
 	  *local_detail = tem->local_detail;
+#ifdef HAVE_MPS
+	  igc_xfree (tem);
+#else
 	  xfree (tem);
+#endif
 
 	  if (ownership == TOUCH_OWNERSHIP_SELF)
 	    return 2;
@@ -5899,7 +5928,11 @@ xi_unlink_touch_points (struct frame *f)
 	  if (last->frame == f)
 	    {
 	      *next = last->next;
+#ifdef HAVE_MPS
+	      igc_xfree (last);
+#else
 	      xfree (last);
+#endif
 	    }
 	  else
 	    next = &last->next;
@@ -13093,7 +13126,8 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 		  x_dnd_unwind_flag = true;
 
 		  ref = SPECPDL_INDEX ();
-		  record_unwind_protect_ptr (x_dnd_cleanup_drag_and_drop, f);
+		  record_unwind_protect_ptr (x_dnd_cleanup_drag_and_drop,
+					     gc_handle_for_pvec (&f->header));
 		  calln (Vx_dnd_movement_function, frame_object,
 			 Fposn_at_x_y (x, y, frame_object, Qnil));
 		  x_dnd_unwind_flag = false;
@@ -13127,7 +13161,8 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 		  x_dnd_unwind_flag = true;
 
 		  ref = SPECPDL_INDEX ();
-		  record_unwind_protect_ptr (x_dnd_cleanup_drag_and_drop, f);
+		  record_unwind_protect_ptr (x_dnd_cleanup_drag_and_drop,
+					     gc_handle_for_pvec (&f->header));
 		  calln (Vx_dnd_wheel_function,
 			 Fposn_at_x_y (x, y, frame_object, Qnil),
 			 make_fixnum (x_dnd_wheel_button),
@@ -13167,7 +13202,8 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 	      x_dnd_unwind_flag = true;
 
 	      ref = SPECPDL_INDEX ();
-	      record_unwind_protect_ptr (x_dnd_cleanup_drag_and_drop, f);
+	      record_unwind_protect_ptr (x_dnd_cleanup_drag_and_drop,
+					 gc_handle_for_pvec (&f->header));
 	      x_handle_pending_selection_requests ();
 	      x_dnd_unwind_flag = false;
 	      unbind_to (ref, Qnil);
@@ -13194,7 +13230,8 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 	      x_dnd_unwind_flag = true;
 
 	      ref = SPECPDL_INDEX ();
-	      record_unwind_protect_ptr (x_dnd_cleanup_drag_and_drop, f);
+	      record_unwind_protect_ptr (x_dnd_cleanup_drag_and_drop,
+					 gc_handle_for_pvec (&f->header));
 
 	      if (!NILP (Vx_dnd_unsupported_drop_function))
 		val = calln (Vx_dnd_unsupported_drop_function,
@@ -13877,7 +13914,14 @@ xi_disable_devices (struct x_display_info *dpyinfo,
     return;
 
   ndevices = 0;
+#ifdef HAVE_MPS
+  // FIXME/igc: use exact references
+  devices
+    = igc_xzalloc_ambig ((sizeof *devices * dpyinfo->num_devices),
+			 "xi_device_t[]");
+#else
   devices = xcalloc (dpyinfo->num_devices, sizeof *devices);
+#endif
 
   /* Loop through every device currently in DPYINFO, and copy it to
      DEVICES if it is not in TO_DISABLE.  Note that this function
@@ -13953,7 +13997,11 @@ xi_disable_devices (struct x_display_info *dpyinfo,
     }
 
   /* Free the old devices array and replace it with ndevices.  */
+#ifdef HAVE_MPS
+  igc_xfree (dpyinfo->devices);
+#else
   xfree (dpyinfo->devices);
+#endif
 
   dpyinfo->devices = devices;
   dpyinfo->num_devices = ndevices;
@@ -15524,6 +15572,15 @@ xt_horizontal_action_hook (Widget widget, XtPointer client_data, String action_n
 	}
     }
 }
+
+static void
+xt_free_gc_handle (Widget widget, XtPointer client_data,
+		   XtPointer call_data)
+{
+  gc_handle handle = client_data;
+  free_gc_handle (handle);
+}
+
 #endif /* not USE_GTK */
 
 /* Protect WINDOW from garbage collection until a matching scroll bar
@@ -15557,6 +15614,10 @@ x_unprotect_window_for_callback (struct x_display_info *dpyinfo)
   if (dpyinfo->n_protected_windows)
     memmove (dpyinfo->protected_windows, &dpyinfo->protected_windows[1],
 	     sizeof (Lisp_Object) * dpyinfo->n_protected_windows);
+
+#ifdef HAVE_MPS
+  dpyinfo->protected_windows[dpyinfo->n_protected_windows] = Qnil;
+#endif
 
   return window;
 }
@@ -15699,7 +15760,8 @@ x_horizontal_scroll_bar_to_input_event (struct x_display_info *dpyinfo,
 static void
 xm_scroll_callback (Widget widget, XtPointer client_data, XtPointer call_data)
 {
-  struct scroll_bar *bar = client_data;
+  gc_handle bar_gch = client_data;
+  struct scroll_bar *bar = XSCROLL_BAR (gc_handle_value (bar_gch));
   XmScrollBarCallbackStruct *cs = call_data;
   enum scroll_bar_part part = scroll_bar_nowhere;
   bool horizontal = bar->horizontal;
@@ -15796,7 +15858,8 @@ xg_scroll_callback (GtkRange *range, GtkScrollType scroll,
 
   whole = 0;
   portion = 0;
-  bar = user_data;
+  gc_handle bar_gch = user_data;
+  bar = XSCROLL_BAR (gc_handle_value (bar_gch));
   part = scroll_bar_nowhere;
   adj = GTK_ADJUSTMENT (gtk_range_get_adjustment (range));
   f = g_object_get_data (G_OBJECT (range), XG_FRAME_DATA);
@@ -15873,9 +15936,8 @@ xg_end_scroll_callback (GtkWidget *widget,
                         GdkEventButton *event,
                         gpointer user_data)
 {
-  struct scroll_bar *bar;
-
-  bar = user_data;
+  gc_handle bar_gch = user_data;
+  struct scroll_bar *bar = XSCROLL_BAR (gc_handle_value (bar_gch));
   bar->dragging = -1;
 
   if (WINDOWP (window_being_scrolled))
@@ -15897,9 +15959,11 @@ xg_end_scroll_callback (GtkWidget *widget,
    the thumb is.  */
 
 static void
-xaw_jump_callback (Widget widget, XtPointer client_data, XtPointer call_data)
+xaw_jump_callback (Widget widget, XtPointer client_data,
+		   XtPointer call_data)
 {
-  struct scroll_bar *bar = client_data;
+  gc_handle bar_gch = client_data;
+  struct scroll_bar *bar = XSCROLL_BAR (gc_handle_value (bar_gch));
   float *top_addr = call_data;
   float top = *top_addr;
   float shown;
@@ -15964,9 +16028,11 @@ xaw_jump_callback (Widget widget, XtPointer client_data, XtPointer call_data)
    Values < height of scroll bar mean line-wise movement.  */
 
 static void
-xaw_scroll_callback (Widget widget, XtPointer client_data, XtPointer call_data)
+xaw_scroll_callback (Widget widget, XtPointer client_data,
+		     XtPointer call_data)
 {
-  struct scroll_bar *bar = client_data;
+  gc_handle bar_gch = client_data;
+  struct scroll_bar *bar = XSCROLL_BAR (gc_handle_value (bar_gch));
   /* The position really is stored cast to a pointer.  */
   int position = (intptr_t) call_data;
   Dimension height, width;
@@ -16098,20 +16164,17 @@ x_create_toolkit_scroll_bar (struct frame *f, struct scroll_bar *bar)
 			      (char *) scroll_bar_name, av, ac);
 
   /* Add one callback for everything that can happen.  */
-  XtAddCallback (widget, XmNdecrementCallback, xm_scroll_callback,
-		 (XtPointer) bar);
-  XtAddCallback (widget, XmNdragCallback, xm_scroll_callback,
-		 (XtPointer) bar);
-  XtAddCallback (widget, XmNincrementCallback, xm_scroll_callback,
-		 (XtPointer) bar);
+  XtPointer bar_gch = gc_handle_for_pvec (&bar->header);
+  XtAddCallback (widget, XmNdecrementCallback, xm_scroll_callback, bar_gch);
+  XtAddCallback (widget, XmNdragCallback, xm_scroll_callback, bar_gch);
+  XtAddCallback (widget, XmNincrementCallback, xm_scroll_callback, bar_gch);
   XtAddCallback (widget, XmNpageDecrementCallback, xm_scroll_callback,
-		 (XtPointer) bar);
+		 bar_gch);
   XtAddCallback (widget, XmNpageIncrementCallback, xm_scroll_callback,
-		 (XtPointer) bar);
-  XtAddCallback (widget, XmNtoBottomCallback, xm_scroll_callback,
-		 (XtPointer) bar);
-  XtAddCallback (widget, XmNtoTopCallback, xm_scroll_callback,
-		 (XtPointer) bar);
+		 bar_gch);
+  XtAddCallback (widget, XmNtoBottomCallback, xm_scroll_callback, bar_gch);
+  XtAddCallback (widget, XmNtoTopCallback, xm_scroll_callback, bar_gch);
+  XtAddCallback (widget, XtNdestroyCallback, xt_free_gc_handle, bar_gch);
 
   /* Realize the widget.  Only after that is the X window created.  */
   XtRealizeWidget (widget);
@@ -16240,9 +16303,10 @@ x_create_toolkit_scroll_bar (struct frame *f, struct scroll_bar *bar)
   }
 
   /* Define callbacks.  */
-  XtAddCallback (widget, XtNjumpProc, xaw_jump_callback, (XtPointer) bar);
-  XtAddCallback (widget, XtNscrollProc, xaw_scroll_callback,
-		 (XtPointer) bar);
+  XtPointer bar_gch = gc_handle_for_pvec (&bar->header);
+  XtAddCallback (widget, XtNjumpProc, xaw_jump_callback, bar_gch);
+  XtAddCallback (widget, XtNscrollProc, xaw_scroll_callback, bar_gch);
+  XtAddCallback (widget, XtNdestroyCallback, xt_free_gc_handle, bar_gch);
 
   /* Realize the widget.  Only after that is the X window created.  */
   XtRealizeWidget (widget);
@@ -16306,20 +16370,17 @@ x_create_horizontal_toolkit_scroll_bar (struct frame *f, struct scroll_bar *bar)
 			      (char *) scroll_bar_name, av, ac);
 
   /* Add one callback for everything that can happen.  */
-  XtAddCallback (widget, XmNdecrementCallback, xm_scroll_callback,
-		 (XtPointer) bar);
-  XtAddCallback (widget, XmNdragCallback, xm_scroll_callback,
-		 (XtPointer) bar);
-  XtAddCallback (widget, XmNincrementCallback, xm_scroll_callback,
-		 (XtPointer) bar);
+  XtPointer bar_gch = gc_handle_for_pvec (&bar->header);
+  XtAddCallback (widget, XmNdecrementCallback, xm_scroll_callback, bar_gch);
+  XtAddCallback (widget, XmNdragCallback, xm_scroll_callback, bar_gch);
+  XtAddCallback (widget, XmNincrementCallback, xm_scroll_callback, bar_gch);
   XtAddCallback (widget, XmNpageDecrementCallback, xm_scroll_callback,
-		 (XtPointer) bar);
+		 bar_gch);
   XtAddCallback (widget, XmNpageIncrementCallback, xm_scroll_callback,
-		 (XtPointer) bar);
-  XtAddCallback (widget, XmNtoBottomCallback, xm_scroll_callback,
-		 (XtPointer) bar);
-  XtAddCallback (widget, XmNtoTopCallback, xm_scroll_callback,
-		 (XtPointer) bar);
+		 bar_gch);
+  XtAddCallback (widget, XmNtoBottomCallback, xm_scroll_callback, bar_gch);
+  XtAddCallback (widget, XmNtoTopCallback, xm_scroll_callback, bar_gch);
+  XtAddCallback (widget, XtNdestroyCallback, xt_free_gc_handle, bar_gch);
 
   /* Realize the widget.  Only after that is the X window created.  */
   XtRealizeWidget (widget);
@@ -16448,9 +16509,10 @@ x_create_horizontal_toolkit_scroll_bar (struct frame *f, struct scroll_bar *bar)
   }
 
   /* Define callbacks.  */
-  XtAddCallback (widget, XtNjumpProc, xaw_jump_callback, (XtPointer) bar);
-  XtAddCallback (widget, XtNscrollProc, xaw_scroll_callback,
-		 (XtPointer) bar);
+  XtPointer bar_gch = gc_handle_for_pvec (&bar->header);
+  XtAddCallback (widget, XtNjumpProc, xaw_jump_callback, bar_gch);
+  XtAddCallback (widget, XtNscrollProc, xaw_scroll_callback, bar_gch);
+  XtAddCallback (widget, XtNdestroyCallback, xt_free_gc_handle, bar_gch);
 
   /* Realize the widget.  Only after that is the X window created.  */
   XtRealizeWidget (widget);
@@ -17014,6 +17076,7 @@ XTset_vertical_scroll_bar (struct window *w, int portion, int whole, int positio
 	 Redraw the scroll bar manually.  */
       x_scroll_bar_redraw (bar);
 #endif
+
     }
   else
     {
@@ -24684,10 +24747,15 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 			  if (info && info->enabled)
 			    {
-			      dpyinfo->devices
-				= xrealloc (dpyinfo->devices,
-					    (sizeof *dpyinfo->devices
-					     * ++dpyinfo->num_devices));
+			      size_t new_size = (sizeof *dpyinfo->devices
+						 * ++dpyinfo->num_devices);
+#ifdef HAVE_MPS
+			      dpyinfo->devices =
+				igc_realloc_ambig (dpyinfo->devices, new_size);
+#else
+			      dpyinfo->devices =
+				xrealloc (dpyinfo->devices, new_size);
+#endif
 			      memset (dpyinfo->devices + dpyinfo->num_devices - 1,
 				      0, sizeof *dpyinfo->devices);
 			      device = &dpyinfo->devices[dpyinfo->num_devices - 1];
@@ -29891,6 +29959,9 @@ x_destroy_window (struct frame *f)
 #endif
 #endif
 
+#ifdef HAVE_MPS
+  igc_destroy_root_with_start (&f->output_data.x->font);
+#endif
   xfree (f->output_data.x);
   f->output_data.x = NULL;
 
@@ -30896,7 +30967,13 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
   /* We have definitely succeeded.  Record the new connection.  */
 
+#ifdef HAVE_MPS
+  // FIXME/igc: use exact references
+  dpyinfo = igc_xzalloc_ambig (sizeof *dpyinfo, "x_display_info");
+#else
   dpyinfo = xzalloc (sizeof *dpyinfo);
+#endif
+
   terminal = x_create_terminal (dpyinfo);
 
   if (!NILP (Vx_detect_server_trust))
@@ -31977,7 +32054,11 @@ x_delete_display (struct x_display_info *dpyinfo)
   if (dpyinfo->supports_xi2)
     x_free_xi_devices (dpyinfo);
 #endif
+#ifdef HAVE_MPS
+  igc_xfree (dpyinfo);
+#else
   xfree (dpyinfo);
+#endif
 }
 
 #ifdef USE_X_TOOLKIT
@@ -32416,6 +32497,7 @@ init_xterm (void)
 #endif
 }
 
+#ifndef HAVE_MPS
 void
 mark_xterm (void)
 {
@@ -32467,6 +32549,7 @@ mark_xterm (void)
     }
 #endif
 }
+#endif
 
 /* Error handling functions for Lisp functions that expose X protocol
    requests.  They are mostly like `x_catch_errors' and friends, but
@@ -32661,6 +32744,18 @@ x_get_keyboard_modifiers (struct x_display_info *dpyinfo)
 		make_uint (dpyinfo->meta_mod_mask));
 }
 
+#ifdef HAVE_MPS
+static void
+protect_dnd_frames (void)
+{
+  igc_root_create_exact_ptr (&x_dnd_frame);
+  igc_root_create_exact_ptr (&x_dnd_finish_frame);
+  igc_root_create_exact_ptr (&x_dnd_return_frame_object);
+  igc_root_create_exact_ptr (&x_dnd_movement_frame);
+  igc_root_create_exact_ptr (&x_dnd_wheel_frame);
+}
+#endif
+
 void
 syms_of_xterm (void)
 {
@@ -32678,6 +32773,18 @@ syms_of_xterm (void)
 
   x_dnd_unsupported_drop_data = Qnil;
   staticpro (&x_dnd_unsupported_drop_data);
+
+#ifdef USE_TOOLKIT_SCROLL_BARS
+  window_being_scrolled = Qnil;
+  staticpro (&window_being_scrolled);
+#endif
+
+#ifdef HAVE_MPS
+  pdumper_do_now_and_after_load (protect_dnd_frames);
+#endif
+
+  /* Used by x_cr_export_frames.  */
+  DEFSYM (Qconcat, "concat");
 
   DEFSYM (Qvendor_specific_keysyms, "vendor-specific-keysyms");
   DEFSYM (Qlatin_1, "latin-1");
