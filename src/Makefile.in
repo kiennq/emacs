@@ -945,19 +945,33 @@ elnlisp := $(addprefix ${lispsource}/,${elnlisp}) $(lisp:.elc=.eln)
 ## compiled and haven't yet been compiled.  ELDONE holds the list
 ## of *.el files that were already native-compiled.
 NATIVE_COMPILATION_AOT = @NATIVE_COMPILATION_AOT@
+EMACS_COMPILE_ATTEMPTS = 3
 ../native-lisp: | $(pdmp)
 	@if test ! -d $@; then \
-	  mkdir $@ && $(MAKE) $(AM_V_NO_PD) $(elnlisp); \
-	  if test $(SYSTEM_TYPE) = cygwin; then \
-	    find $@ -name '*.eln' | rebase -v -O -T -; \
-	  fi; \
-	  LC_ALL=C $(RUN_TEMACS) -batch $(BUILD_DETAILS) -l loadup --temacs=pdump \
-		--bin-dest '$(BIN_DESTDIR)' --eln-dest '$(ELN_DESTDIR)' \
-	  && cp -f emacs$(EXEEXT) bootstrap-emacs$(EXEEXT) \
-	  && cp -f $(pdmp) $(bootstrap_pdmp); \
-	  if test $(NATIVE_COMPILATION_AOT) = yes; then \
-	    $(MAKE) $(AM_V_NO_PD) -C ../lisp compile-eln-aot EMACS="../src/emacs$(EXEEXT)" ELNDONE="$(addprefix %,$(notdir $(elnlisp))))"; \
-	  fi; \
+	  attempt=1; while :; do \
+	    rm -rf $@; \
+	    ( set -e; \
+	      mkdir $@; \
+	      $(MAKE) $(AM_V_NO_PD) $(elnlisp); \
+	      if test $(SYSTEM_TYPE) = cygwin; then \
+	        find $@ -name '*.eln' | rebase -v -O -T -; \
+	      fi; \
+	      LC_ALL=C $(RUN_TEMACS) -batch $(BUILD_DETAILS) -l loadup --temacs=pdump \
+	        --bin-dest '$(BIN_DESTDIR)' --eln-dest '$(ELN_DESTDIR)'; \
+	      cp -f emacs$(EXEEXT) bootstrap-emacs$(EXEEXT); \
+	      cp -f $(pdmp) $(bootstrap_pdmp); \
+	      if test $(NATIVE_COMPILATION_AOT) = yes; then \
+	        $(MAKE) $(AM_V_NO_PD) -C ../lisp compile-eln-aot EMACS="../src/emacs$(EXEEXT)" ELNDONE="$(addprefix %,$(notdir $(elnlisp))))"; \
+	      fi; \
+	    ) && break; \
+	    status=$$?; \
+	    rm -rf $@; \
+	    if test $$attempt -ge $(EMACS_COMPILE_ATTEMPTS); then \
+	      exit $$status; \
+	    fi; \
+	    attempt=`expr $$attempt + 1`; \
+	    echo "Retrying native-lisp population after exit $$status (attempt $$attempt)" >&2; \
+	  done; \
 	fi
 endif
 
