@@ -3657,6 +3657,7 @@ w32_name_of_message (UINT msg)
       M (WM_EMACS_DRAGOVER),
       M (WM_EMACS_DROP),
       M (WM_EMACS_SET_TOOLKIT_THEME),
+      M (WM_EMACS_SLEEP_NOTIFY),
 #undef M
       { 0, 0 }
   };
@@ -11445,28 +11446,49 @@ DEFUN ("w32-system-sleep-block-count",
 typedef ULONG (CALLBACK *PMY_DEVICE_NOTIFY_CALLBACK_ROUTINE)
   (PVOID Context,  ULONG Type,  PVOID Setting);
 
+static void
+post_sleep_notification (ULONG type)
+{
+  W32Msg wmsg;
+
+  memset (&wmsg, 0, sizeof wmsg);
+  wmsg.msg.hwnd = NULL;
+  wmsg.msg.message = WM_EMACS_SLEEP_NOTIFY;
+  wmsg.msg.wParam = type;
+  wmsg.msg.time = GetTickCount ();
+  post_msg (&wmsg);
+}
+
 static ULONG CALLBACK ALIGN_STACK
 sleep_notification_callback (PVOID _Context, ULONG Type, PVOID _Setting)
 {
-  struct input_event ie;
-  EVENT_INIT (ie);
-  ie.kind = SLEEP_EVENT;
-
   switch (Type)
     {
     case PBT_APMRESUMEAUTOMATIC:
       /* Ignore this event.  No user is present.  */
       break;
     case PBT_APMSUSPEND:
-      ie.arg = list1 (Qpre_sleep);
-      kbd_buffer_store_event (&ie);
-      break;
     case PBT_APMRESUMESUSPEND:
-      ie.arg = list1 (Qpost_wake);
-      kbd_buffer_store_event (&ie);
+      post_sleep_notification (Type);
       break;
     }
   return 0;
+}
+
+bool
+w32_sleep_notification_event (WPARAM type, struct input_event *ie)
+{
+  EVENT_INIT (*ie);
+
+  if (type == PBT_APMSUSPEND)
+    ie->arg = list1 (Qpre_sleep);
+  else if (type == PBT_APMRESUMESUSPEND)
+    ie->arg = list1 (Qpost_wake);
+  else
+    return false;
+
+  ie->kind = SLEEP_EVENT;
+  return true;
 }
 
 typedef HPOWERNOTIFY (WINAPI * RegisterSuspendResumeNotification_Proc)

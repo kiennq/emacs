@@ -6357,6 +6357,11 @@ w32_read_socket (struct terminal *terminal,
 	  }
 	  break;
 
+	case WM_EMACS_SLEEP_NOTIFY:
+	  if (!w32_sleep_notification_event (msg.msg.wParam, &inev))
+	    inev.kind = NO_EVENT;
+	  break;
+
 #if HAVE_W32NOTIFY
 	case WM_EMACS_FILENOTIFY:
 	  f = w32_window_to_frame (dpyinfo, msg.msg.hwnd);

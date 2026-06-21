@@ -222,6 +222,7 @@ struct w32_display_info
 /* This is a chain of structures for all the displays currently in use.  */
 extern struct w32_display_info *x_display_list;
 extern struct w32_display_info one_w32_display_info;
+struct input_event;
 
 /* These 2 are set by w32fns.c and examined in w32term.c.  */
 extern HMENU current_popup_menu;
@@ -274,6 +275,7 @@ extern const char *w32_get_string_resource (void *v_rdb,
 extern frame_parm_handler w32_frame_parm_handlers[];
 extern void w32_default_font_parameter (struct frame* f, Lisp_Object parms);
 extern Lisp_Object w32_process_dnd_data (int format, void *pDataObj);
+extern bool w32_sleep_notification_event (WPARAM, struct input_event *);
 extern void w32_register_for_sleep_notifications (void);
 
 
@@ -717,6 +719,7 @@ do { \
 #define WM_EMACS_DROP                  (WM_EMACS_START + 28)
 #define WM_EMACS_END                   (WM_EMACS_START + 29)
 #define WM_EMACS_SET_TOOLKIT_THEME     (WM_EMACS_START + 30)
+#define WM_EMACS_SLEEP_NOTIFY          (WM_EMACS_START + 31)
 
 #define WND_FONTWIDTH_INDEX    (0)
 #define WND_LINEHEIGHT_INDEX   (4)
