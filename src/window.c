@@ -1779,9 +1779,19 @@ function returns nil.  */)
 ptrdiff_t
 window_point (struct window *w)
 {
-  return (w == XWINDOW (selected_window)
-          ? BUF_PT (XBUFFER (w->contents))
-          : marker_vector_charpos (XMARKER (w->pointm)));
+  struct buffer *b = XBUFFER (w->contents);
+
+  if (w == XWINDOW (selected_window))
+    return BUF_PT (b);
+
+  if (!MARKERP (w->pointm))
+    return BUF_PT (b);
+
+  struct Lisp_Marker *m = XMARKER (w->pointm);
+  if (m->buffer != b)
+    return BUF_PT (b);
+
+  return marker_vector_charpos (m);
 }
 
 DEFUN ("window-point", Fwindow_point, Swindow_point, 0, 1, 0,
