@@ -710,12 +710,27 @@ information."
       t)
     t))
 
+;; By design the vc-dir-next-* commands move point from the current
+;; entry to the next one of the same type.  But for technical reasons
+;; any buffer position before the "./" entry is part of that entry, so
+;; there is no previous entry from which to move via vc-dir-next-* to
+;; this entry.  But from the UX perspective such movement is natural, so
+;; we enable it by making these commands move point directly to the "./"
+;; entry (instead of the "next" one) whenever point is before this
+;; entry, as determined by the following function.  See bug#81248 for
+;; further details.
+(defun vc-dir--before-dotname-p ()
+  "Return non-nil if point is before the \"./\" entry."
+  (< (point) (ewoc-location (ewoc-nth vc-ewoc 0))))
+
 (defun vc-dir-next-line (arg)
   "Go to the next line.
 With prefix argument ARG, move that many lines."
   (interactive "p")
   (with-no-warnings
-    (ewoc-goto-next vc-ewoc arg)
+    (if (vc-dir--before-dotname-p)
+        (ewoc-goto-node vc-ewoc (ewoc-nth vc-ewoc 0))
+      (ewoc-goto-next vc-ewoc arg))
     (vc-dir-move-to-goal-column)))
 
 (defun vc-dir-previous-line (arg)
@@ -732,7 +747,9 @@ With prefix argument ARG, move that many lines."
     (if
 	(catch 'foundit
 	  (while t
-	    (let* ((next (ewoc-next vc-ewoc (ewoc-locate vc-ewoc))))
+	    (let* ((next (if (vc-dir--before-dotname-p)
+                             (ewoc-nth vc-ewoc 0)
+                           (ewoc-next vc-ewoc (ewoc-locate vc-ewoc)))))
 	      (cond ((not next)
 		     (throw 'foundit t))
 		    (t
@@ -1062,11 +1079,12 @@ that share the same state."
 	   (data (ewoc-data crt)))
       (if (vc-dir-fileinfo->directory data)
 	  ;; It's a directory, unmark child files.
-	  (while (setq crt (ewoc-next vc-ewoc crt))
-	    (let ((crt-data (ewoc-data crt)))
-	      (unless (vc-dir-fileinfo->directory crt-data)
-		(setf (vc-dir-fileinfo->marked crt-data) nil)
-		(ewoc-invalidate vc-ewoc crt))))
+          (let (crt-data)
+	    (while (and (setq crt (ewoc-next vc-ewoc crt))
+			(setq crt-data (ewoc-data crt))
+			(not (vc-dir-fileinfo->directory crt-data)))
+	      (setf (vc-dir-fileinfo->marked crt-data) nil)
+	      (ewoc-invalidate vc-ewoc crt)))
 	;; It's a file
 	(let ((crt-state (vc-dir-fileinfo->state (ewoc-data crt))))
 	  (ewoc-map
