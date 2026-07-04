@@ -233,7 +233,7 @@ adjust_suspend_auto_hscroll (ptrdiff_t from, ptrdiff_t to)
 
       ptrdiff_t charpos;
       if (BUFFERP (w->contents) && XBUFFER (w->contents) == current_buffer
-	  && (charpos = marker_vector_charpos (XMARKER (w->old_pointm)),
+	  && (charpos = marker_vector_last_charpos (XMARKER (w->old_pointm)),
 	      charpos >= from && charpos <= to))
 	w->suspend_auto_hscroll = 0;
     }

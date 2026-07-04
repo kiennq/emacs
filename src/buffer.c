@@ -2170,6 +2170,7 @@ cleaning up all windows currently displaying the buffer to be killed. */)
       b->bidi_paragraph_cache = 0;
     }
   text_index_free (b->own_text.index);
+  b->own_text.index = NULL;
   bset_width_table (b, Qnil);
   unblock_input ();
 

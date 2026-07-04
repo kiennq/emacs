@@ -57,6 +57,19 @@
     (set-marker marker-2 marker-1)
     (should (goto-char marker-2))))
 
+(ert-deftest marker-last-position-live-and-detached ()
+  "`marker-last-position' handles live and detached markers."
+  (let (marker)
+    (with-temp-buffer
+      (insert "abcdef")
+      (setq marker (copy-marker 4))
+      (should (= (marker-last-position marker) 4)))
+    (should-not (marker-buffer marker))
+    (should (= (marker-last-position marker) 4))
+    (let ((copy (copy-marker marker)))
+      (should-not (marker-buffer copy))
+      (should (= (marker-last-position copy) 4)))))
+
 (ert-deftest marker-markers-in ()
   (with-temp-buffer
     (insert "hello ")

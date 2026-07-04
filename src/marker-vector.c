@@ -309,13 +309,17 @@ marker_vector_charpos (const struct Lisp_Marker *m)
   return XFIXNUM (CHARPOS (v, m->entry));
 }
 
-/* Return marker M's last character position.  */
+/* Return marker M's last character position.  This is its current
+   position if the marker is attached, or the saved position from its
+   negative entry if the marker is detached.  */
 
 ptrdiff_t
 marker_vector_last_charpos (const struct Lisp_Marker *m)
 {
-  eassert (m->buffer == NULL);
-  eassert (m->entry < 0);
+  if (m->buffer)
+    return marker_vector_charpos (m);
+
+  eassert (m->entry <= 0);
   return - m->entry;
 }
 

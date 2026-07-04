@@ -139,6 +139,15 @@ attach_marker (struct Lisp_Marker *m, struct buffer *b,
    marker_vector_set_charpos (m, charpos);
 }
 
+/* Detach M, preserving CHARPOS as its last known character position.  */
+
+static void
+detach_marker_at_charpos (struct Lisp_Marker *m, ptrdiff_t charpos)
+{
+  unchain_marker (m);
+  m->entry = - charpos;
+}
+
 /* If BUFFER is nil, return current buffer pointer.  Next, check
    whether BUFFER is a buffer object and return buffer pointer
    corresponding to BUFFER if BUFFER is live, or NULL otherwise.  */
@@ -274,7 +283,7 @@ set_marker_both (Lisp_Object marker, Lisp_Object buffer,
   if (b)
     attach_marker (m, b, charpos);
   else
-    unchain_marker (m);
+    detach_marker_at_charpos (m, charpos);
   return marker;
 }
 
@@ -297,7 +306,7 @@ set_marker_restricted_both (Lisp_Object marker, Lisp_Object buffer,
 				     charpos, BUF_ZV (b)));
     }
   else
-    unchain_marker (m);
+    detach_marker_at_charpos (m, charpos);
   return marker;
 }
 
@@ -371,8 +380,11 @@ see `marker-insertion-type'.  */)
   CHECK_TYPE (FIXNUMP (marker) || MARKERP (marker), Qinteger_or_marker_p, marker);
 
   new = Fmake_marker ();
-  Fset_marker (new, marker,
-	       (MARKERP (marker) ? Fmarker_buffer (marker) : Qnil));
+  if (MARKERP (marker) && XMARKER (marker)->buffer == NULL)
+    XMARKER (new)->entry = XMARKER (marker)->entry;
+  else
+    Fset_marker (new, marker,
+		 (MARKERP (marker) ? Fmarker_buffer (marker) : Qnil));
   XMARKER (new)->insertion_type = !NILP (type);
   return new;
 }
