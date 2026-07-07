@@ -1652,7 +1652,7 @@ backend-specific headers."
      "(\\[vc-dir-hide-up-to-date]) Hide up-to-date"
      "\n"
      (vc-call-backend backend 'dir-extra-hints)
-     "\n")))
+     "\n" (make-separator-line) "\n")))
   (concat
    (and vc-dir-show-key-binding-hints vc-dir--key-binding-hints)
    (propertize "VC backend : " 'face 'vc-dir-header)
@@ -2011,7 +2011,7 @@ These are the commands available for use in the file status buffer:
       (vc-dir-refresh)
     ;; FIXME: find a better way to pass the backend to `vc-dir-mode'.
     (let ((use-vc-backend backend))
-      (vc-call-backend backend 'dir-mode)
+      (vc-dir-mode)
       ;; Activate the backend-specific minor mode, if any.
       (when-let* ((minor-mode
                    (intern-soft (format "vc-dir-%s-mode"
