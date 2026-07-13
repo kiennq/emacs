@@ -5876,16 +5876,7 @@ write_matrix (struct frame *f, bool inhibit_id_p,
      This is done so that messages are made visible when pausing.  */
   int last_row = f->desired_matrix->nrows - 1;
   if (MATRIX_ROW_ENABLED_P (f->desired_matrix, last_row))
-    {
-      int cursor_hidden = (FRAME_TTY (f))->cursor_hidden;
-      if (!cursor_in_echo_area && !cursor_hidden)
-	tty_hide_cursor (FRAME_TTY (f));
-
-      write_row (f, last_row, updating_menu_p);
-
-      if (!cursor_in_echo_area && !cursor_hidden)
-	tty_show_cursor (FRAME_TTY (f));
-    }
+    write_row (f, last_row, updating_menu_p);
 
   if (first_row >= 0)
     for (int i = first_row; i < last_row; ++i)
