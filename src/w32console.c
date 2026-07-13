@@ -57,7 +57,7 @@ static void w32con_update_begin (struct frame * f);
 static void w32con_update_end (struct frame * f);
 static WORD w32_face_attributes (struct frame *f, int face_id);
 static int  w32con_write_vt_seq (const char *);
-static void turn_on_face (struct frame *, int face_id);
+static void turn_on_face (struct frame *, struct face *);
 static void turn_off_face (struct frame *, int face_id);
 static COORD w32con_get_cursor_coords (void);
 
@@ -423,7 +423,7 @@ w32con_write_glyphs (struct frame *f, register struct glyph *string,
 	{
 	  if (w32_use_virtual_terminal)
 	    {
-	      turn_on_face (f, face_id);
+	      turn_on_face (f, FACE_FROM_ID (attr_frame, face_id));
 	      WriteConsole (cur_screen, conversion_buffer,
 			    coding->produced, &r, NULL);
 	      turn_off_face (f, face_id);
@@ -497,7 +497,7 @@ w32con_write_glyphs_with_face (struct frame *f, register int x, register int y,
 	{
 	  COORD saved_coords = cursor_coords;
 	  w32con_move_cursor(f, y, x);
-	  turn_on_face (f, face_id);
+	  turn_on_face (f, FACE_FROM_ID (f, face_id));
 	  WriteConsole (cur_screen, conversion_buffer,
 			coding->produced, &written, NULL);
 	  turn_off_face (f, face_id);
@@ -861,9 +861,8 @@ w32_face_attributes (struct frame *f, int face_id)
 }
 
 static void
-turn_on_face (struct frame *f, int face_id)
+turn_on_face (struct frame *f, struct face *face)
 {
-  struct face *face = FACE_FROM_ID (f, face_id);
   struct tty_display_info *tty = FRAME_TTY (f);
   unsigned long fg = face->foreground;
   unsigned long bg = face->background;
