@@ -277,10 +277,11 @@ struct dump_table_locator
 enum
   {
    DUMP_RELOC_TYPE_BITS = 5,
-   DUMP_RELOC_ALIGNMENT_BITS = 2,
 
-   /* Minimum alignment required by dump file format.  */
-   DUMP_RELOCATION_ALIGNMENT = 1 << DUMP_RELOC_ALIGNMENT_BITS,
+   /* Minimum alignment required by dump file format.  Although this can
+      be any integer power of 2 up to alignof (Lisp_Alignment),
+      larger values help dump_reloc_set_offset support larger offsets.  */
+   DUMP_RELOCATION_ALIGNMENT = alignof (Lisp_Object),
 
    /* The alignment granularity (in bytes) for objects we store in the
       dump.  Always suitable for heap objects; may be more aligned.  */
@@ -312,14 +313,14 @@ dump_reloc_set_type (struct dump_reloc *reloc, enum dump_reloc_type type)
 static dump_off
 dump_reloc_get_offset (struct dump_reloc reloc)
 {
-  return reloc.raw_offset << DUMP_RELOC_ALIGNMENT_BITS;
+  return reloc.raw_offset * DUMP_RELOCATION_ALIGNMENT;
 }
 
 static void
 dump_reloc_set_offset (struct dump_reloc *reloc, dump_off offset)
 {
-  eassert (offset >= 0);
-  reloc->raw_offset = offset >> DUMP_RELOC_ALIGNMENT_BITS;
+  eassume (offset >= 0);
+  reloc->raw_offset = offset / DUMP_RELOCATION_ALIGNMENT;
   if (dump_reloc_get_offset (*reloc) != offset)
     error ("dump relocation out of range");
 }
