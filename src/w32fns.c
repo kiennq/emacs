@@ -11191,9 +11191,11 @@ triplet strings of the form \"#RRGGBB\".  */)
       lf.lfQuality = ANTIALIASED_QUALITY;
       /* Negative lfHeight indicates pixel units vs. positive in points.
 	 Use the LOGPIXELSY px/in of the primary monitor.  */
+      HDC screen_dc = GetDC (NULL);
       lf.lfHeight = -MulDiv (icon_height / 2, /* Fit ~3 chars.  */
 			     72,
-			     GetDeviceCaps (GetDC (NULL), LOGPIXELSY));
+			     GetDeviceCaps (screen_dc, LOGPIXELSY));
+      ReleaseDC (NULL, screen_dc);
       /* Ensure lfHeight pixel interpretation.  */
       int old_map_mode = SetMapMode (dc, MM_TEXT);
       HFONT scaled_font = CreateFontIndirect (&lf);
