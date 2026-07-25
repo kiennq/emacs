@@ -13244,7 +13244,9 @@ void
 resize_echo_area_exactly (void)
 {
   if (BUFFERP (echo_area_buffer[0])
-      && WINDOWP (echo_area_window))
+      /* The window recorded in echo_area_window could have been deleted
+	 since it was recorded there.  */
+      && WINDOW_LIVE_P (echo_area_window))
     {
       struct window *w = XWINDOW (echo_area_window);
       Lisp_Object resize_exactly = (minibuf_level == 0 ? Qt : Qnil);
@@ -13734,7 +13736,11 @@ echo_area_display (bool update_frame_p)
   struct frame *sf = SELECTED_FRAME ();
 
   mini_window = FRAME_MINIBUF_WINDOW (sf);
-  if (NILP (mini_window))
+  /* The mini-window can be dead, e.g. if a window configuration whose
+     restoration deleted it was never restored.  Displaying in it would
+     signal an error from marker_position below, and since displaying
+     that error needs the echo area as well, Emacs would loop forever.  */
+  if (!WINDOW_LIVE_P (mini_window))
     return;
 
   w = XWINDOW (mini_window);
