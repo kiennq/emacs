@@ -1155,9 +1155,8 @@
    `(progn
       (progn
         (apply #'face-spec-set
-               (append (backquote (foo ((t (:background "#e4edfc")))))
-                       '(face-defface-spec))
-               )
+               (backquote (foo ((t (:background "#e4edfc")))
+                               face-defface-spec)))
         (put 'foo 'face-modified t))
       (require 'foo nil nil))))
 
@@ -1170,24 +1169,23 @@
    `(progn
       (progn
         (apply #'face-spec-set
-               (append (backquote (example-1-face ((t (:foreground "LightPink")))))
-                       '(face-defface-spec)))
+               (backquote (example-1-face ((t (:foreground "LightPink")))
+                                              face-defface-spec)))
         (put 'example-1-face 'face-modified t))
       (progn
         (apply #'face-spec-set
-               (append (backquote (example-2-face ((t (:foreground "LightGreen")))))
-                       '(face-defface-spec)))
+               (backquote (example-2-face ((t (:foreground "LightGreen")))
+                                              face-defface-spec)))
         (put 'example-2-face 'face-modified t))
       (require 'example nil nil))))
 
 (ert-deftest use-package-test/:custom-face-3 ()
   (match-expansion
-   (use-package foo :custom-face (foo ((t (:background "#e4edfc"))) face-defspec-spec))
+   (use-package foo :custom-face (foo ((t (:background "#e4edfc"))) face-override-spec))
    `(progn
       (progn
         (apply #'face-spec-set
-               (append (backquote (foo ((t (:background "#e4edfc"))) face-defspec-spec))
-                       '(face-defface-spec)))
+               (backquote (foo ((t (:background "#e4edfc"))) face-override-spec)))
         (put 'foo 'face-modified t))
       (require 'foo nil nil))))
 

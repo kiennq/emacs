@@ -1625,7 +1625,10 @@ no keyword implies `:all'."
   (use-package-concat
    (mapcar #'(lambda (def)
                `(progn
-                  (apply #'face-spec-set (append (backquote ,def) '(face-defface-spec)))
+                  (apply #'face-spec-set
+                         (backquote
+                          ,`(,@def ,@(unless (cddr def)
+                                      '(face-defface-spec)))))
                   (put ',(car def) 'face-modified t)))
            args)
    (use-package-process-keywords name rest state)))
