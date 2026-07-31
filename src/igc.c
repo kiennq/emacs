@@ -4893,6 +4893,7 @@ igc_on_idle (void)
 static mps_ap_t
 thread_ap (enum igc_obj_type type)
 {
+  igc_assert (in_current_thread ());
   struct igc_thread_list *t = current_thread->gc_info;
   switch (type)
     {

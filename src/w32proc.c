@@ -3131,6 +3131,18 @@ extern HANDLE interrupt_handle;
 /* From process.c */
 extern int proc_buffered_char[];
 
+static bool
+handle_file_notifications_for_select (void)
+{
+  return handle_file_notifications (NULL);
+}
+
+static bool
+drain_message_queue_for_select (void)
+{
+  return drain_message_queue () && FRAME_TERMCAP_P (SELECTED_FRAME ());
+}
+
 int
 sys_select (int nfds, SELECT_TYPE *rfds, SELECT_TYPE *wfds, SELECT_TYPE *efds,
 	    const struct timespec *timeout, const sigset_t *ignored)
@@ -3203,14 +3215,15 @@ sys_select (int nfds, SELECT_TYPE *rfds, SELECT_TYPE *wfds, SELECT_TYPE *efds,
 
 	    /* Check for any emacs-generated input in the queue since
 	       it won't be detected in the wait */
-	    if (rfds && detect_input_pending ())
+	    if (rfds && thread_call_with_global_lock (detect_input_pending))
 	      {
 		FD_SET (i, rfds);
 		return 1;
 	      }
 	    else if (noninteractive)
 	      {
-		if (handle_file_notifications (NULL))
+		if (thread_call_with_global_lock
+		    (handle_file_notifications_for_select))
 		  return 1;
 	      }
 	  }
@@ -3324,7 +3337,8 @@ count_children:
 	Sleep (timeout_ms);
       if (noninteractive)
 	{
-	  if (handle_file_notifications (NULL))
+	  if (thread_call_with_global_lock
+	      (handle_file_notifications_for_select))
 	    return 1;
 	}
       return 0;
@@ -3354,7 +3368,8 @@ count_children:
     {
       if (noninteractive)
 	{
-	  if (handle_file_notifications (NULL))
+	  if (thread_call_with_global_lock
+	      (handle_file_notifications_for_select))
 	    return 1;
 	}
       return 0;
@@ -3394,7 +3409,7 @@ count_children:
 	     (*) Note that MsgWaitForMultipleObjects above is an
 	     internal dispatch point for messages that are sent to
 	     windows created by this thread.  */
-	  if (drain_message_queue ()
+	  if (thread_call_with_global_lock (drain_message_queue_for_select)
 	      /* If drain_message_queue returns non-zero, that means
 		 we received a WM_EMACS_FILENOTIFY message.  If this
 		 is a TTY frame, we must signal the caller that keyboard
@@ -3402,7 +3417,6 @@ count_children:
 		 will be called to pick up the notifications.  If we
 		 don't do that, file notifications will only work when
 		 the Emacs TTY frame has focus.  */
-	      && FRAME_TERMCAP_P (SELECTED_FRAME ())
 	      /* they asked for stdin reads */
 	      && FD_ISSET (0, &orfds)
 	      /* the stdin handle is valid */
@@ -3488,7 +3502,8 @@ count_children:
 
   if (noninteractive)
     {
-      if (handle_file_notifications (NULL))
+      if (thread_call_with_global_lock
+	  (handle_file_notifications_for_select))
 	nr++;
     }
 

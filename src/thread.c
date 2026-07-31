@@ -103,9 +103,10 @@ unbind_for_thread_switch (struct thread_state *thr)
 
 
 /* You must call this after acquiring the global lock.
-   acquire_global_lock does it for you.  */
+   acquire_global_lock does it for you.  If SIGNAL_P is false, defer
+   raising a pending signal.  */
 static void
-post_acquire_global_lock (struct thread_state *self)
+post_acquire_global_lock_1 (struct thread_state *self, bool signal_p)
 {
   struct thread_state *prev_thread = current_thread;
 
@@ -146,7 +147,7 @@ post_acquire_global_lock (struct thread_state *self)
       we didn't yet have the opportunity to set up the handlers.  Delay
       raising the signal in that case (it will be actually raised when
       the thread comes here after acquiring the lock the next time).  */
-  if (!NILP (current_thread->error_symbol) && handlerlist)
+  if (signal_p && !NILP (current_thread->error_symbol) && handlerlist)
     {
       Lisp_Object sym = current_thread->error_symbol;
       Lisp_Object data = current_thread->error_data;
@@ -155,6 +156,12 @@ post_acquire_global_lock (struct thread_state *self)
       current_thread->error_data = Qnil;
       Fsignal (sym, data);
     }
+}
+
+static void
+post_acquire_global_lock (struct thread_state *self)
+{
+  post_acquire_global_lock_1 (self, true);
 }
 
 static void
@@ -608,6 +615,61 @@ finalize_one_condvar (struct Lisp_CondVar *condvar)
 #ifdef HAVE_MPS
   xfree (condvar->cond);
 #endif
+}
+
+bool
+thread_call_with_global_lock (bool (*func) (void))
+{
+  struct thread_state *self = current_thread;
+  sigset_t oldset;
+  bool acquired_lock = false;
+
+  /* If the calling thread already owns the global lock, there is
+     nothing to do.  */
+  if (in_current_thread () && !self->not_holding_lock)
+    return func ();
+
+  block_interrupt_signal (&oldset);
+  if (!in_current_thread ())
+    {
+      sys_thread_t thread_id = sys_thread_self ();
+      sys_mutex_lock (&global_lock);
+      acquired_lock = true;
+
+      /* CURRENT_THREAD can name the thread that currently owns the
+	 global lock, rather than the thread that is calling us.  Find
+	 the latter when called from the body of thread_select, which
+	 has released the lock.  */
+      for (self = all_threads; self; self = self->next_thread)
+	if (sys_thread_equal (thread_id, self->thread_id))
+	  break;
+      if (!self)
+	emacs_abort ();
+    }
+
+  if (self->not_holding_lock || acquired_lock)
+    {
+      if (!acquired_lock)
+	{
+	  sys_mutex_lock (&global_lock);
+	  acquired_lock = true;
+	}
+      post_acquire_global_lock_1 (self, false);
+      self->not_holding_lock = 0;
+    }
+  restore_signal_mask (&oldset);
+
+  bool result = func ();
+
+  if (acquired_lock)
+    {
+      block_interrupt_signal (&oldset);
+      self->not_holding_lock = 1;
+      release_global_lock ();
+      restore_signal_mask (&oldset);
+    }
+
+  return result;
 }
 
 

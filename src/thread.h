@@ -358,6 +358,7 @@ extern void init_threads (void);
 extern void syms_of_threads (void);
 extern bool main_thread_p (const void *);
 extern bool in_current_thread (void);
+extern bool thread_call_with_global_lock (bool (*) (void));
 
 typedef int select_func (int, fd_set *, fd_set *, fd_set *,
 			 const struct timespec *, const sigset_t *);

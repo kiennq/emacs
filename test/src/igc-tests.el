@@ -20,6 +20,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'filenotify)
 
 (declare-function igc--set-commit-limit "igc.c")
 (declare-function igc--set-pause-time "igc.c")
@@ -71,6 +72,46 @@
   (skip-unless (fboundp 'make-thread))
   (igc-collect)
   (thread-join (make-thread #'igc-test--trigger-incremental-gc)))
+
+(ert-deftest igc-test-w32-select-thread-race ()
+  "Process W32 file notifications while another Lisp thread allocates."
+  :tags '(:igc :expensive-test)
+  (skip-unless (eq system-type 'windows-nt))
+  (skip-unless (fboundp 'make-thread))
+  (skip-unless (featurep 'w32notify))
+  (let* ((dir (make-temp-file "igc-w32-select-" t))
+         (file (expand-file-name "notify" dir))
+         (stop nil)
+         watch thread process)
+    (unwind-protect
+        (progn
+          (setq watch (file-notify-add-watch dir '(change) #'ignore))
+          (setq thread
+                (make-thread
+                 (lambda ()
+                   (while (not stop)
+                     (dotimes (_ 1000)
+                       (string-match "\\(a+\\)\\(b+\\)" "aaabbb")
+                       (match-data))
+                     (thread-yield)))))
+          (setq process
+                (start-process
+                 "igc-w32-select" nil "cmd.exe" "/d" "/q" "/c"
+                 (format "for /l %%i in (1,1,20000) do @echo .>>\"%s\""
+                         file)))
+          (with-timeout (60 (ert-fail "Test timed out"))
+            (while (process-live-p process)
+              (accept-process-output process 0.01))
+            (setq stop t)
+            (thread-join thread)))
+      (when (and process (process-live-p process))
+        (delete-process process))
+      (setq stop t)
+      (when (and thread (thread-live-p thread))
+        (thread-join thread))
+      (when watch
+        (file-notify-rm-watch watch))
+      (delete-directory dir t))))
 
 (defun igc-tests--binary-search (start end cmp)
   (named-let search ((start start) (end end))
