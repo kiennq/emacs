@@ -2276,7 +2276,7 @@ that suppresses the confirmation, and backup files are always created."
 (declare-function make-symbolic-link "fileio.c")
 
 (defcustom dired-create-destination-dirs nil
-  "Whether Dired should create destination dirs when copying/removing files.
+  "Whether Dired should create destination dirs when copying/moving files.
 If nil, don't create non-existent destination directories.
 If `ask', ask the user whether to create them.
 If `always', create them without asking.
@@ -3409,7 +3409,8 @@ and the related messages for details."))
                 (dired-switches-escape-p dired-listing-switches)
                 (dired-switches-escape-p dired-actual-switches))
       (when (and (dired--filename-with-newline-p)
-                 (dired--ls-accept-b-switch-p))
+                 (eq 0 (call-process insert-directory-program
+                                     nil nil nil "-b")))
         (dired--display-filename-with-newline-warning (current-buffer))))
     (dired-initial-position dirname)
     (save-excursion (dired-mark-remembered mark-alist))

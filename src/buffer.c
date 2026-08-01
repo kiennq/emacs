@@ -939,7 +939,7 @@ Interactively, CLONE and INHIBIT-BUFFER-HOOKS are nil.  */)
     }
   else
     {
-      struct buffer *old_b = current_buffer;
+      specpdl_ref count = SPECPDL_INDEX ();
 
       clone_per_buffer_values (b->base_buffer, b);
       bset_filename (b, Qnil);
@@ -948,6 +948,7 @@ Interactively, CLONE and INHIBIT-BUFFER-HOOKS are nil.  */)
       bset_backed_up (b, Qnil);
       bset_local_minor_modes (b, Qnil);
       bset_auto_save_file_name (b, Qnil);
+      record_unwind_current_buffer ();
       set_buffer_internal_1 (b);
       Fset (Qbuffer_save_without_query, Qnil);
       Fset (Qbuffer_file_number, Qnil);
@@ -957,7 +958,7 @@ Interactively, CLONE and INHIBIT-BUFFER-HOOKS are nil.  */)
 	 variable copies for list variables that might be mangled due
 	 to destructive operations in the indirect buffer. */
       run_hook (Qclone_indirect_buffer_hook);
-      set_buffer_internal_1 (old_b);
+      unbind_to (count, Qnil);
     }
 
   run_buffer_list_update_hook (b);
