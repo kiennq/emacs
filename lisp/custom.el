@@ -299,11 +299,15 @@ The following keywords are meaningful:
 	given in the `defcustom' call.  The default is
 	`custom-initialize-reset'.
 :set	VALUE should be a function to set the value of the symbol
-	when using the Customize user interface.  It takes two arguments,
-	the symbol to set and the value to give it.  The function should
-	not modify its value argument destructively.  The default choice
-	of function is `set-default-toplevel-value'.  If this keyword is
-	defined, modifying the value of SYMBOL via `setopt' will call the
+	when using the Customize user interface.  It takes two
+        mandatory arguments, the symbol to set and the value to give
+        it, and one optional argument, which, if its value is
+        `buffer-local', means the value should be set
+        buffer-locally, without affecting the global or default
+        value.  The function should not modify its value argument
+        destructively.  The default choice of function is
+        `set-default-toplevel-value'.  If this keyword is defined,
+        modifying the value of SYMBOL via `setopt' will call the
 	function specified by VALUE to install the new value.
 :get	VALUE should be a function to extract the value of symbol.
 	The function takes one argument, a symbol, and should return
@@ -1128,17 +1132,17 @@ arguments to `custom-theme-set-variables'.  Return the sorted
 list, in which A occurs before B if B was defined with a
 `:set-after' keyword specifying A (see `defcustom')."
   (let ((custom--sort-vars-table (make-hash-table))
-	(dependants (make-hash-table))
+	(dependents (make-hash-table))
 	(custom--sort-vars-result nil)
 	last)
     ;; Construct a pair of tables keyed with the symbols of VARS.
     (dolist (var vars)
       (puthash (car var) (cons t var) custom--sort-vars-table)
-      (puthash (car var) var dependants))
+      (puthash (car var) var dependents))
     ;; From the second table, remove symbols that are depended-on.
     (dolist (var vars)
       (dolist (dep (get (car var) 'custom-dependencies))
-	(remhash dep dependants)))
+	(remhash dep dependents)))
     ;; If a variable is "stand-alone", put it last if it's a minor
     ;; mode or has a :require flag.  This is not really necessary, but
     ;; putting minor modes last helps ensure that the mode function
@@ -1148,25 +1152,25 @@ list, in which A occurs before B if B was defined with a
 			  (or (nth 3 var)
 			      (eq (get sym 'custom-set)
 				  'custom-set-minor-mode)))
-		 (remhash sym dependants)
+		 (remhash sym dependents)
 		 (push var last)))
-	     dependants)
+	     dependents)
     ;; The remaining symbols depend on others but are not
     ;; depended-upon.  Do a depth-first topological sort.
-    (maphash #'custom--sort-vars-1 dependants)
+    (maphash #'custom--sort-vars-1 dependents)
     (nreverse (append last custom--sort-vars-result))))
 
 (defun custom--sort-vars-1 (sym &optional _ignored)
   (let ((elt (gethash sym custom--sort-vars-table)))
     ;; The car of the hash table value is nil if the variable has
-    ;; already been processed, `dependant' if it is a dependant in the
+    ;; already been processed, `dependent' if it is a dependent in the
     ;; current graph descent, and t otherwise.
     (when elt
       (cond
-       ((eq (car elt) 'dependant)
+       ((eq (car elt) 'dependent)
 	(error "Circular custom dependency on `%s'" sym))
        ((car elt)
-	(setcar elt 'dependant)
+	(setcar elt 'dependent)
 	(dolist (dep (get sym 'custom-dependencies))
 	  (custom--sort-vars-1 dep))
 	(setcar elt nil)

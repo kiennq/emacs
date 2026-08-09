@@ -373,11 +373,18 @@ every horizontal split becomes a vertical split and vice versa.
 'rotate-windows-back' ('C-x w o <LEFT>') rotate windows in cyclic
 ordering.
 
++++
 *** New user option 'rotate-windows-change-selected'.
 This controls whether 'rotate-windows' and 'rotate-windows-back' change
 the selected window.  If nil, the selected window does not change.
 The default is t, which means the new selected window will be the one
 that winds up at the location of the previously-selected window.
+
++++
+*** New user option 'transpose-dedicated-windows'.
+This controls how functions transposing or rotating windows handle
+dedicated windows.  The default is nil, which causes these function to
+signal an error if they encounter a dedicated window.
 
 +++
 *** Windmove commands now move to skipped windows if invoked twice in a row.
@@ -3378,7 +3385,7 @@ contents of the current buffer.
 When enabled, this displays indications about the availability of add-on
 ELPA packages for the current buffer and suggestions for installing
 those packages.  The default is to show a button on the mode line that
-can be used to install such packages, but you can customise the
+can be used to install such packages, but you can customize the
 presentation style of these suggestions using
 'package-autosuggest-style'.
 
@@ -3575,6 +3582,19 @@ When first opening the customization interface for a user option, you
 can use this command as a shortcut to jump to the first actionable
 button or field (for instance an on/off button for boolean options, or a
 text field for other values).
+
++++
+*** The ':set' function should accept an optional argument BUFFER-LOCAL.
+This is the third argument, in addition to SYMBOL and VALUE.  If that
+argument's value is 'buffer-local', the ':set' function should use
+'set-local' to set the value of its SYMBOL argument locally in the
+current buffer.  This is used by 'setopt-local', which will signal an
+error if this optional argument is not supported by the ':set' function.
+
++++
+*** The 'defcustom' ':local' keyword can now be 'permanent-only'.
+This means that the variable's 'permanent-local' property is set to t,
+without marking it as automatically buffer-local.
 
 ** Pulse
 
@@ -4525,11 +4545,6 @@ list whose elements are blended in linear space proportional to ALPHA.
 This function gets all the text within a DOM node recursively, returning
 it as a concatenated string.  It replaces the now-obsolete functions
 'dom-text' and 'dom-texts'.
-
-+++
-** The 'defcustom' ':local' keyword can now be 'permanent-only'.
-This means that the variable's 'permanent-local' property is set to t,
-without marking it as automatically buffer-local.
 
 ---
 ** The obsolete face attribute ':reverse-video' has been removed.
