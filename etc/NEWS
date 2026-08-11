@@ -110,6 +110,14 @@ to your initialization file no longer apply, and you may remove it.
 
 * Editing Changes in Emacs 32.1
 
++++
+** New user option 'query-replace-show-preview'.
+When set to t, the replacement commands preview the replacement while
+you type it: the matches visible in the window are shown as they would
+look after the replacement, using the new face 'query-replace-preview'.
+This tells you what back-references like '\1' expand to before you
+commit to the edit.  The preview is off by default.
+
 
 * Changes in Specialized Modes and Packages in Emacs 32.1
 
@@ -207,11 +215,9 @@ with named choices for the predefined search functions
 as well as the default nil and arbitrary user functions.
 
 ---
-*** New command 'outline-occur'.
-It allows users to navigate the current buffer's outline using Occur.
-The 'outline-regexp' variable is used to find the beginning of the
-outline headings.  The 'outline-occur-regexp' buffer-local variable
-allows overriding this regexp.  It is bound to 'M-o'.
+*** New command 'outline-xref'.
+It allows users to navigate the current buffer's outline using Xref.
+It is bound to 'M-o'.
 
 ** Newsticker
 
