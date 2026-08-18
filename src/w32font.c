@@ -2319,45 +2319,45 @@ fill_in_logfont (struct frame *f, LOGFONT *logfont,
     {
       tmp = XCAR (extra);
       if (CONSP (tmp))
-	{
-	  Lisp_Object key, val;
-	  key = XCAR (tmp), val = XCDR (tmp);
-	  /* Only use QCscript if charset is not provided, or is
-	     Unicode and a single script is specified.  This is rather
-	     crude, and is only used to narrow down the fonts returned
-	     where there is a definite match.  Some scripts, such as
-	     latin, han, cjk-misc match multiple lfCharSet values, so
-	     we can't pre-filter them.  */
-	  if (EQ (key, QCscript)
-	      && logfont->lfCharSet == DEFAULT_CHARSET
-	      && SYMBOLP (val))
-	    {
-	      if (EQ (val, Qgreek))
-		logfont->lfCharSet = GREEK_CHARSET;
-	      else if (EQ (val, Qhangul))
-		logfont->lfCharSet = HANGUL_CHARSET;
-	      else if (EQ (val, Qkana) || EQ (val, Qkanbun))
-		logfont->lfCharSet = SHIFTJIS_CHARSET;
-	      else if (EQ (val, Qbopomofo))
-		logfont->lfCharSet = CHINESEBIG5_CHARSET;
-	      /* GB 18030 supports tibetan, yi, mongolian,
-		 fonts that support it should show up if we ask for
-		 GB2312 fonts. */
-	      else if (EQ (val, Qtibetan) || EQ (val, Qyi)
-		       || EQ (val, Qmongolian))
-		logfont->lfCharSet = GB2312_CHARSET;
-	      else if (EQ (val, Qhebrew))
-		logfont->lfCharSet = HEBREW_CHARSET;
-	      else if (EQ (val, Qarabic))
-		logfont->lfCharSet = ARABIC_CHARSET;
-	      else if (EQ (val, Qthai))
-		logfont->lfCharSet = THAI_CHARSET;
-	    }
-	  else if (EQ (key, QCantialias) && SYMBOLP (val))
-	    {
-	      logfont->lfQuality = w32_antialias_type (val);
-	    }
-	}
+        {
+          Lisp_Object key, val;
+          key = XCAR (tmp), val = XCDR (tmp);
+          /* Only use QCscript if charset is not provided, or is
+             Unicode and a single script is specified.  This is rather
+             crude, and is only used to narrow down the fonts returned
+             where there is a definite match.  Some scripts, such as
+             latin, han, cjk-misc match multiple lfCharSet values, so
+             we can't pre-filter them.  */
+          if (EQ (key, QCscript)
+            && logfont->lfCharSet == DEFAULT_CHARSET
+            && SYMBOLP (val))
+            {
+              if (EQ (val, Qgreek))
+                logfont->lfCharSet = GREEK_CHARSET;
+              else if (EQ (val, Qhangul))
+                logfont->lfCharSet = HANGUL_CHARSET;
+              else if (EQ (val, Qkana) || EQ (val, Qkanbun))
+                logfont->lfCharSet = SHIFTJIS_CHARSET;
+              else if (EQ (val, Qbopomofo))
+                logfont->lfCharSet = CHINESEBIG5_CHARSET;
+              /* GB 18030 supports tibetan, yi, mongolian,
+                 fonts that support it should show up if we ask for
+                 GB2312 fonts. */
+              else if (EQ (val, Qtibetan) || EQ (val, Qyi)
+                || EQ (val, Qmongolian))
+                logfont->lfCharSet = GB2312_CHARSET;
+              else if (EQ (val, Qhebrew))
+                logfont->lfCharSet = HEBREW_CHARSET;
+              else if (EQ (val, Qarabic))
+                logfont->lfCharSet = ARABIC_CHARSET;
+              else if (EQ (val, Qthai))
+                logfont->lfCharSet = THAI_CHARSET;
+            }
+          else if (EQ (key, QCantialias) && SYMBOLP (val))
+            {
+              logfont->lfQuality = w32_antialias_type (val);
+            }
+        }
     }
 }
 
@@ -2618,7 +2618,7 @@ font_supported_scripts (FONTSIGNATURE *sig)
   /* 90: Private use, 91: Variation selectors, 92: Tags.  */
   SUBRANGE (93, Qlimbu);
   SUBRANGE (94, Qtai_le);
-  SUBRANGE (95, Qtai_le);
+  SUBRANGE (95, Qtai_lue);
   SUBRANGE (96, Qbuginese);
   SUBRANGE (97, Qglagolitic);
   SUBRANGE (98, Qtifinagh);
@@ -2632,7 +2632,7 @@ font_supported_scripts (FONTSIGNATURE *sig)
   SUBRANGE (104, Qold_persian);
   SUBRANGE (105, Qshavian);
   SUBRANGE (106, Qosmanya);
-  SUBRANGE (107, Qcypriot);
+  SUBRANGE (107, Qcypriot_syllabary);
   SUBRANGE (108, Qkharoshthi);
   SUBRANGE (109, Qtai_xuan_jing_symbol);
   SUBRANGE (110, Qcuneiform);
@@ -2655,7 +2655,7 @@ font_supported_scripts (FONTSIGNATURE *sig)
 
   /* There isn't really a main symbol range, so include symbol if any
      relevant range is set.  */
-  MASK_ANY (0x80000000, 0x0000FFFF, 0, 0, Qsymbol);
+  MASK_ANY (0x80000000, 0x0000FFFF, 0x00000004, 0, Qsymbol);
 
   /* Missing:
        Tai Viet
@@ -3081,7 +3081,6 @@ syms_of_w32font (void)
   DEFSYM (Qcjk_misc, "cjk-misc");
   DEFSYM (Qkana, "kana");
   DEFSYM (Qbopomofo, "bopomofo");
-  DEFSYM (Qkanbun, "kanbun");
   DEFSYM (Qyi, "yi");
   DEFSYM (Qbyzantine_musical_symbol, "byzantine-musical-symbol");
   DEFSYM (Qmusical_symbol, "musical-symbol");
@@ -3107,7 +3106,7 @@ syms_of_w32font (void)
   DEFSYM (Qbuginese, "buginese");
   DEFSYM (Qbuhid, "buhid");
   DEFSYM (Qcuneiform, "cuneiform");
-  DEFSYM (Qcypriot, "cypriot");
+  DEFSYM (Qcypriot_syllabary, "cypriot-syllabary");
   DEFSYM (Qdeseret, "deseret");
   DEFSYM (Qglagolitic, "glagolitic");
   DEFSYM (Qgothic, "gothic");
@@ -3126,6 +3125,7 @@ syms_of_w32font (void)
   DEFSYM (Qtagalog, "tagalog");
   DEFSYM (Qtagbanwa, "tagbanwa");
   DEFSYM (Qtai_le, "tai-le");
+  DEFSYM (Qtai_lue, "tai-lue");
   DEFSYM (Qtifinagh, "tifinagh");
   DEFSYM (Qugaritic, "ugaritic");
   DEFSYM (Qlycian, "lycian");

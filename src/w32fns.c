@@ -47,6 +47,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include "lisp.h"
 #include "w32term.h"
+#include "w32font.h"
 #include "frame.h"
 #include "window.h"
 #include "buffer.h"
@@ -203,6 +204,9 @@ typedef BOOL (WINAPI * ImmSetCompositionWindow_Proc) (IN HIMC context,
 typedef BOOL (WINAPI * ImmGetOpenStatus_Proc) (IN HIMC);
 typedef BOOL (WINAPI * ImmSetOpenStatus_Proc) (IN HIMC, IN BOOL);
 
+/* Set IME font.  */
+typedef BOOL (WINAPI * ImmSetCompositionFont_Proc) (IN HIMC, LPLOGFONTW lplf);
+
 typedef HMONITOR (WINAPI * MonitorFromPoint_Proc) (IN POINT pt, IN DWORD flags);
 typedef BOOL (WINAPI * GetMonitorInfo_Proc)
   (IN HMONITOR monitor, OUT struct MONITOR_INFO* info);
@@ -250,6 +254,7 @@ static ImmGetCompositionString_Proc get_composition_string_fn = NULL;
 static ImmGetContext_Proc get_ime_context_fn = NULL;
 static ImmGetOpenStatus_Proc get_ime_open_status_fn = NULL;
 static ImmSetOpenStatus_Proc set_ime_open_status_fn = NULL;
+static ImmSetCompositionFont_Proc set_ime_composition_font_fn = NULL;
 static ImmReleaseContext_Proc release_ime_context_fn = NULL;
 static ImmSetCompositionWindow_Proc set_ime_composition_window_fn = NULL;
 static MonitorFromPoint_Proc monitor_from_point_fn = NULL;
@@ -5044,6 +5049,7 @@ w32_wnd_proc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
       else
 	{
 	  COMPOSITIONFORM form;
+	  LOGFONTW lf;
 	  HIMC context;
 	  struct window *w;
 
@@ -5089,6 +5095,8 @@ w32_wnd_proc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	  if (!context)
 	    goto dflt;
 
+	  GetObjectW (FONT_HANDLE (w32_system_remap_font), sizeof (lf), &lf);
+	  set_ime_composition_font_fn (context, &lf);
 	  set_ime_composition_window_fn (context, &form);
 	  release_ime_context_fn (hwnd, context);
 	}
@@ -12404,6 +12412,9 @@ globals_of_w32fns (void)
       get_proc_addr (imm32_lib, "ImmGetOpenStatus");
     set_ime_open_status_fn = (ImmSetOpenStatus_Proc)
       get_proc_addr (imm32_lib, "ImmSetOpenStatus");
+
+    set_ime_composition_font_fn = (ImmSetCompositionFont_Proc)
+      get_proc_addr (imm32_lib, "ImmSetCompositionFontW");
   }
 
   HMODULE hm_kernel32 = GetModuleHandle ("kernel32.dll");
