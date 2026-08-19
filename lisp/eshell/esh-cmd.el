@@ -105,6 +105,7 @@
 (require 'esh-proc)
 (require 'esh-module)
 (require 'esh-ext)
+(require 'esh-worker)
 
 (require 'eldoc)
 (require 'generator)
@@ -1083,7 +1084,7 @@ STATUS is its status."
     ;; element is a list of the form (BACKGROUND FORM PROCESSES) (see
     ;; `eshell-add-command').
     (dolist (command (eshell-commands-for-process proc))
-      (unless (seq-some #'eshell-process-active-p (nth 2 command))
+      (unless (seq-some #'eshell-task-active-p (nth 2 command))
         (setf (nth 2 command) nil) ; Clear processes from command.
         (if (and ;; Check STATUS to determine whether we want to resume or
                  ;; abort the command.
@@ -1365,13 +1366,13 @@ have been replaced by constants."
 		    (setcdr form (cdr new-form)))
 		  (eshell-do-eval form synchronous-p))
               (if-let* (((memq (car form) eshell-deferrable-commands))
-                        (procs (eshell-make-process-list result)))
+                        (procs (eshell-make-task-list result)))
                   (if synchronous-p
 		      (funcall #'eshell-wait-for-processes procs)
 		    (eshell-manipulate form "inserting ignore form"
 		      (setcar form 'ignore)
 		      (setcdr form nil))
-                    (when (seq-some #'eshell-process-active-p procs)
+                    (when (seq-some #'eshell-task-active-p procs)
                       (throw 'eshell-defer procs)))
                 (list 'quote result))))))))))))
 
@@ -1582,32 +1583,31 @@ a string naming a Lisp function."
   (catch 'eshell-external               ; deferred to an external command
     (when (memq eshell-in-pipeline-p '(nil last))
       (eshell-set-exit-info 0))
-    (setq eshell-last-arguments args)
     (let* ((eshell-ensure-newline-p t)
-           (command-form-p (functionp object))
-           result)
+           (command-form-p (and (functionp object)
+                                (symbolp object)))
+           (literal-result (when command-form-p
+                             (get object 'eshell-literal-result)))
+           result worker-result
+           (printer
+            (lambda (object)
+              (setq worker-result
+                    (cond
+                     ((and (not literal-result) (eshell-worker-p object))
+                      object)
+                     ((and (not literal-result)
+                           (memq eshell-in-pipeline-p '(t last))
+                           (eshell-get-pipe object)))
+                     (t
+                      (ignore (eshell-print-maybe-n object))))))))
       (if command-form-p
-          (let ((numeric (not (get object 'eshell-no-numeric-conversions)))
-                (fname-args (get object 'eshell-filename-arguments)))
-            (when (or numeric fname-args)
-              (while args
-                (let ((arg (car args)))
-                  (cond
-                   ((and numeric (eshell--numeric-string-p arg))
-                    ;; If any of the arguments are flagged as numbers
-                    ;; waiting for conversion, convert them now.
-                    (setcar args (string-to-number arg)))
-                   ((and fname-args (stringp arg)
-                         (string-equal arg "~"))
-                    ;; If any of the arguments match "~", prepend "./"
-                    ;; to treat it as a regular file name.
-                    (setcar args (concat "./" arg)))))
-                (setq args (cdr args))))
-            (setq eshell-last-command-name
-                  (concat "#<function " (symbol-name object) ">")))
-        (setq eshell-last-command-name "#<Lisp object>"))
+          (setq eshell-last-arguments (eshell-convert-args args object)
+                eshell-last-command-name (format "#<function %s>"
+                                                 (symbol-name object)))
+        (setq eshell-last-arguments args
+              eshell-last-command-name "#<Lisp object>"))
       (setq result (eshell-exec-lisp
-                    #'eshell-print-maybe-n #'eshell-error-maybe-n
+                    printer #'eshell-error-maybe-n
                     object eshell-last-arguments (not command-form-p)))
       (when (memq eshell-in-pipeline-p '(nil last))
         (eshell-set-exit-info
@@ -1620,7 +1620,7 @@ a string naming a Lisp function."
                     (not result))
            2)
          result))
-      nil)))
+      worker-result)))
 
 (define-obsolete-function-alias 'eshell-lisp-command* #'eshell-lisp-command
   "31.1")
