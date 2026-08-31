@@ -266,6 +266,18 @@ with named choices for the predefined search functions
 as well as the default nil and arbitrary user functions.
 
 ---
+*** New options to recognize comment-prefixed outline headings.
+When the user option 'outline-use-comment-regexp' is non-nil, enabling
+'outline-minor-mode' configures heading recognition so that outline
+headings prefixed by a comment are recognized, for example ";;; *",
+";;; **", and so on in a buffer whose comment syntax is ";;".  The
+heading level is the number of stars.  The heading pattern is taken from
+the buffer-local variable 'outline-comment-regexp' when that is set;
+major modes and users can set it to customize recognition per mode.
+Otherwise, a pattern is built from 'comment-start' and the new option
+'outline-comment-regexp-suffix'.
+
+---
 *** New command 'outline-xref'.
 It allows users to navigate the current buffer's outline using Xref.
 It is bound to 'M-o'.
@@ -472,6 +484,12 @@ When a test fails, the erts-file tests buffer displayed by
 'ert-results-pop-to-erts-file-tests-for-test-at-point' now includes a
 button labeled "diff".  Pushing it displays a Diff Mode buffer comparing
 the actual and expected output.
+
++++
+** The variables 'math-tzone-names' and 'timezone-world-timezones' are
+now marked obsolete.  Strings should use numeric abbreviations like
+"-0600" instead of alphabetic abbreviations like "CST", which are too
+often ambiguous.
 
 
 * Changes in Emacs 32.1 on Non-Free Operating Systems
