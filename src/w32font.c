@@ -2336,15 +2336,17 @@ fill_in_logfont (struct frame *f, LOGFONT *logfont,
                 logfont->lfCharSet = GREEK_CHARSET;
               else if (EQ (val, Qhangul))
                 logfont->lfCharSet = HANGUL_CHARSET;
-              else if (EQ (val, Qkana) || EQ (val, Qkanbun))
+              else if (EQ (val, Qkana))
                 logfont->lfCharSet = SHIFTJIS_CHARSET;
               else if (EQ (val, Qbopomofo))
                 logfont->lfCharSet = CHINESEBIG5_CHARSET;
-              /* GB 18030 supports tibetan, yi, mongolian,
-                 fonts that support it should show up if we ask for
-                 GB2312 fonts. */
-              else if (EQ (val, Qtibetan) || EQ (val, Qyi)
-                || EQ (val, Qmongolian))
+              else if (EQ (val, Qtibetan)
+                       /* Font supporting Yi in Windows 10/11 doesn't
+                          get listed if we ask for GB2312 fonts.
+                          FIXME: Is this true also for Windows 7 and
+                          later?  */
+                       || (EQ (val, Qyi) && w32_major_version < 10)
+                       || EQ (val, Qmongolian))
                 logfont->lfCharSet = GB2312_CHARSET;
               else if (EQ (val, Qhebrew))
                 logfont->lfCharSet = HEBREW_CHARSET;
@@ -2565,7 +2567,6 @@ font_supported_scripts (FONTSIGNATURE *sig)
 	    Qhan); /* There are others, but this is the main one.  */
   SUBRANGE (59,
 	    Qideographic_description); /* Windows lumps this in.  */
-  SUBRANGE (59, Qkanbun);	       /* And this.  */
   /* These are covered well either by the default Courier New or by
      CJK fonts that are set up specially in the default fontset.  So
      marking them here wouldn't be useful.  */
