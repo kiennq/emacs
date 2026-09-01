@@ -2248,6 +2248,7 @@ w32_draw_image_foreground (struct glyph_string *s)
 		SetStretchBltMode (s->hdc, pmode);
 	    }
 	  SelectObject (mask_dc, mask_orig_obj);
+	  DeleteDC (mask_dc);
 	}
       else
 	{
