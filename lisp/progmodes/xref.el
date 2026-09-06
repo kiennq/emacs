@@ -58,7 +58,7 @@
 ;; them.  The latter functions correspond to built-in location types.
 ;;
 ;; More generally, a location must also be values that `cl-defmethod'
-;; can dispatch on, usually cl-strincs.  Each of them implements
+;; can dispatch on, usually cl-structs.  Each of them implements
 ;; `xref-location-group' and `xref-location-marker'.
 ;; `xref-location-line' is optional.
 ;;
