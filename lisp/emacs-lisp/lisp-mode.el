@@ -146,7 +146,7 @@
                  (regexp-opt
                   '(;; Elisp
                     "defgroup" "deftheme"
-                    "define-widget" "define-error"
+                    "define-widget" "define-button-type" "define-error"
                     "defface" "cl-deftype" "cl-defstruct" "oclosure-define"
                     ;; CL
                     "deftype" "defstruct"
@@ -271,10 +271,12 @@ to a package-local <package>-loaddefs.el file.")
             limit t)
       ;; FIXME: Doesn't properly un-escape \ in the symbol name.
       (let ((sym (shorthands-intern-soft (match-string 1))))
-	(when (and (or (special-form-p sym) (macrop sym))
+        (when (and (or (special-form-p sym)
+                       (macrop sym)
+                       (get sym 'font-lock-keyword))
                    (not (get sym 'no-font-lock-keyword))
                    (lisp--el-funcall-position-p (match-beginning 0)))
-	  (throw 'found t))))))
+          (throw 'found t))))))
 
 (defmacro let-when-compile (bindings &rest body)
   "Like `let*', but allow for compile time optimization.
@@ -354,7 +356,7 @@ This will generate compile-time constants from BINDINGS."
                  "define-derived-mode" "define-minor-mode"
                  "define-generic-mode"
                  "define-globalized-minor-mode" "define-skeleton"
-                 "define-widget" "ert-deftest"))
+                 "define-widget" "define-button-type" "ert-deftest"))
      (el-vdefs '("defconst" "defcustom" "defvaralias" "defvar-local"
                  "defface" "define-error"))
      (el-tdefs '("defgroup" "deftheme"))
