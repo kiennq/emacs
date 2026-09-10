@@ -37,9 +37,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/file.h>
+#include <sys/types.h> /* must be before <time.h>, for MinGW64 */
+#include <time.h> /* must be before nt/inc/sys/time.h, for MinGW64 */
 #include <sys/time.h>
 #include <sys/utime.h>
-#include <time.h> /* must be before nt/inc/sys/time.h, for MinGW64 */
 
 /* Include (most) CRT headers *before* ms-w32.h.  */
 #include <ms-w32.h>

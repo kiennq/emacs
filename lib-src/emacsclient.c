@@ -53,8 +53,10 @@ VOID WINAPI InitCommonControls (void);
 # include <arpa/inet.h>
 # include <fcntl.h>
 # include <netinet/in.h>
+# include <sys/select.h>
 # include <sys/socket.h>
 # include <sys/un.h>
+# include <timespec.h>
 
 # define SOCKETS_IN_FILE_SYSTEM
 
@@ -1011,6 +1013,18 @@ initialize_sockets (void)
 
   atexit (close_winsock);
 }
+
+static intmax_t w32_timeout;
+/* Thread function to prevent 'connect' from hanging forever.  */
+static DWORD WINAPI
+w32_connect_timer (LPVOID param)
+{
+  HSOCKET sockfd = *(HSOCKET *)param;
+  Sleep (w32_timeout * 1000);
+  /* Closing the socket will cause 'connect' to error out.  */
+  CLOSE_SOCKET (sockfd);
+  return 0;
+}
 #endif /* WINDOWSNT */
 
 
@@ -1232,6 +1246,137 @@ cloexec_socket (int domain, int type, int protocol)
 #endif
 }
 
+/* Like connect(2), but possibly with a timeout, exiting if the timeout
+   is reached.  */
+
+static int
+connect_with_timeout (HSOCKET sockfd, const struct sockaddr *addr,
+		      int addr_len)
+{
+  if (timeout == 0)
+    return connect (sockfd, addr, addr_len);
+
+#ifndef WINDOWSNT
+  int flags = fcntl (sockfd, F_GETFL);
+  if (flags == -1 || fcntl (sockfd, F_SETFL, flags | O_NONBLOCK) == -1)
+    return -1;
+
+  const intmax_t limit = timeout < 0 ? DEFAULT_TIMEOUT : timeout;
+  const struct timespec interval = make_timespec (0, TIMESPEC_HZ / 20);
+
+  int rc, res = 0, xerrno = 0;
+  fd_set fdset;
+  struct timespec end = timespec_add (current_timespec (),
+				      make_timespec (limit, 0));
+
+  for (;;)
+    {
+      if (connect (sockfd, addr, addr_len) == 0)
+	goto done;
+      else if (errno == EAGAIN
+	       || (EWOULDBLOCK != EAGAIN && errno == EWOULDBLOCK))
+	{
+	  /* For connections to Unix domain sockets under the Linux
+	     kernel, we get EAGAIN if the listen queue is full.  */
+	  if (timespec_cmp (end, current_timespec ()) <= 0)
+	    goto timeout;
+	  pselect (0, NULL, NULL, NULL, &interval, NULL);
+	}
+      else if (errno != EINPROGRESS)
+	{
+	  res = -1;
+	  xerrno = errno;
+	  goto done;
+	}
+      else
+	break;
+    }
+
+  for (;;)
+    {
+      FD_ZERO (&fdset);
+      FD_SET (sockfd, &fdset);
+      struct timespec now = current_timespec ();
+      if (timespec_cmp (end, now) <= 0)
+	goto timeout;
+      struct timespec remaining = timespec_sub (end, now);
+      rc = pselect (sockfd + 1, NULL, &fdset, NULL, &remaining, NULL);
+      if (rc != -1 || errno != EINTR)
+	break;
+    }
+
+  switch (rc)
+    {
+    case -1:
+      res = -1;
+      xerrno = errno;
+      goto done;
+    case 0:
+      goto timeout;
+    default:
+      {
+	socklen_t xlen = sizeof (xerrno);
+	if (getsockopt (sockfd, SOL_SOCKET, SO_ERROR, &xerrno, &xlen)
+	    == -1)
+	  {
+	    res = -1;
+	    xerrno = errno;
+	    goto done;
+	  }
+	else if (xerrno)
+	  {
+	    res = -1;
+	    goto done;
+	  }
+	break;
+      }
+    }
+
+ done:
+  /* If we can't switch the socket flags back we have to abort because
+     other code later on assumes it's blocking.  */
+  if (fcntl (sockfd, F_SETFL, flags) == -1)
+    {
+      message (true, "%s: couldn't unset non-blocking on socket\n",
+	       progname);
+      exit (EXIT_FAILURE);
+    }
+  errno = xerrno;
+#else /* WINDOWSNT */
+  const intmax_t limit = timeout < 0 ? DEFAULT_TIMEOUT : timeout;
+  DWORD tid, exit_code;
+  int res = 0;
+
+  w32_timeout = limit;
+  /* This thread will interrupt 'connect' after timeout.  */
+  HANDLE htimer = CreateThread (NULL, 64 * 1024, w32_connect_timer,
+				(void *)&sockfd, 0x00010000, &tid);
+  bool timed_out = false;
+
+  if (connect (sockfd, addr, addr_len) != 0)
+    res = -1;
+  Sleep (10);	/* give the timer thread time to exit */
+  if (htimer
+      && GetExitCodeThread (htimer, &exit_code)
+      && exit_code == STILL_ACTIVE)
+    TerminateThread (htimer, 1);
+  else
+    timed_out = true;
+  CloseHandle (htimer);
+  if (timed_out)
+    goto timeout;
+#endif /* WINDOWSNT */
+  /* FIXME: Subtract time used up in this function from TIMEOUT?  */
+  return res;
+
+ timeout:
+  /* Timeout, but in the -a '' case we don't want to respond by starting
+     another server, so exit immediately.  */
+  message (true, "%s: Connection timed out after %jd %s\n",
+	   progname, limit, limit == 1 ? "second" : "seconds");
+  exit (EXIT_FAILURE);
+}
+
 static HSOCKET
 set_tcp_socket (const char *local_server_file)
 {
@@ -1262,7 +1407,7 @@ set_tcp_socket (const char *local_server_file)
     }
 
   /* Set up the socket.  */
-  if (connect (s, &server.sa, sizeof server.in) != 0)
+  if (connect_with_timeout (s, &server.sa, sizeof server.in) != 0)
     {
       sock_err_message ("connect");
       CLOSE_SOCKET (s);
@@ -1422,7 +1567,9 @@ connect_socket (int dirfd, char const *addr, int s, uid_t uid)
     }
 
   if (!sock_status)
-    sock_status = connect (s, &server.sa, sizeof server.un) == 0 ? 0 : errno;
+    sock_status = (connect_with_timeout (s, &server.sa,
+					 sizeof server.un) == 0
+		   ? 0 : errno);
 
   /* Fail immediately if we cannot change back to the initial working
      directory, as that can mess up the rest of execution.  */
@@ -2145,11 +2292,8 @@ check_socket_timeout (ssize_t rl)
 #ifndef WINDOWSNT
   if (rl != -1)
     return false;
-#ifdef EWOULDBLOCK
-  if (EWOULDBLOCK != EAGAIN && errno == EWOULDBLOCK)
-    return true;
-#endif
-  return errno == EAGAIN;
+  return errno == EAGAIN
+    || (EWOULDBLOCK != EAGAIN && errno == EWOULDBLOCK);
 #else /* WINDOWSNT */
   return (rl == SOCKET_ERROR)
     && (WSAGetLastError() == WSAETIMEDOUT);
