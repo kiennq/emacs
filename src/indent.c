@@ -689,12 +689,17 @@ scan_for_column (ptrdiff_t *endpos, EMACS_INT *goalcol,
       while (scan == next_boundary)
 	{
 	  ptrdiff_t old_scan = scan;
+	  ptrdiff_t old_boundary = next_boundary;
 	  /* This updates NEXT_BOUNDARY to the next place
 	     where we might need to skip more invisible text.  */
 	  scan = skip_invisible (scan, &next_boundary, end, Qnil);
 	  if (scan != old_scan)
 	    scan_byte = CHAR_TO_BYTE (scan);
 	  if (scan >= end)
+	    goto endloop;
+	  /* Lisp called while scanning can narrow the buffer below END.
+	     Avoid spinning at the new ZV if neither value advances.  */
+	  if (scan == old_scan && next_boundary == old_boundary)
 	    goto endloop;
 	  /* We may have over-stepped cmp_it.stop_pos while skipping
 	     the invisible text.  If so, update cmp_it.stop_pos.  */

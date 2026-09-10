@@ -58,4 +58,26 @@
       (buffer-substring-no-properties 1 14))
     "\txxx    \tLine")))
 
+(ert-deftest indent-tests-current-column-after-narrowing ()
+  "`current-column' terminates if auto-composition narrows the buffer."
+  (with-temp-buffer
+    (insert "aaaaaaaaaa")
+    (make-overlay 1 3)
+    (goto-char (point-max))
+    (save-window-excursion
+      (set-window-buffer (selected-window) (current-buffer))
+      (let* ((composition-function-table (make-char-table nil))
+             (narrowed nil)
+             (auto-composition-function
+              (lambda (&rest _)
+                (unless narrowed
+                  (setq narrowed t)
+                  (narrow-to-region (point-min) (1- (point-max))))
+                nil)))
+        (set-char-table-range
+         composition-function-table ?a
+         (list (vector nil 0 #'ignore)))
+        (should (integerp (current-column)))
+        (should narrowed)))))
+
 ;;; indent-tests.el ends here
