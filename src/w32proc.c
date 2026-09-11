@@ -62,9 +62,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "syssignal.h"
 #include "w32term.h"
 #include "coding.h"
-#ifdef HAVE_MPS
-# include "igc.h"
-#endif
 
 #define RVA_TO_PTR(var,section,filedata) \
   ((void *)((section)->PointerToRawData					\
@@ -483,10 +480,10 @@ w32_get_timer_time (HANDLE thread)
 static DWORD WINAPI
 timer_loop (LPVOID arg)
 {
-#ifdef HAVE_MPS
-  w32_aligned_stack_pos stk_bot;
-  void *igc_thr = w32_add_non_lisp_thread (&stk_bot.c);
-#endif
+  /* Do not register this thread with MPS.  It suspends the caller while
+     MPS suspends registered threads, so registration could deadlock both.
+     handle_alarm_signal and handle_profiler_signal only update plain C
+     signal state; profiler Lisp work runs later on the main thread.  */
   struct itimer_data *itimer = (struct itimer_data *)arg;
   int which = itimer->type;
   int sig = (which == ITIMER_REAL) ? SIGALRM : SIGPROF;
@@ -622,10 +619,6 @@ timer_loop (LPVOID arg)
     }
 
  out:
-
-#ifdef HAVE_MPS
-  w32_remove_non_lisp_thread (igc_thr);
-#endif
   return retval;
 }
 

@@ -1,6 +1,6 @@
 ;;; igc-tests.el --- tests for src/igc.c  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2024-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2024-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -22,6 +22,7 @@
 (require 'ert)
 (require 'filenotify)
 
+(declare-function igc--roots "igc.c")
 (declare-function igc--set-commit-limit "igc.c")
 (declare-function igc--set-pause-time "igc.c")
 (declare-function igc-info "igc.c")
@@ -112,6 +113,46 @@
       (when watch
         (file-notify-rm-watch watch))
       (delete-directory dir t))))
+
+(ert-deftest igc-test-w32-timer-not-mps-registered ()
+  "Keep the W32 timer thread outside the MPS thread ring."
+  :tags '(:igc)
+  (skip-unless (eq system-type 'windows-nt))
+  (skip-unless (fboundp 'igc--roots))
+  (skip-unless (fboundp 'profiler-cpu-start))
+  (let ((emacs (expand-file-name invocation-name invocation-directory)))
+    (skip-unless (file-executable-p emacs))
+    (with-temp-buffer
+      (let ((status
+             (call-process
+              emacs nil '(t t) nil
+              "-Q" "--batch" "--eval"
+              (prin1-to-string
+               '(let ((control-stack-count
+                       (lambda ()
+                         (let ((count 0))
+                           (dolist (root (igc--roots) count)
+                             (when (equal (car root) "control stack")
+                               (setq count (1+ count))))))))
+                  (let ((before (funcall control-stack-count))
+                        (after 0)
+                        (unchanged t))
+                    (unwind-protect
+                        (progn
+                          (profiler-cpu-start
+                           (min most-positive-fixnum 10000000000))
+                          (dotimes (_ 20)
+                            (sleep-for 0.01)
+                            (setq after (funcall control-stack-count))
+                            (unless (= after before)
+                              (setq unchanged nil))))
+                      (profiler-cpu-stop))
+                    (unless unchanged
+                      (princ (format "control-stack roots: %d -> %d\n"
+                                     before after)))
+                    (kill-emacs (if unchanged 0 1))))))))
+        (ert-info ((concat "Process output:\n" (buffer-string)))
+          (should (eql status 0)))))))
 
 (defun igc-tests--binary-search (start end cmp)
   (named-let search ((start start) (end end))
