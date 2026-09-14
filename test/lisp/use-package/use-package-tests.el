@@ -70,6 +70,12 @@
   `(should (pcase (expand-minimally ,form)
              ,@(mapcar #'(lambda (x) (list x t)) value))))
 
+(defmacro use-package-test--with-compiling-p (&rest body)
+  (declare (debug t) (indent 0))
+  `(cl-letf (((symbol-function 'use-package--macroexp-compiling-p)
+              (lambda () t)))
+     ,@body))
+
 (defun fix-expansion ()
   (interactive)
   (save-excursion
@@ -137,7 +143,7 @@
       (require 'foo nil nil))))
 
 (ert-deftest use-package-test/:preface-2 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :preface (t))
      `(progn
@@ -151,7 +157,7 @@
         (require 'foo nil nil)))))
 
 (ert-deftest use-package-test/:preface-3 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo
        :preface (preface)
@@ -175,7 +181,7 @@
         t))))
 
 (ert-deftest use-package-test/:preface-4 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo
        :preface (preface)
@@ -431,7 +437,7 @@
       (require 'foo nil nil))))
 
 (ert-deftest use-package-test/:requires-2 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :requires bar)
      `(when (featurep 'bar)
@@ -450,7 +456,7 @@
       (require 'foo nil nil))))
 
 (ert-deftest use-package-test/:requires-4 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :requires bar)
      `(when (featurep 'bar)
@@ -474,7 +480,7 @@
       (require 'foo nil nil))))
 
 (ert-deftest use-package-test/:load-path-2 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :load-path "bar")
      `(progn
@@ -540,7 +546,7 @@
       t)))
 
 (ert-deftest use-package-test/:no-require-3 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :no-require t)
      `(eval-and-compile
@@ -798,7 +804,7 @@
         (autoload #'quux "foo" nil t)))))
 
 (ert-deftest use-package-test/:commands-3 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :commands (bar quux))
      `(progn
@@ -845,7 +851,7 @@
       t)))
 
 (ert-deftest use-package-test/:commands-6 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package gnus-harvest
        :load-path "foo"
@@ -884,7 +890,7 @@
    `(require 'foo nil nil)))
 
 (ert-deftest use-package-test/:defines-2 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :defines bar)
      `(progn
@@ -903,7 +909,7 @@
    `(require 'foo nil nil)))
 
 (ert-deftest use-package-test/:functions-2 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :functions bar)
      `(progn
@@ -922,7 +928,7 @@
    `nil))
 
 (ert-deftest use-package-test/:functions-4 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :defer t :functions bar)
      `(eval-and-compile
@@ -933,7 +939,7 @@
                                  (load "foo" nil t))))))))
 
 (ert-deftest use-package-test/:functions-5 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :defer t :config (config) :functions bar)
      `(progn
@@ -955,7 +961,7 @@
    `(require 'foo nil nil)))
 
 (ert-deftest use-package-test/:defer-2 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo)
      `(progn
@@ -972,7 +978,7 @@
    `nil))
 
 (ert-deftest use-package-test/:defer-4 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :defer t)
      `(eval-and-compile
@@ -1004,7 +1010,7 @@
                    '(((bar1 bar2) . baz) ((quux1 quux2) . bow))))))
 
 (ert-deftest use-package-test/:hook-1 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo
        :bind (("C-a" . key))
@@ -1210,7 +1216,7 @@
       (require 'foo nil nil))))
 
 (ert-deftest use-package-test/:init-2 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :init (init))
      `(progn
@@ -1258,7 +1264,7 @@
       '(require 'foo nil nil))))
 
 (ert-deftest use-package-test/:after-2 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :after bar)
      `(progn
@@ -1402,7 +1408,7 @@
    `(require 'foo nil nil)))
 
 (ert-deftest use-package-test/:demand-2 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :demand t)
      `(progn
@@ -1422,7 +1428,7 @@
       t)))
 
 (ert-deftest use-package-test/:demand-4 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :demand t :config (config))
      `(progn
@@ -1443,7 +1449,7 @@
       '(require 'foo nil nil))))
 
 (ert-deftest use-package-test/:demand-6 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :demand t :after bar)
      `(progn
@@ -1497,7 +1503,7 @@
       t)))
 
 (ert-deftest use-package-test/:config-2 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :config (config))
      `(progn
@@ -1519,7 +1525,7 @@
          t))))
 
 (ert-deftest use-package-test/:config-4 ()
-  (let ((byte-compile-current-file t))
+  (use-package-test--with-compiling-p
     (match-expansion
      (use-package foo :defer t :config (config))
      `(progn
@@ -2018,15 +2024,15 @@
              (require 'foo nil nil)))))
 
 (ert-deftest use-package-test-handler/:vc-6 ()
-  (let ((byte-compile-current-file "use-package-core.el")
-        tried-to-install)
-    (cl-letf (((symbol-function #'use-package-vc-install)
-               (lambda (arg &optional local-path)
-                 (setq tried-to-install arg))))
-      (should (equal
-               (use-package-handler/:vc 'foo nil 'some-pkg '(:init (foo)) nil)
-               '(foo)))
-      (should (eq tried-to-install 'some-pkg)))))
+  (use-package-test--with-compiling-p
+    (let (tried-to-install)
+      (cl-letf (((symbol-function #'use-package-vc-install)
+                 (lambda (arg &optional local-path)
+                   (setq tried-to-install arg))))
+        (should (equal
+                 (use-package-handler/:vc 'foo nil 'some-pkg '(:init (foo)) nil)
+                 '(foo)))
+        (should (eq tried-to-install 'some-pkg))))))
 
 (ert-deftest use-package-test-normalize/:vc ()
   (should (equal '(foo (:url "url"))
