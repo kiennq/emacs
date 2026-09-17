@@ -1824,8 +1824,7 @@ other_buffer_safely (Lisp_Object buffer)
   if (NILP (buf))
     {
       AUTO_STRING (scratch, "*scratch*");
-      buf = Fget_buffer_create (scratch, Qnil);
-      Fset_buffer_major_mode (buf);
+      buf = Fget_buffer_create (scratch, Qt);
     }
   return buf;
 }
