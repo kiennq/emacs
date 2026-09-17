@@ -3512,7 +3512,7 @@ get_lazy_string (Lisp_Object val)
   while (ss < ssend
 	 && !(pos >= ss->position && pos < ss->position + ss->length))
     ss++;
-  if (ss >= ssend)
+  if (ss >= ssend || !ss->string)
     return get_doc_string (val, 1);
 
   ptrdiff_t start = pos - ss->position;
