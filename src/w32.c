@@ -33,6 +33,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 #include <mingw_time.h>
 #include <nproc.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stddef.h> /* for offsetof */
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,7 +79,7 @@ char *sys_ctime (const time_t *);
 int sys_chdir (const char *);
 int sys_creat (const char *, int);
 FILE *sys_fopen (const char *, const char *);
-int sys_open (const char *, int, int);
+int sys_open (const char *, int, ...);
 int sys_rename (char const *, char const *);
 int sys_rmdir (const char *);
 int sys_close (int);
@@ -3311,7 +3312,7 @@ fdutimens (int fd, char const *file,
 char *
 sys_ctime (const time_t *t)
 {
-  char *str = (char *) ctime (t);
+  char *str = ctime (t);
   return (str ? str : (char *) "Sun Jan 01 00:00:00 1970");
 }
 
@@ -4779,10 +4780,15 @@ sys_mkdir (const char *path, mode_t mode)
 }
 
 int
-sys_open (const char *path, int oflag, int mode)
+sys_open (const char *path, int oflag, ...)
 {
   const char *mpath = map_w32_filename (path, NULL);
   int res = -1;
+  va_list ap;
+  int mode;
+
+  va_start (ap, oflag);
+  mode = va_arg (ap, int);
 
   if (w32_unicode_filenames)
     {
@@ -4825,6 +4831,8 @@ sys_open (const char *path, int oflag, int mode)
 	    errno = EISDIR;
 	}
     }
+
+  va_end (ap);
 
   return res;
 }
@@ -4936,7 +4944,7 @@ sys_rename_replace (const char *oldname, const char *newname,
       if ((o = strrchr (oldname_a, '\\')))
 	o++;
       else
-	o = (char *) oldname_a;
+	o = oldname_a;
 
       if ((p = strrchr (temp_a, '\\')))
 	p++;
@@ -6765,9 +6773,7 @@ symlinks_supported (const char *file)
 int
 acl_valid (acl_t acl)
 {
-  return is_valid_security_descriptor ((PSECURITY_DESCRIPTOR) acl)
-	   ? 0
-	   : -1;
+  return is_valid_security_descriptor (acl) ? 0 : -1;
 }
 
 char *ATTRIBUTE_MALLOC
@@ -6783,8 +6789,8 @@ acl_to_text (acl_t acl, ssize_t *size)
 
   errno = 0;
 
-  if (convert_sd_to_sddl ((PSECURITY_DESCRIPTOR) acl, SDDL_REVISION_1,
-			  flags, &str_acl, &local_size))
+  if (convert_sd_to_sddl (acl, SDDL_REVISION_1, flags,
+			  &str_acl, &local_size))
     {
       errno = e;
       /* We don't want to mix heaps, so we duplicate the string in our
@@ -6934,16 +6940,13 @@ acl_set_file (const char *fname, acl_type_t type, acl_t acl)
   else
     fname = filename;
 
-  if (get_security_descriptor_owner ((PSECURITY_DESCRIPTOR) acl,
-				     &psidOwner, &dflt)
+  if (get_security_descriptor_owner (acl, &psidOwner, &dflt)
       && psidOwner)
     flags |= OWNER_SECURITY_INFORMATION;
-  if (get_security_descriptor_group ((PSECURITY_DESCRIPTOR) acl,
-				     &psidGroup, &dflt)
+  if (get_security_descriptor_group (acl, &psidGroup, &dflt)
       && psidGroup)
     flags |= GROUP_SECURITY_INFORMATION;
-  if (get_security_descriptor_dacl ((PSECURITY_DESCRIPTOR) acl,
-				    &dacl_present, &pacl, &dflt)
+  if (get_security_descriptor_dacl (acl, &dacl_present, &pacl, &dflt)
       && dacl_present)
     flags |= DACL_SECURITY_INFORMATION;
   if (!flags)
@@ -6971,7 +6974,7 @@ acl_set_file (const char *fname, acl_type_t type, acl_t acl)
      DACL inheritance is involved, but it seems to preserve ownership
      better than SetNamedSecurityInfo, which is important e.g., in
      copy-file.  */
-  if (!set_file_security (fname, flags, (PSECURITY_DESCRIPTOR) acl))
+  if (!set_file_security (fname, flags, acl))
     {
       err = GetLastError ();
 
@@ -11446,7 +11449,7 @@ serial_open (Lisp_Object port_obj)
 		    OPEN_EXISTING, FILE_FLAG_OVERLAPPED, 0);
   if (hnd == INVALID_HANDLE_VALUE)
     error ("Could not open %s", port);
-  fd = (int) _open_osfhandle ((intptr_t) hnd, 0);
+  fd = _open_osfhandle ((intptr_t) hnd, 0);
   if (fd == -1)
     error ("Could not open %s", port);
 

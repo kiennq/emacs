@@ -597,7 +597,7 @@ release_com (IUnknown **i)
 {
   if (*i)
     {
-      ((IUnknown *) (*i))->lpVtbl->Release (*i);
+      (*i)->lpVtbl->Release (*i);
       *i = NULL;
     }
 }
