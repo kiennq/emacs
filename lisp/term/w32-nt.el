@@ -118,7 +118,8 @@
                          "libtree-sitter.dll"
                          "libtree-sitter-0.dll")
          ;; Supported ABI 13..15
-         '(tree-sitter "libtree-sitter-0.26.dll"
+         '(tree-sitter "libtree-sitter-0.27.dll"
+                       "libtree-sitter-0.26.dll"
                        "libtree-sitter-0.25.dll"))))
 
 
