@@ -3186,6 +3186,9 @@ struct Lisp_Marker
   /* If in a buffer's marker vector, this is the index where it is
      stored. */
   ptrdiff_t slot;
+  /* This is the id for this marker in the undo-list.  Initially it is
+     -1 and only assigned when the marker is added to the undo-list.  */
+  EMACS_INT undo_id;
 # endif
 } GCALIGNED_STRUCT;
 
@@ -5833,6 +5836,9 @@ extern void record_change (ptrdiff_t, ptrdiff_t);
 extern void record_property_change (ptrdiff_t, ptrdiff_t,
 				    Lisp_Object, Lisp_Object,
                                     Lisp_Object);
+#ifdef HAVE_MPS
+extern void scrub_undo_lists (void);
+#endif
 extern void syms_of_undo (void);
 
 /* Defined in textprop.c.  */

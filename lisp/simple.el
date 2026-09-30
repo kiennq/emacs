@@ -3800,6 +3800,30 @@ Return what remains of the list."
               (cons (list 'apply 'cdr nil) buffer-undo-list))))
   list)
 
+;; ARGS has the format: ({TYPE {(ID . OFFSET)}* }* )
+;;
+;; ID is the id for a marker.  The marker can be obtained with
+;; undo--lookup-marker.
+;;
+;; OFFSET should be added to the marker's current position.
+;;
+;; TYPE is the expected insertion type of the marker.  Markers that
+;; don't match the expected position and insertion type are ignored.
+(defun undo--adjust-weak-markers (beg end &rest args)
+  (while args
+    (let* ((insertion-type (pop args))
+           (pos (if insertion-type end beg)))
+      (while (consp (car args))
+        (let* ((pair (pop args))
+               (id (car pair))
+               (offset (cdr pair))
+               (m (undo--lookup-marker id)))
+          (when (and m
+                     (eq (marker-buffer m) (current-buffer))
+                     (eq (marker-insertion-type m) insertion-type)
+                     (= pos m))
+            (set-marker m (+ pos offset))))))))
+
 ;; Deep copy of a list
 (defun undo-copy-list (list)
   "Make a copy of undo list LIST."

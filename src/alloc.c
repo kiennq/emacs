@@ -3973,6 +3973,9 @@ DEFUN ("make-marker", Fmake_marker, Smake_marker, 0, 0, 0,
 						       PVEC_MARKER);
   p->buffer = 0;
   p->entry = 0;
+#ifdef HAVE_MPS
+  p->undo_id = -1;
+#endif
   p->insertion_type = 0;
   p->need_adjustment = 0;
   return make_lisp_ptr (p, Lisp_Vectorlike);
@@ -3992,6 +3995,9 @@ build_marker (struct buffer *buf, ptrdiff_t charpos)
   m->buffer = buf;
   m->insertion_type = 0;
   m->need_adjustment = 0;
+#ifdef HAVE_MPS
+  m->undo_id = -1;
+#endif
   marker_vector_add (buf, m);
   marker_vector_set_charpos (m, charpos);
   return make_lisp_ptr (m, Lisp_Vectorlike);
