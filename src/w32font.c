@@ -28,9 +28,9 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 #include "frame.h"
 #include "w32font.h"
 #include "w32term.h"
+#include "w32common.h"
 #ifdef WINDOWSNT
 # include "w32.h"
-# include "w32common.h"
 #endif
 
 #include "pdumper.h"
