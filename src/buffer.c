@@ -2770,6 +2770,14 @@ current buffer is cleared.  */)
       set_intervals_multibyte (false);
       set_overlays_multibyte (false);
 
+      /* Likewise, convert markers while CHAR_TO_BYTE still uses the
+	 multibyte correspondences.  */
+      FOR_EACH_MARKER (current_buffer, tail)
+	{
+	  const ptrdiff_t bytepos = marker_vector_bytepos (tail);
+	  marker_vector_set_charpos (tail, bytepos);
+	}
+
       bset_enable_multibyte_characters (current_buffer, Qnil);
 
       Z = Z_BYTE;
@@ -2777,12 +2785,6 @@ current buffer is cleared.  */)
       ZV = ZV_BYTE;
       GPT = GPT_BYTE;
       TEMP_SET_PT_BOTH (PT_BYTE, PT_BYTE);
-
-      FOR_EACH_MARKER (current_buffer, tail)
-	{
-	  const ptrdiff_t bytepos = marker_vector_bytepos (tail);
-	  marker_vector_set_charpos (tail, bytepos);
-	}
 
       /* Convert multibyte form of 8-bit characters to unibyte.  */
       pos = BEG;
@@ -2934,7 +2936,9 @@ current buffer is cleared.  */)
 
       FOR_EACH_MARKER (current_buffer, tail)
 	{
-	  ptrdiff_t bytepos = marker_vector_bytepos (tail);
+	  /* Markers still hold their unibyte positions, which are
+	     the new byte positions; don't map them as charpos.  */
+	  ptrdiff_t bytepos = marker_vector_charpos (tail);
 	  bytepos = advance_to_char_boundary (bytepos);
 	  marker_vector_set_charpos (tail, BYTE_TO_CHAR (bytepos));
 	}
