@@ -5083,7 +5083,7 @@ Lisp_KV_Vector hash_table_alloc_kv (void *h, ptrdiff_t nobjs);
 void hash_table_free_kv (void *h, Lisp_KV_Vector p, ptrdiff_t nobjs);
 
 /* Defined in gmalloc.c.  */
-#if !defined DOUG_LEA_MALLOC && !defined SYSTEM_MALLOC
+#ifndef SYSTEM_MALLOC
 extern size_t __malloc_extra_blocks;
 #endif
 #if !HAVE_DECL_ALIGNED_ALLOC

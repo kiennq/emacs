@@ -3399,8 +3399,9 @@ function."
        (vc-call-backend backend 'topic-outgoing-base)))
 
 (defun vc--outgoing-base-mergebase
-    (backend &optional upstream-location refresh force-topic)
+    (backend upstream-location &optional and-incoming-revision)
   "Return, under VC backend BACKEND, the merge base with UPSTREAM-LOCATION.
+
 Normally UPSTREAM-LOCATION, if non-nil, is a string.
 If UPSTREAM-LOCATION is nil, it means to call `vc--outgoing-base' and
 use its return value as UPSTREAM-LOCATION.  If `vc--outgoing-base'
@@ -3409,17 +3410,37 @@ If UPSTREAM-LOCATION is the special value t, it means to use the place
 to which `vc-push' would push as UPSTREAM-LOCATION, unconditionally.
 (This is passed when the user invokes an outgoing base command with a
  \\`C-u C-u' prefix argument; see `vc--maybe-read-outgoing-base'.)
-REFRESH is passed on to `vc--incoming-revision'.
-FORCE-TOPIC is passed on to `vc--outgoing-base'."
-  (vc-call-backend backend 'mergebase
-                   (vc--incoming-revision backend
-                                          (pcase upstream-location
-                                            ('t nil)
-                                            ('nil
-                                             (vc--outgoing-base backend
-                                                                force-topic))
-                                            (_ upstream-location))
-                                          refresh)))
+
+If optional argument AND-INCOMING-REVISION is non-nil,
+- return a list of the merge base between UPSTREAM-LOCATION and the
+  incoming revision for the place to which `vc-push' would push, and
+  that incoming revision;
+- pass REFRESH non-nil to `vc--incoming-revision';
+- pass FORCE-TOPIC non-nil to `vc--outgoing-base'."
+  (cond*
+   ((bind* (upstream-location
+            (pcase upstream-location
+              ('t nil)
+              ('nil (vc--outgoing-base backend and-incoming-revision))
+              (_ upstream-location)))))
+   ((and (null upstream-location) and-incoming-revision)
+    ;; This implies finding the merge base between the place to which
+    ;; `vc-push' would push and the incoming revision for that same
+    ;; place, which are the same revision, meaning an empty diff/log.
+    (user-error (substitute-command-keys "\
+No meaningful outgoing base -- supply one with \\[universal-argument]")))
+   (and-incoming-revision
+    (let ((incoming (vc--incoming-revision backend nil 'refresh)))
+      (list
+       (vc-call-backend backend 'mergebase
+                        (vc--incoming-revision backend upstream-location
+                                               'refresh)
+                        incoming)
+       incoming)))
+   (t
+    (vc-call-backend backend 'mergebase
+                     (vc--incoming-revision backend
+                                            upstream-location)))))
 
 ;;;###autoload
 (defun vc-root-diff-unintegrated (&optional upstream-location)
@@ -3622,14 +3643,13 @@ When called from Lisp, optional argument FILESET overrides the fileset."
                  (list (vc--maybe-read-outgoing-base (car fileset)
                                                      'no-double)
                        fileset)))
-  (let* ((fileset (or fileset (vc-deduce-fileset t)))
-         (backend (car fileset)))
+  (pcase-let* ((fileset (or fileset (vc-deduce-fileset t)))
+               (backend (car fileset))
+               (`(,merge-base ,incoming-revision)
+                (vc--outgoing-base-mergebase backend upstream-location
+                                             'and-incoming-revision)))
     (vc-diff-internal vc-allow-async-diff fileset
-                      (vc--outgoing-base-mergebase backend
-                                                   upstream-location
-                                                   'refresh 'force-topic)
-                      ;; REFRESH nil here because we just refreshed.
-                      (vc--incoming-revision backend)
+                      merge-base incoming-revision
                       (called-interactively-p 'interactive))))
 
 ;;;###autoload
@@ -3652,17 +3672,17 @@ UPSTREAM-LOCATION, which should be a remote branch name.
 
 When called from Lisp, optional argument FILESET overrides the fileset."
   (interactive (let ((fileset (vc-deduce-fileset t)))
-                 (list (vc--maybe-read-outgoing-base (car fileset))
+                 (list (vc--maybe-read-outgoing-base (car fileset)
+                                                     'no-double)
                        fileset)))
-  (let* ((fileset (or fileset (vc-deduce-fileset t)))
-         (backend (car fileset)))
+  (pcase-let* ((fileset (or fileset (vc-deduce-fileset t)))
+               (backend (car fileset))
+               (`(,merge-base ,incoming-revision)
+                (vc--outgoing-base-mergebase backend upstream-location
+                                             'and-incoming-revision)))
     (vc-print-log-internal backend (cadr fileset)
-                           (vc--incoming-revision backend nil 'refresh)
-                           'is-start-revision
-                           ;; REFRESH nil here because we just refreshed.
-                           (vc--outgoing-base-mergebase backend
-                                                        upstream-location
-                                                        nil 'force-topic)
+                           incoming-revision
+                           'is-start-revision merge-base
                            '(log-unintegrated))))
 
 ;;;###autoload
@@ -4673,10 +4693,19 @@ BACKEND is the VC backend."
   ;; trying again, synchronously and probably fruitlessly, when VC-Dir
   ;; is refreshed.  Ignore cached failures when `non-essential' is nil
   ;; so that interactive callers always retry the failure.
+  ;;
+  ;; Try to use the current branch name instead of `nil' as a key into
+  ;; the cache, because otherwise we would need to clear the cache when
+  ;; the user switches branches, but we don't have a good way of knowing
+  ;; when that happens.  Use a cons cell for a separate namespace.
   (cond*
    ((bind*
+     (key (if-let* ((_ (null upstream-location))
+                    (branch (vc-call-backend backend 'working-branch)))
+              (cons 'branch branch)
+            upstream-location))
      (rec (and (not refresh)
-               (assoc upstream-location
+               (assoc key
                       (vc--repo-getprop backend
                                         'vc-incoming-revision))))))
    ((and rec (null (cdr rec)))
@@ -4698,10 +4727,10 @@ Finding incoming revision ... (\\[keyboard-quit] to skip)"))
                                    upstream-location refresh)))
             ((error quit) err)))
      (alist (vc--repo-getprop backend 'vc-incoming-revision))
-     (rec (assoc upstream-location alist))))
+     (rec (assoc key alist))))
    ;; Don't overwrite a useful cached value with an error.
    ((not (and rec (atom (cdr rec)) (consp res)))
-    (setf (alist-get upstream-location alist nil nil #'equal) res)
+    (setf (alist-get key alist nil nil #'equal) res)
     (vc--repo-setprop backend 'vc-incoming-revision alist)
     :non-exit)
    ((consp res)
@@ -5589,8 +5618,9 @@ to provide the `find-revision' operation instead."
 (defun vc-default-log-view-mode (_backend) (log-view-mode))
 
 (defun vc-default-show-log-entry (_backend rev)
-  (with-no-warnings
-   (log-view-goto-rev rev)))
+  (with-no-warnings (log-view-goto-rev rev))
+  (when (memq 'long vc-log-view-types)
+    (recenter-top-bottom 0)))
 
 (defun vc-default-comment-history (backend file)
   "Return a string with all log entries stored in BACKEND for FILE."
