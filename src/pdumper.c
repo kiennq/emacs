@@ -2952,7 +2952,7 @@ dump_obarray_buckets (struct dump_context *ctx, const struct Lisp_Obarray *o)
 static dump_off
 dump_obarray (struct dump_context *ctx, Lisp_Object object)
 {
-#if CHECK_STRUCTS && !defined HASH_Lisp_Obarray_381CF3389E
+#if CHECK_STRUCTS && !defined HASH_Lisp_Obarray_E27FFF73AC
 # error "Lisp_Obarray changed. See CHECK_STRUCTS comment in config.h."
 #endif
   const struct Lisp_Obarray *in_oa = XOBARRAY (object);
@@ -2975,10 +2975,10 @@ dump_obarray (struct dump_context *ctx, Lisp_Object object)
 static dump_off
 dump_buffer (struct dump_context *ctx, const struct buffer *in_buffer)
 {
-#if CHECK_STRUCTS && !defined HASH_buffer_46DA92A241
+#if CHECK_STRUCTS && !defined HASH_buffer_8F5C5BAA16
 # error "buffer changed. See CHECK_STRUCTS comment in config.h."
 #endif
-#if CHECK_STRUCTS && !defined HASH_buffer_text_07D802E2D4
+#if CHECK_STRUCTS && !defined HASH_buffer_text_43E82F3212
 # error "buffer_text changed. See CHECK_STRUCTS comment in config.h."
 #endif
 
