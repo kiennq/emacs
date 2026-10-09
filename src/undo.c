@@ -147,29 +147,18 @@ static struct weak_marker_table weak_marker_table;
 static Lisp_Object
 scrub_id_offset_pairs (Lisp_Object id_to_marker, Lisp_Object list)
 {
-  Lisp_Object tail = list, *prev = &list;
-  while (CONSP (tail))
+  Lisp_Object prev = Qnil;
+  for (Lisp_Object tail = list; !NILP (tail); tail = XCDR (tail))
     {
-      eassert (NILP (XCAR (tail)) || EQ (XCAR (tail), Qt));
-      Lisp_Object *prev2 = prev;
-      prev = xcdr_addr (tail);
-      tail = XCDR (tail);
-      while (CONSP (tail) && CONSP (XCAR (tail)))
-	{
-	  Lisp_Object id = XCAR (XCAR (tail));
-	  if (NILP (Fgethash (id, id_to_marker, Qnil)))
-	    *prev = XCDR (tail);
-	  else
-	    prev = xcdr_addr (tail);
-	  tail = XCDR (tail);
-	}
-      if (NILP (XCDR (*prev2))
-	  || NILP (XCAR (XCDR (*prev2)))
-	  || EQ (XCAR (XCDR (*prev2)), Qt))
-	{
-	  prev = prev2;
-	  *prev = tail;
-	}
+      Lisp_Object id = XCAR (XCAR (tail));
+      eassert (FIXNUMP (id));
+      if (NILP (Fgethash (id, id_to_marker, Qnil)))
+	if (NILP (prev))
+	  list = XCDR (tail);
+	else
+	  XSETCDR (prev, XCDR (tail));
+      else
+	prev = tail;
     }
   return list;
 }
@@ -181,9 +170,8 @@ scrub_id_offset_pairs (Lisp_Object id_to_marker, Lisp_Object list)
 static Lisp_Object
 scrub_undo_list (Lisp_Object list)
 {
-  Lisp_Object tail, *prev = &list;
-
-  for (tail = list; CONSP (tail); tail = XCDR (tail))
+  Lisp_Object prev = Qnil;
+  for (Lisp_Object tail = list; !NILP (tail); tail = XCDR (tail))
     {
       bool drop = false;
       Lisp_Object entry = XCAR (tail);
@@ -193,18 +181,21 @@ scrub_undo_list (Lisp_Object list)
 	  && EQ (Fnth (make_fixnum (3), entry),
 		 Qundo__adjust_weak_markers))
 	{
+	  Lisp_Object p1 = Fnthcdr (make_fixnum (4), entry);
+	  Lisp_Object list1 = XCAR (p1);
 	  Lisp_Object htab = weak_marker_table.id_to_marker;
-	  Lisp_Object head = Fnthcdr (make_fixnum (3), entry);
-	  Lisp_Object pairs
-	    = scrub_id_offset_pairs (htab, XCDR (head));
-	  if (!BASE_EQ (pairs, XCDR (head)))
-	    XSETCDR (head, pairs);
-	  drop = NILP (pairs);
+	  Lisp_Object list2 = scrub_id_offset_pairs (htab, list1);
+	  if (!BASE_EQ (list2, list1))
+	    XSETCAR (p1, list2);
+	  drop = NILP (list2);
 	}
       if (drop)
-	*prev = XCDR (tail);
+	if (NILP (prev))
+	  list = XCDR (tail);
+	else
+	  XSETCDR (prev, XCDR (tail));
       else
-	prev = xcdr_addr (tail);
+	prev = tail;
     }
   return list;
 }
@@ -226,9 +217,12 @@ scrub_undo_lists (void)
   FOR_EACH_LIVE_BUFFER (tail, buffer)
     {
       struct buffer *b = XBUFFER (buffer);
-      if (EQ (BVAR (b, undo_list), Qt))
+      Lisp_Object undo_list1 = BVAR (b, undo_list);
+      if (EQ (undo_list1, Qt))
 	continue;
-      bset_undo_list (b, scrub_undo_list (BVAR (b, undo_list)));
+      Lisp_Object undo_list2 = scrub_undo_list (undo_list1);
+      if (!BASE_EQ (undo_list1, undo_list2))
+	bset_undo_list (b, undo_list2);
     }
 }
 
@@ -283,9 +277,7 @@ record_marker_adjustments (ptrdiff_t from, ptrdiff_t to)
   prepare_record ();
 
 #ifdef HAVE_MPS
-  Lisp_Object left = Qnil;
-  Lisp_Object right = Qnil;
-
+  Lisp_Object list = Qnil;
   FOR_EACH_MARKER (current_buffer, m)
     {
       ptrdiff_t charpos = marker_vector_charpos (m);
@@ -299,25 +291,15 @@ record_marker_adjustments (ptrdiff_t from, ptrdiff_t to)
       Lisp_Object id
 	= alloc_weak_marker_id (&weak_marker_table, marker);
       Lisp_Object offset = make_fixnum (delta);
-      Lisp_Object pair = Fcons (id, offset);
-      if (m->insertion_type)
-	left = Fcons (pair, left);
-      else
-	right = Fcons (pair, right);
+      list =  Fcons (Fcons (id, offset), list);
     }
 
-  if (!NILP (right) || !NILP (left))
+  if (!NILP (list))
     {
-      Lisp_Object l
-	= list4 (Qapply, make_fixnum (0),
-		 Fcons (make_fixnum (from), make_fixnum (to)),
-		 Qundo__adjust_weak_markers);
-      Lisp_Object args = Qnil;
-      if (!NILP (right))
-	args = Fcons (Qnil, right);
-      if (!NILP (left))
-	args = Fcons (Qt, nconc2 (left, args));
-      Lisp_Object entry = nconc2 (l, args);
+      Lisp_Object entry
+	= list (Qapply, make_fixnum (0),
+		Fcons (make_fixnum (from), make_fixnum (to)),
+		Qundo__adjust_weak_markers, list);
       bset_undo_list (current_buffer,
 		      Fcons (entry,
 			     BVAR (current_buffer, undo_list)));

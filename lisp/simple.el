@@ -3800,29 +3800,28 @@ Return what remains of the list."
               (cons (list 'apply 'cdr nil) buffer-undo-list))))
   list)
 
-;; ARGS has the format: ({TYPE {(ID . OFFSET)}* }* )
+;; LIST has the format: ({(ID . OFFSET)}*)
 ;;
 ;; ID is the id for a marker.  The marker can be obtained with
 ;; undo--lookup-marker.
 ;;
-;; OFFSET should be added to the marker's current position.
+;; OFFSET should be added to the marker's current position.  If OFFSET
+;; is negative, then marker's insertion-type should be t.  If the
+;; insertion-type is nil, the marker's expected position is BEG;
+;; otherwise END.
 ;;
-;; TYPE is the expected insertion type of the marker.  Markers that
-;; don't match the expected position and insertion type are ignored.
-(defun undo--adjust-weak-markers (beg end &rest args)
-  (while args
-    (let* ((insertion-type (pop args))
+;; Markers that don't match the expected position and insertion type are
+;; ignored.
+(defun undo--adjust-weak-markers (beg end list)
+  (pcase-dolist (`(,id . ,offset) list)
+    (let* ((m (undo--lookup-marker id))
+           (insertion-type (< offset 0))
            (pos (if insertion-type end beg)))
-      (while (consp (car args))
-        (let* ((pair (pop args))
-               (id (car pair))
-               (offset (cdr pair))
-               (m (undo--lookup-marker id)))
-          (when (and m
-                     (eq (marker-buffer m) (current-buffer))
-                     (eq (marker-insertion-type m) insertion-type)
-                     (= pos m))
-            (set-marker m (+ pos offset))))))))
+      (when (and m
+                 (eq (marker-buffer m) (current-buffer))
+                 (eq (marker-insertion-type m) insertion-type)
+                 (= m pos))
+        (set-marker m (+ pos offset))))))
 
 ;; Deep copy of a list
 (defun undo-copy-list (list)
