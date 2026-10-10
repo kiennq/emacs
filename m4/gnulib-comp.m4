@@ -142,6 +142,7 @@ AC_DEFUN([gl_EARLY],
   # Code from module libgmp:
   # Code from module libgmp-mpz:
   # Code from module limits-h:
+  # Code from module localtime:
   # Code from module lstat:
   # Code from module malloc-gnu:
   # Code from module malloc-posix:
@@ -221,6 +222,7 @@ AC_DEFUN([gl_EARLY],
   # Code from module timespec:
   # Code from module timespec-add:
   # Code from module timespec-sub:
+  # Code from module tzsanitize:
   # Code from module u64:
   # Code from module unistd-h:
   # Code from module unlocked-io:
@@ -611,6 +613,7 @@ AC_DEFUN([gl_INIT],
   case "$host_os" in
     mingw* | windows*)
       AC_EGREP_CPP([Special], [
+  #include <stdio.h>
   #ifndef _UCRT
    Special
   #endif
@@ -725,6 +728,7 @@ AC_DEFUN([gl_INIT],
   gl_gnulib_enabled_issymlink=false
   gl_gnulib_enabled_issymlinkat=false
   gl_gnulib_enabled_lchmod=false
+  gl_gnulib_enabled_localtime=false
   gl_gnulib_enabled_5264294aa0a5557541b53c8c741f7f31=false
   gl_gnulib_enabled_open=false
   gl_gnulib_enabled_03e0aaad4cb89ca757653bd367a6ccb7=false
@@ -732,6 +736,7 @@ AC_DEFUN([gl_INIT],
   gl_gnulib_enabled_6099e9737f757db36c47fa9d9f02e88c=false
   gl_gnulib_enabled_stdc_memreverse8u=false
   gl_gnulib_enabled_strtoll=false
+  gl_gnulib_enabled_tzsanitize=false
   gl_gnulib_enabled_utimens=false
   gl_gnulib_enabled_verify=false
   func_gl_gnulib_m4code_260941c0e5dc67ec9e87d1fb321c300b ()
@@ -899,6 +904,18 @@ AC_DEFUN([gl_INIT],
       fi
     fi
   }
+  func_gl_gnulib_m4code_localtime ()
+  {
+    if $gl_gnulib_enabled_localtime; then :; else
+      gl_FUNC_LOCALTIME
+      gl_CONDITIONAL([GL_COND_OBJ_LOCALTIME], [test $REPLACE_LOCALTIME = 1])
+      gl_TIME_MODULE_INDICATOR([localtime])
+      gl_gnulib_enabled_localtime=true
+      if test $REPLACE_LOCALTIME = 1; then
+        func_gl_gnulib_m4code_tzsanitize
+      fi
+    fi
+  }
   func_gl_gnulib_m4code_5264294aa0a5557541b53c8c741f7f31 ()
   {
     if $gl_gnulib_enabled_5264294aa0a5557541b53c8c741f7f31; then :; else
@@ -968,6 +985,15 @@ AC_DEFUN([gl_INIT],
       ])
       gl_STDLIB_MODULE_INDICATOR([strtoll])
       gl_gnulib_enabled_strtoll=true
+    fi
+  }
+  func_gl_gnulib_m4code_tzsanitize ()
+  {
+    if $gl_gnulib_enabled_tzsanitize; then :; else
+      AC_REQUIRE([AC_CANONICAL_HOST])
+      gl_CONDITIONAL([GL_COND_OBJ_TZSANITIZE],
+                     [case "$host_os" in mingw* | windows*) true;; *) false;; esac])
+      gl_gnulib_enabled_tzsanitize=true
     fi
   }
   func_gl_gnulib_m4code_utimens ()
@@ -1050,6 +1076,9 @@ AC_DEFUN([gl_INIT],
   if $GL_GENERATE_IEEE754_H; then
     func_gl_gnulib_m4code_endian
   fi
+  if test $REPLACE_MKTIME = 1; then
+    func_gl_gnulib_m4code_tzsanitize
+  fi
   if test $HAVE_READLINKAT = 0 || test $REPLACE_READLINKAT = 1; then
     func_gl_gnulib_m4code_260941c0e5dc67ec9e87d1fb321c300b
   fi
@@ -1067,6 +1096,9 @@ AC_DEFUN([gl_INIT],
   fi
   if test $HAVE_DECL_STRTOIMAX = 0 || test $REPLACE_STRTOIMAX = 1; then
     func_gl_gnulib_m4code_strtoll
+  fi
+  if test $HAVE_LOCALTIME_R = 0 || test $REPLACE_LOCALTIME_R = 1; then
+    func_gl_gnulib_m4code_localtime
   fi
   if test $HAVE_TIMEGM = 0 || test $REPLACE_TIMEGM = 1; then
     func_gl_gnulib_m4code_5264294aa0a5557541b53c8c741f7f31
@@ -1097,6 +1129,7 @@ AC_DEFUN([gl_INIT],
   AM_CONDITIONAL([gl_GNULIB_ENABLED_issymlink], [$gl_gnulib_enabled_issymlink])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_issymlinkat], [$gl_gnulib_enabled_issymlinkat])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_lchmod], [$gl_gnulib_enabled_lchmod])
+  AM_CONDITIONAL([gl_GNULIB_ENABLED_localtime], [$gl_gnulib_enabled_localtime])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_5264294aa0a5557541b53c8c741f7f31], [$gl_gnulib_enabled_5264294aa0a5557541b53c8c741f7f31])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_open], [$gl_gnulib_enabled_open])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_03e0aaad4cb89ca757653bd367a6ccb7], [$gl_gnulib_enabled_03e0aaad4cb89ca757653bd367a6ccb7])
@@ -1104,6 +1137,7 @@ AC_DEFUN([gl_INIT],
   AM_CONDITIONAL([gl_GNULIB_ENABLED_6099e9737f757db36c47fa9d9f02e88c], [$gl_gnulib_enabled_6099e9737f757db36c47fa9d9f02e88c])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_stdc_memreverse8u], [$gl_gnulib_enabled_stdc_memreverse8u])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_strtoll], [$gl_gnulib_enabled_strtoll])
+  AM_CONDITIONAL([gl_GNULIB_ENABLED_tzsanitize], [$gl_gnulib_enabled_tzsanitize])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_utimens], [$gl_gnulib_enabled_utimens])
   AM_CONDITIONAL([gl_GNULIB_ENABLED_verify], [$gl_gnulib_enabled_verify])
   # End of code from modules
@@ -1408,6 +1442,7 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/lchmod.c
   lib/libc-config.h
   lib/limits.in.h
+  lib/localtime.c
   lib/lstat.c
   lib/malloc.c
   lib/malloc/dynarray-skeleton.c
@@ -1525,6 +1560,8 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/timespec-sub.c
   lib/timespec.c
   lib/timespec.h
+  lib/tzsanitize.c
+  lib/tzsanitize.h
   lib/u64.c
   lib/u64.h
   lib/unistd.c
@@ -1598,6 +1635,7 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/libgmp.m4
   m4/limits-h.m4
   m4/locale-en.m4
+  m4/localtime.m4
   m4/lstat.m4
   m4/malloc.m4
   m4/manywarnings-c++.m4
