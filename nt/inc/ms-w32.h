@@ -469,6 +469,10 @@ extern free_fn the_free_fn;
 extern int sys_putenv (char *);
 
 extern int getloadavg (double *, int);
+/* Emacs supplies getpagesize in w32heap.c, regardless of the C library.  */
+#ifndef HAVE_GETPAGESIZE
+#define HAVE_GETPAGESIZE 1
+#endif
 extern int getpagesize (void);
 
 extern void * memrchr (void const *, int, size_t);
