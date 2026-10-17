@@ -2671,6 +2671,7 @@ typedef enum hash_table_weakness_t {
 /* The type of a hash table index, both for table indices and index
    (hash) indices.  It's signed and a subtype of ptrdiff_t.  */
 typedef int_least32_t hash_idx_t;
+#define HASH_IDX_MAX INT_LEAST32_MAX
 #define PRIdHASH_IDX PRIdLEAST32
 
 #ifndef USE_EPHEMERON_POOL
@@ -2855,12 +2856,18 @@ struct Lisp_Hash_Table
   struct Lisp_Hash_Table *next_weak;
 } GCALIGNED_STRUCT;
 
+#if defined HAVE_MPS && !defined USE_EPHEMERON_POOL
 struct Lisp_Weak_Hash_Table_Strong_Part
 {
   GC_HEADER
   struct Lisp_Hash_Table h;
   struct Lisp_Weak_Hash_Table_Weak_Part *weak;
 };
+#endif
+
+/* struct Lisp_Hash_Table.index_bits is of type unsigned char;
+   make sure that's wide enough to store any bit width.  */
+static_assert (UINTMAX_WIDTH - 1 <= UCHAR_MAX);
 
 /* A specific Lisp_Object that is not a valid Lisp value.
    We need to be careful not to leak this value into machinery
@@ -5078,8 +5085,11 @@ extern void syms_of_alloc (void);
 extern struct buffer *allocate_buffer (void) ATTRIBUTE_RETURNS_NONNULL;
 extern int valid_lisp_object_p (Lisp_Object);
 
-void *hash_table_alloc_bytes (ptrdiff_t nbytes) ATTRIBUTE_MALLOC_SIZE ((1));
 void hash_table_free_bytes (void *p, ptrdiff_t nbytes);
+void *hash_table_alloc_bytes (ptrdiff_t nbytes)
+  ATTRIBUTE_MALLOC_SIZE ((1))
+  ATTRIBUTE_DEALLOC (hash_table_free_bytes, 1) ATTRIBUTE_RETURNS_NONNULL;
+
 Lisp_KV_Vector hash_table_alloc_kv (void *h, ptrdiff_t nobjs);
 void hash_table_free_kv (void *h, Lisp_KV_Vector p, ptrdiff_t nobjs);
 

@@ -3450,9 +3450,8 @@ allocate_vectorlike (ptrdiff_t len, bool clearit)
     }
   else
     {
-      struct large_vector *lv
-	= lisp_malloc (large_vector_offset + nbytes, clearit,
-		       MEM_TYPE_VECTORLIKE);
+      struct large_vector *lv = lisp_malloc (large_vector_offset + nbytes,
+					     clearit, MEM_TYPE_VECTORLIKE);
       lv->next = large_vectors;
       large_vectors = lv;
       p = large_vector_vec (lv);
@@ -5519,14 +5518,11 @@ valid_lisp_object_p (Lisp_Object obj)
 #endif
 }
 
-/* Like xmalloc, but makes allocation count toward the total consing
-   and hash table or obarray usage.
-   Return NULL for a zero-sized allocation.  */
+/* Like xmalloc (NBYTES), but count consing and hash table usage.
+   NBYTES must be positive.  */
 void *
 hash_table_alloc_bytes (ptrdiff_t nbytes)
 {
-  if (nbytes == 0)
-    return NULL;
   tally_consing (nbytes);
   hash_table_allocated_bytes += nbytes;
 #ifdef HAVE_MPS
@@ -5537,7 +5533,8 @@ hash_table_alloc_bytes (ptrdiff_t nbytes)
   return p;
 }
 
-/* Like xfree, but makes allocation count toward the total consing.  */
+/* Like xfree, but count consing and hash table usage.
+   NBYTES must be nonnegative.  */
 void
 hash_table_free_bytes (void *p, ptrdiff_t nbytes)
 {
