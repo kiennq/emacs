@@ -3209,6 +3209,13 @@ shut_down_emacs (int sig, Lisp_Object stuff)
 #ifdef WINDOWSNT
   term_ntproc (0);
 #endif
+
+#ifdef HAVE_NTGUI
+  /* Fatal errors can arrive here in a broken state, where unloading
+     DLLs is unsafe; release COM only on a normal exit.  */
+  if (sig == 0 || sig == SIGTERM)
+    w32_uninitialize_com ();
+#endif
 }
 
 

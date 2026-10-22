@@ -3729,14 +3729,6 @@ w32_msg_pump (deferred_msg * msg_buf)
 	      /* Produced by complete_deferred_msg; just ignore.  */
 	      break;
 	    case WM_EMACS_CREATEWINDOW:
-	      /* Initialize COM for this window.  Needed for RegisterDragDrop.
-		 Some third party shell extensions can cause it to be used in
-		 system dialogs, which causes a crash if it is not initialized.
-		 This is a known bug in Windows, which was fixed long ago, but
-		 the patch for XP is not publicly available until XP SP3,
-		 and older versions will never be patched.  */
-	      OleInitialize (NULL);
-
 	      w32_createwindow ((struct frame *) msg.wParam,
 				(int *) msg.lParam);
 	      if (!PostThreadMessage (dwMainThreadId, WM_EMACS_DONE, 0, 0))
@@ -3953,6 +3945,12 @@ w32_msg_worker (void *arg)
 
   PeekMessage (&msg, NULL, 0, 0, PM_NOREMOVE);
 
+  /* Initialize OLE once for this thread, which owns the frame windows;
+     RegisterDragDrop needs it.  Keep it initialized until the thread
+     exits, so DLLs loaded on this thread are not unloaded while still
+     in use.  */
+  bool ole_initialized = SUCCEEDED (OleInitialize (NULL));
+
   if (!PostThreadMessage (dwMainThreadId, WM_EMACS_DONE, 0, 0))
     emacs_abort ();
 
@@ -3963,6 +3961,9 @@ w32_msg_worker (void *arg)
   /* This is the initial message loop which should only exit when the
      application quits.  */
   w32_msg_pump (&dummy_buf);
+
+  if (ole_initialized)
+    OleUninitialize ();
 
 #ifdef HAVE_MPS
   w32_remove_non_lisp_thread (igc_thr);
@@ -5774,7 +5775,6 @@ w32_wnd_proc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
       maybe_pass_notification (hwnd);
       remove_w32_kbdhook ();
 #endif
-      CoUninitialize ();
       return 0;
 
 #ifdef WINDOWSNT
@@ -11115,7 +11115,6 @@ triplet strings of the form \"#RRGGBB\".  */)
   if (hwnd == NULL)
     return Qnil;
 
-  CoInitialize (NULL);
   ITaskbarList3 *task_bar_list = NULL;
   HRESULT r = CoCreateInstance (&CLSID_TaskbarList,
 				NULL,
@@ -11356,7 +11355,6 @@ if the selected frame is not (yet) associated with a window handle  */)
   if (hwnd == NULL)
     return Qnil;
 
-  CoInitialize (NULL);
   ITaskbarList3 *task_bar_list = NULL;
   HRESULT r = CoCreateInstance(&CLSID_TaskbarList,
 			       NULL,
@@ -12367,6 +12365,22 @@ emacs_abort (void)
 
 /* Initialization.  */
 
+/* The thread on which globals_of_w32fns initialized COM, or 0.  */
+static DWORD com_thread_id;
+
+/* Balance the COM initialization done by globals_of_w32fns.  Called
+   when Emacs exits normally.  COM must be uninitialized on the thread
+   that initialized it, so do nothing on any other thread.  */
+void
+w32_uninitialize_com (void)
+{
+  if (com_thread_id && com_thread_id == GetCurrentThreadId ())
+    {
+      com_thread_id = 0;
+      CoUninitialize ();
+    }
+}
+
 /*
 	globals_of_w32fns is used to initialize those global variables that
 	must always be initialized on startup even when the global variable
@@ -12380,6 +12394,17 @@ globals_of_w32fns (void)
 {
   HMODULE user32_lib = GetModuleHandle ("user32.dll");
   HMODULE kernel32_lib = GetModuleHandle ("kernel32.dll");
+
+  /* Initialize COM once on the main thread, as Microsoft requires for
+     callers of ShellExecute and other shell APIs.  Keep it initialized
+     until Emacs exits: otherwise the shell initializes COM around each
+     call, and the final CoUninitialize unloads every DLL the thread
+     loaded, including shell extensions whose worker threads may still
+     be starting.  */
+  if (SUCCEEDED (CoInitializeEx (NULL, (COINIT_APARTMENTTHREADED
+					| COINIT_DISABLE_OLE1DDE))))
+    com_thread_id = GetCurrentThreadId ();
+
   /*
     TrackMouseEvent not available in all versions of Windows, so must load
     it dynamically.  Do it once, here, instead of every time it is used.

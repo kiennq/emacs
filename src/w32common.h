@@ -100,4 +100,8 @@ get_proc_addr (HINSTANCE handle, LPCSTR fname)
 extern bool hbfont_init_w32_funcs (HMODULE);
 #endif
 
+#ifdef HAVE_NTGUI
+extern void w32_uninitialize_com (void);
+#endif
+
 #endif /* W32COMMON_H */
