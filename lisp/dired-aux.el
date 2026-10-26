@@ -2383,11 +2383,14 @@ unless OK-IF-ALREADY-EXISTS is non-nil."
                                   (file-name-directory newname)))))
           (if (equal file-root newname-root)
               (vc-rename-file file newname ok-if-already-exists)
+            (when (eq (vc-state file) 'edited)
+              (error "Please commit or undo your changes before moving %s"
+                     file))
             (let ((already-exists (file-exists-p newname)))
-              ;; The rename commands for several VCS (at least Bzr, Git
-              ;; and Mercurial) will fail if asked to move a directory
+              ;; The delete commands for several VCS (at least Git and
+              ;; Mercurial) will fail if asked to remove a directory
               ;; containing only untracked files.  See `vc-rename-file'
-              ;; which resolves the same issue in the same way.
+              ;; which resolves a similar issue in the same way.
               (if (and file-is-dir-p
                        (catch 'done
                          (vc-file-tree-walk file (lambda (_)
@@ -2395,8 +2398,8 @@ unless OK-IF-ALREADY-EXISTS is non-nil."
                          t))
                   (rename-file file newname ok-if-already-exists)
                 (if file-is-dir-p
-                    (copy-directory file newname)
-                  (copy-file file newname ok-if-already-exists))
+                    (copy-directory file newname t)
+                  (copy-file file newname ok-if-already-exists t t t))
                 (vc-delete-file file 'noconfirm))
               (when newname-backend
                 (let ((newname (expand-file-name newname newname-root))
