@@ -438,9 +438,6 @@ This function runs the abnormal hook `move-frame-functions'."
 	      ;; because that would override explicit user resizing.
 	      (setq initial-frame-alist
 		    (frame-remove-geometry-params initial-frame-alist))))
-	;; Copy the environment of the Emacs process into the new frame.
-	(set-frame-parameter frame-initial-frame 'environment
-			     (frame-parameter terminal-frame 'environment))
 	;; At this point, we know that we have a frame open, so we
 	;; can delete the terminal frame.
 	(delete-frame terminal-frame)
@@ -2765,9 +2762,11 @@ frame's display)."
 (defun display-symbol-keys-p (&optional display)
   "Return non-nil if DISPLAY supports symbol names as keys.
 This means that, for example, DISPLAY can differentiate between
-the keybinding RET and [return]."
+the keybinding DEL and [delete]."
   (let ((frame-type (framep-on-display display)))
     (or (memq frame-type '(x w32 ns pc pgtk haiku android))
+        (terminal-parameter (get-device-terminal display)
+                            'tty-kitty-kbd-proto)
         ;; MS-DOS and MS-Windows terminals have built-in support for
         ;; function (symbol) keys
         (memq system-type '(ms-dos windows-nt)))))

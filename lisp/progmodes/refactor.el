@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026 Free Software Foundation, Inc.
 ;; Author: João Távora <joaotavora@gmail.com>
 
-;; Version: 0.1
+;; Version: 0.1.1
 ;; Keywords: convenience, languages
 ;; Package-Requires: ((emacs "26.3") (eldoc "1.14.0"))
 
@@ -582,18 +582,20 @@ Note additionally:
 (defvar-local refactor--suggestion-overlay (make-overlay 0 0)
   "Overlay for `refactor-suggestion'.")
 
-(define-fringe-bitmap 'refactor--fringe-action
-  [#b00000111
-   #b00001110
-   #b00011100
-   #b00111000
-   #b01111111
-   #b00001110
-   #b01011100
-   #b01111000
-   #b01110000
-   #b01111000]
-  nil nil 'center)
+;; Emacs < 27 lacks `define-fringe-bitmap' without a window system.
+(when (fboundp 'define-fringe-bitmap)
+  (define-fringe-bitmap 'refactor--fringe-action
+    [#b00000111
+     #b00001110
+     #b00011100
+     #b00111000
+     #b01111111
+     #b00001110
+     #b01011100
+     #b01111000
+     #b01110000
+     #b01111000]
+    nil nil 'center))
 
 (defmacro refactor--when-buffer-window (buf &rest body)
   "Check BUF showing somewhere, then do BODY in it."
