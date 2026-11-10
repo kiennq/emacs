@@ -176,9 +176,6 @@ dump_get_max_page_size (void)
   return 64 * 1024;
 }
 
-#define dump_offsetof(type, member)                             \
-  (ptrdiff_t_to_dump_off (offsetof (type, member)))
-
 enum dump_reloc_type
   {
     /* dump_ptr = dump_ptr + emacs_basis()  */
@@ -242,7 +239,7 @@ enum
 struct emacs_reloc
 {
   ENUM_BF (emacs_reloc_type) type : EMACS_RELOC_TYPE_BITS;
-  dump_off length : EMACS_RELOC_LENGTH_BITS;
+  unsigned int length : EMACS_RELOC_LENGTH_BITS;
   dump_off emacs_offset;
   union
   {
@@ -1809,15 +1806,17 @@ dump_remember_fixup_lv (struct dump_context *ctx,
 }
 
 /* Remember to fix up the dump file such that the pointer-sized value
-   at DUMP_OFFSET points to NEW_DUMP_OFFSET in the dump file and to
-   its absolute address at runtime.  */
+   at DUMP_OFFSET1 + DUMP_OFFSET2 points to NEW_DUMP_OFFSET in the
+   dump file and to its absolute address at runtime.  */
 static void
 dump_remember_fixup_ptr_raw (struct dump_context *ctx,
-                             dump_off dump_offset,
+                             dump_off dump_offset1, dump_off dump_offset2,
                              dump_off new_dump_offset)
 {
   if (!ctx->flags.dump_object_contents)
     return;
+
+  eassert (0 <= dump_offset1 && dump_offset1 <= DUMP_OFF_MAX - dump_offset2);
 
   /* We should not be generating relocations into the
      to-be-copied-into-Emacs dump region.  */
@@ -1828,7 +1827,7 @@ dump_remember_fixup_ptr_raw (struct dump_context *ctx,
 
   dump_push (&ctx->fixups,
 	     list3 (make_fixnum (DUMP_FIXUP_PTR_DUMP_RAW),
-		    dump_off_to_lisp (dump_offset),
+		    dump_off_to_lisp (dump_offset1 + dump_offset2),
 		    dump_off_to_lisp (new_dump_offset)));
 }
 
@@ -1879,10 +1878,10 @@ enum { PDUMPER_MAX_OBJECT_SIZE = 2048 };
 static dump_off
 field_relpos (const void *in_start, const void *in_field)
 {
-  ptrdiff_t in_start_val = (ptrdiff_t) in_start;
-  ptrdiff_t in_field_val = (ptrdiff_t) in_field;
+  uintptr_t in_start_val = (uintptr_t) in_start;
+  uintptr_t in_field_val = (uintptr_t) in_field;
   eassert (in_start_val <= in_field_val);
-  ptrdiff_t relpos = in_field_val - in_start_val;
+  uintptr_t relpos = in_field_val - in_start_val;
   /* The following assertion attempts to detect bugs whereby IN_START
      and IN_FIELD don't point to the same object/structure, on the
      assumption that a too-large difference between them is
@@ -2180,12 +2179,12 @@ dump_interval_tree (struct dump_context *ctx,
   if (tree->left)
       dump_remember_fixup_ptr_raw
 	(ctx,
-	 offset + dump_offsetof (struct interval, left),
+	 offset, offsetof (struct interval, left),
 	 dump_interval_tree (ctx, tree->left, offset));
   if (tree->right)
       dump_remember_fixup_ptr_raw
 	(ctx,
-	 offset + dump_offsetof (struct interval, right),
+	 offset, offsetof (struct interval, right),
 	 dump_interval_tree (ctx, tree->right, offset));
   return offset;
 }
@@ -2230,7 +2229,7 @@ dump_string (struct dump_context *ctx, const struct Lisp_String *string)
   if (string->u.s.intervals)
     dump_remember_fixup_ptr_raw
       (ctx,
-       offset + dump_offsetof (struct Lisp_String, u.s.intervals),
+       offset, offsetof (struct Lisp_String, u.s.intervals),
        dump_interval_tree (ctx, string->u.s.intervals, 0));
 
   return offset;
@@ -2286,17 +2285,17 @@ dump_interval_node (struct dump_context *ctx, struct itree_node *node)
   if (node->parent)
       dump_remember_fixup_ptr_raw
 	(ctx,
-	 offset + dump_offsetof (struct itree_node, parent),
+	 offset, offsetof (struct itree_node, parent),
 	 dump_interval_node (ctx, node->parent));
   if (node->left)
       dump_remember_fixup_ptr_raw
 	(ctx,
-	 offset + dump_offsetof (struct itree_node, left),
+	 offset, offsetof (struct itree_node, left),
 	 dump_interval_node (ctx, node->left));
   if (node->right)
       dump_remember_fixup_ptr_raw
 	(ctx,
-	 offset + dump_offsetof (struct itree_node, right),
+	 offset, offsetof (struct itree_node, right),
 	 dump_interval_node (ctx, node->right));
   return offset;
 }
@@ -2313,7 +2312,7 @@ dump_overlay (struct dump_context *ctx, const struct Lisp_Overlay *overlay)
   dump_off offset = finish_dump_pvec (ctx, &out->header);
   dump_remember_fixup_ptr_raw
     (ctx,
-     offset + dump_offsetof (struct Lisp_Overlay, interval),
+     offset, offsetof (struct Lisp_Overlay, interval),
      dump_interval_node (ctx, overlay->interval));
   return offset;
 }
@@ -2397,7 +2396,7 @@ dump_bignum (struct dump_context *ctx, Lisp_Object object)
       /* Write the offset of that exported blob here.  */
       dump_off value_offset
 	= (bignum_offset
-	   + (dump_off) offsetof (struct Lisp_Bignum, value));
+	   + (dump_off) {offsetof (struct Lisp_Bignum, value)});
       dump_push (&ctx->fixups,
 		 list3 (make_fixnum (DUMP_FIXUP_BIGNUM_DATA),
 			dump_off_to_lisp (value_offset),
@@ -2605,8 +2604,8 @@ dump_symbol (struct dump_context *ctx, Lisp_Object object,
     {
     case SYMBOL_LOCALIZED:
       aux_offset = dump_recall_symbol_aux (ctx, make_lisp_symbol (symbol));
-      dump_remember_fixup_ptr_raw (ctx, offset + dump_offsetof (struct Lisp_Symbol,
-								u.s.val.blv),
+      dump_remember_fixup_ptr_raw (ctx, offset,
+				   offsetof (struct Lisp_Symbol, u.s.val.blv),
 				   (aux_offset
 				    ? aux_offset
 				    : dump_blv (ctx, symbol->u.s.val.blv)));
@@ -2661,13 +2660,15 @@ dump_vectorlike_generic (struct dump_context *ctx,
       /* Don't use sizeof(out), since that incorporates unwanted
          padding.  Instead, use the size through the last non-Lisp
          field.  */
-      size_t sz = (char *)&out.min_char + sizeof (out.min_char) - (char *)&out;
-      eassert (sz < DUMP_OFF_MAX);
-      prefix_start_offset = dump_object_start (ctx, sct, IGC_OBJ_VECTOR, &out, (dump_off) sz);
+      enum { sz = (offsetof (struct Lisp_Sub_Char_Table, min_char)
+		   + sizeof (out.min_char)) };
+      static_assert (sz <= DUMP_OFF_MAX);
+      prefix_start_offset
+	= dump_object_start (ctx, sct, IGC_OBJ_VECTOR, &out, sz);
       DUMP_FIELD_COPY (&out, sct, header.size);
       DUMP_FIELD_COPY (&out, sct, depth);
       DUMP_FIELD_COPY (&out, sct, min_char);
-      offset = dump_object_finish_1 (ctx, &out, (dump_off) sz);
+      offset = dump_object_finish_1 (ctx, &out, sz);
       skip = SUB_CHAR_TABLE_OFFSET;
     }
   else
@@ -2881,17 +2882,17 @@ dump_hash_table_kv_part (struct dump_context *ctx,
     {
       dump_off k = dump_hash_vec (ctx, h->kv.keys, h->count);
       dump_off v = dump_hash_vec (ctx, h->kv.values, h->count);
-      dump_off k_off = dump_offsetof (struct Lisp_Hash_Table, kv.keys);
-      dump_off v_off = dump_offsetof (struct Lisp_Hash_Table, kv.values);
-      dump_remember_fixup_ptr_raw (ctx, h_start + k_off, k);
-      dump_remember_fixup_ptr_raw (ctx, h_start + v_off, v);
+      dump_remember_fixup_ptr_raw
+	(ctx, h_start, offsetof (struct Lisp_Hash_Table, kv.keys), k);
+      dump_remember_fixup_ptr_raw
+	(ctx, h_start, offsetof (struct Lisp_Hash_Table, kv.values), v);
     }
 #else
   if (h->kv)
     {
       dump_off kv = dump_hash_table_kv (ctx, h->kv, h->count);
-      dump_off kv_off = dump_offsetof (struct Lisp_Hash_Table, kv);
-      dump_remember_fixup_ptr_raw (ctx, h_start + kv_off, kv);
+      dump_remember_fixup_ptr_raw
+	(ctx, h_start, offsetof (struct Lisp_Hash_Table, kv), kv);
     }
 #endif
 }
@@ -2970,7 +2971,7 @@ dump_obarray (struct dump_context *ctx, Lisp_Object object)
   dump_off offset = finish_dump_pvec (ctx, &out->header);
   dump_remember_fixup_ptr_raw
     (ctx,
-     offset + dump_offsetof (struct Lisp_Obarray, buckets),
+     offset, offsetof (struct Lisp_Obarray, buckets),
      dump_obarray_buckets (ctx, oa));
   return offset;
 }
@@ -3018,7 +3019,9 @@ dump_buffer (struct dump_context *ctx, const struct buffer *in_buffer)
   dump_pseudovector_lisp_fields (ctx, &out->header, &buffer->header);
   if (base_offset == 0)
     base_offset = ctx->obj_offset;
-  eassert (base_offset > 0);
+  eassert (0 < base_offset && base_offset <= (DUMP_OFF_MAX
+					      - offsetof (struct buffer,
+							  own_text)));
   if (buffer->base_buffer == NULL)
     {
       eassert (base_offset == ctx->obj_offset);
@@ -3063,8 +3066,8 @@ dump_buffer (struct dump_context *ctx, const struct buffer *in_buffer)
   eassert (ctx->obj_offset > 0);
   dump_remember_fixup_ptr_raw
     (ctx,
-     ctx->obj_offset + dump_offsetof (struct buffer, text),
-     base_offset + dump_offsetof (struct buffer, own_text));
+     ctx->obj_offset, offsetof (struct buffer, text),
+     base_offset + offsetof (struct buffer, own_text));
 
   DUMP_FIELD_COPY (out, buffer, pt);
   DUMP_FIELD_COPY (out, buffer, pt_byte);
@@ -3117,7 +3120,7 @@ dump_buffer (struct dump_context *ctx, const struct buffer *in_buffer)
   if (!buffer->base_buffer && buffer->own_text.intervals)
     dump_remember_fixup_ptr_raw
       (ctx,
-       offset + dump_offsetof (struct buffer, own_text.intervals),
+       offset, offsetof (struct buffer, own_text.intervals),
        dump_interval_tree (ctx, buffer->own_text.intervals, 0));
 
   return offset;
@@ -3670,13 +3673,13 @@ dump_cold_string (struct dump_context *ctx, Lisp_Object string)
   dump_igc_start_obj (ctx, IGC_OBJ_STRING_DATA, data);
   dump_remember_fixup_ptr_raw
     (ctx,
-     string_offset + dump_offsetof (struct Lisp_String, u.s.data),
+     string_offset, offsetof (struct Lisp_String, u.s.data),
      ctx->offset + sizeof (*data));
   dump_write (ctx, data, sizeof (*data) + total_size);
 # else
   dump_remember_fixup_ptr_raw
     (ctx,
-     string_offset + dump_offsetof (struct Lisp_String, u.s.data),
+     string_offset, offsetof (struct Lisp_String, u.s.data),
      ctx->offset);
   dump_write (ctx, XSTRING (string)->u.s.data, total_size);
 # endif
@@ -3691,12 +3694,15 @@ dump_cold_charset (struct dump_context *ctx, Lisp_Object data)
   /* Dump charset lookup tables.  */
   int cs_i = XFIXNUM (XCAR (data));
   dump_off cs_dump_offset = dump_off_from_lisp (XCDR (data));
-  dump_off foff = dump_offsetof (struct charset, code_space_mask);
+#ifndef HAVE_MPS
+  dump_remember_fixup_ptr_raw
+    (ctx, cs_dump_offset, offsetof (struct charset, code_space_mask),
+     ctx->offset);
+#else
+  dump_off foff = offsetof (struct charset, code_space_mask);
+  eassert (0 <= cs_dump_offset && cs_dump_offset <= DUMP_OFF_MAX - foff);
   dump_off code_space_mask_offset = cs_dump_offset + foff;
   dump_off here = ctx->offset;
-#ifndef HAVE_MPS
-  dump_remember_fixup_ptr_raw (ctx, code_space_mask_offset, here);
-#else
   dump_push (&ctx->fixups,
 	     list3 (make_fixnum (DUMP_FIXUP_CHARSET_CODE_SPACE_MASK),
 		    dump_off_to_lisp (code_space_mask_offset),
@@ -3756,7 +3762,7 @@ dump_cold_buffer (struct dump_context *ctx, Lisp_Object data)
 # endif
   dump_remember_fixup_ptr_raw
     (ctx,
-     buffer_offset + dump_offsetof (struct buffer, own_text.beg),
+     buffer_offset, offsetof (struct buffer, own_text.beg),
      ctx->offset);
   dump_write (ctx, b->own_text.beg, ptrdiff_t_to_dump_off (nbytes));
 # ifdef HAVE_MPS
@@ -3768,15 +3774,15 @@ static void
 dump_cold_bignum (struct dump_context *ctx, Lisp_Object object)
 {
   mpz_t const *n = xbignum_val (object);
-  size_t sz_nlimbs = mpz_size (*n);
-  eassert (sz_nlimbs < DUMP_OFF_MAX);
+  ptrdiff_t nlimbs = emacs_mpz_size (*n);
+  eassert (0 <= nlimbs && nlimbs <= DUMP_OFF_MAX);
+  ptrdiff_t signed_nlimbs = mpz_sgn (*n) < 0 ? -nlimbs : nlimbs;
   dump_align_output (ctx, alignof (mp_limb_t));
-  dump_off nlimbs = (dump_off) sz_nlimbs;
   Lisp_Object descriptor
     = list2 (dump_off_to_lisp (ctx->offset),
-	     dump_off_to_lisp (mpz_sgn (*n) < 0 ? -nlimbs : nlimbs));
+	     dump_off_to_lisp (signed_nlimbs));
   Fputhash (object, descriptor, ctx->bignum_data);
-  for (mp_size_t i = 0; i < nlimbs; ++i)
+  for (dump_off i = 0; i < nlimbs; i++)
     {
       mp_limb_t limb = mpz_getlimbn (*n, i);
       dump_write (ctx, &limb, sizeof (limb));
@@ -3796,14 +3802,14 @@ dump_cold_native_subr (struct dump_context *ctx, Lisp_Object subr)
 # endif
   dump_remember_fixup_ptr_raw
     (ctx,
-     subr_offset + dump_offsetof (struct Lisp_Subr, symbol_name),
+     subr_offset, offsetof (struct Lisp_Subr, symbol_name),
      ctx->offset);
   const char *symbol_name = XSUBR (subr)->symbol_name;
   dump_write (ctx, symbol_name, 1 + strlen (symbol_name));
 
   dump_remember_fixup_ptr_raw
     (ctx,
-     subr_offset + dump_offsetof (struct Lisp_Subr, native_c_name),
+     subr_offset, offsetof (struct Lisp_Subr, native_c_name),
      ctx->offset);
   const char *c_name = XSUBR (subr)->native_c_name;
   dump_write (ctx, c_name, 1 + strlen (c_name));
@@ -6000,7 +6006,7 @@ dump_do_dump_relocation (const uintptr_t dump_base,
       {
 	/* Copy the code space mask out of the dump. */
 	dump_off field_offset
-	  = dump_offsetof (struct charset, code_space_mask);
+	  = offsetof (struct charset, code_space_mask);
 	dump_off cs_off = reloc_offset - field_offset;
 	struct charset *cs = dump_ptr (dump_base, cs_off);
 	dump_off csm_off = (intptr_t) cs->code_space_mask;

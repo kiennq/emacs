@@ -5473,14 +5473,14 @@ valid_lisp_object_p (Lisp_Object obj)
 void *
 hash_table_alloc_bytes (ptrdiff_t nbytes)
 {
+#ifdef HAVE_MPS
+  void *result = igc_make_bytes (nbytes);
+#else
+  void *result = xmalloc (nbytes);
+#endif
   tally_consing (nbytes);
   hash_table_allocated_bytes += nbytes;
-#ifdef HAVE_MPS
-  void *p = igc_make_bytes (nbytes);
-#else
-  void *p = xmalloc (nbytes);
-#endif
-  return p;
+  return result;
 }
 
 /* Like xfree, but count consing and hash table usage.
