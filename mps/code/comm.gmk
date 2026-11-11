@@ -304,6 +304,7 @@ TEST_TARGETS=\
     sacss$(EXEEXT) \
     segsmss$(EXEEXT) \
     sncss$(EXEEXT) \
+    sparerrtest$(EXEEXT) \
     steptest$(EXEEXT) \
     tagtest$(EXEEXT) \
     teletest$(EXEEXT) \
@@ -585,6 +586,9 @@ $(PFM)/$(VARIETY)/segsmss$(EXEEXT): $(PFM)/$(VARIETY)/segsmss.o \
 
 $(PFM)/$(VARIETY)/sncss$(EXEEXT): $(PFM)/$(VARIETY)/sncss.o \
 	$(TESTLIBOBJ) $(PFM)/$(VARIETY)/mps.a
+
+$(PFM)/$(VARIETY)/sparerrtest$(EXEEXT): $(PFM)/$(VARIETY)/sparerrtest.o \
+	$(FMTSCMOBJ) $(TESTLIBOBJ) $(PFM)/$(VARIETY)/mps.a
 
 $(PFM)/$(VARIETY)/steptest$(EXEEXT): $(PFM)/$(VARIETY)/steptest.o \
 	$(FMTDYTSTOBJ) $(TESTLIBOBJ) $(PFM)/$(VARIETY)/mps.a
