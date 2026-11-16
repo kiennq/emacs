@@ -4044,6 +4044,9 @@ that a stderr file is supported.  BODY is the backend specific code."
 	   (signal 'wrong-type-argument (list #'bufferp buffer)))
 	 (unless (or (consp command) (and ,null-command (null command)))
 	   (signal 'wrong-type-argument (list #'consp command)))
+	 (dolist (arg command)
+	   (unless (stringp arg)
+	     (signal 'wrong-type-argument (list #'stringp arg))))
 	 (unless (or (null coding)
 		     (and (symbolp coding) (memq coding coding-system-list))
 		     (and (consp coding)
@@ -5642,11 +5645,6 @@ processes."
 	      (tramp-compat-funcall 'tramp-adb-get-device v)))
            (pta (unless (eq connection-type 'pipe) "-t"))
 	   login-args p)
-
-      ;; Command could be too long, for example due to a longish PATH.
-      (when (and sh-file-name-handler-p
-		 (length> (string-join command) (tramp-get-remote-pipe-buf v)))
-	(signal 'error (cons "Command too long:" command)))
 
       (setq
        ;; Replace `login-args' place holders.  Split ControlMaster
