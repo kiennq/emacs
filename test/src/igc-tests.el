@@ -21,6 +21,7 @@
 
 (require 'ert)
 (require 'filenotify)
+(require 'profiler)
 
 (declare-function igc--roots "igc.c")
 (declare-function igc--set-commit-limit "igc.c")
@@ -287,9 +288,37 @@
          (make-thread
           (lambda ()
             (let ((m (copy-marker 5)))
-              (delete-region 3 7)))))
+              (delete-region 3 7)
+              (should (= m 3))))))
         (setq buffer-undo-list list)
         (igc--collect)
         (igc--process-messages)))))
+
+(defun igc-tests--profiler-2 (vectors)
+  (dolist (v vectors)
+    (incf (aref v 0))))
+
+(defun igc-tests--profiler-1 (seconds n)
+  (let* ((start-time (float-time))
+         (vectors (cl-loop repeat 5
+                           collect (make-vector (/ (* 1024 16) 4) 0)))
+         (closure (lambda () (igc-tests--profiler-2 vectors))))
+    (igc--collect)
+    (while (or (< (- (float-time) start-time) seconds)
+               (< 0 n))
+      (igc--collect t)
+      (message "calling closure")
+      (funcall closure)
+      (igc--arena-step 0 1)
+      (decf n))))
+
+;; FIXME: figure out why this sometimes locks up on MS-Windows
+(ert-deftest igc-tests-profiler ()
+  :tags '(:igc)
+  (dotimes (_ 3)
+    (profiler-start 'cpu)
+    (igc-tests--profiler-1 0.5 5)
+    (profiler-stop)
+    (ignore (prin1-to-string (profiler-cpu-profile)))))
 
 ;;; igc-tests.el ends here.

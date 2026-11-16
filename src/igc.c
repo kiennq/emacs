@@ -169,8 +169,8 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 # ifndef HASH_Lisp_Weak_Hash_Table_Weak_Part_23119F9924
 #  error "struct Lisp_Weak_Hash_Table_Weak_Part changed"
 # endif
-# ifndef HASH_buffer_text_07D802E2D4
-#  error "struct buffer changed"
+# ifndef HASH_buffer_text_788F5E5652
+#  error "struct buffer_text changed"
 # endif
 # ifndef HASH_glyph_pool_FE89FC9050
 #  error "struct glyph_pool changed"
@@ -455,6 +455,12 @@ static bool
 is_aligned (const mps_addr_t addr)
 {
   return ((mps_word_t) addr & IGC_TAG_MASK) == 0;
+}
+
+static bool
+addr_is_aligned (const mps_addr_t addr, size_t align)
+{
+  return (mps_word_t) addr % align == 0;
 }
 
 #define IGC_WITH_PARKED(gc) \
@@ -2813,7 +2819,7 @@ scan_buffer (mps_ss_t ss, void *start, void *end, void *closure)
 }
 
 static mps_res_t
-fix_glyph_array (mps_ss_t ss, size_t len, struct glyph array[len])
+fix_glyph_array (mps_ss_t ss, size_t len, struct glyph array[/* len */])
 {
   MPS_SCAN_BEGIN (ss)
   {
@@ -3499,10 +3505,8 @@ static igc_root_list *
 root_create_lisp (struct igc *gc, void *start, void *end,
 		  const char *label)
 {
-  igc_assert ((uintptr_t) start % sizeof (Lisp_Object) == 0);
-  igc_assert (((uintptr_t) end - (uintptr_t) start)
-		% sizeof (Lisp_Object)
-	      == 0);
+  eassert (is_aligned (start));
+  eassert (is_aligned (end));
   return root_create_exact (gc, start, end, scan_exact, label);
 }
 
@@ -3510,9 +3514,9 @@ static igc_root_list *
 root_create_raw (struct igc *gc, void *start, void *end,
 		 const char *label)
 {
-  igc_assert ((uintptr_t) start % sizeof (void *) == 0);
-  igc_assert (((uintptr_t) end - (uintptr_t) start) % sizeof (void *)
-	      == 0);
+  size_t align = sizeof (mps_word_t);
+  eassert (addr_is_aligned (start, align));
+  eassert (addr_is_aligned (end, align));
   return root_create_exact (gc, start, end, scan_ptr_exact, label);
 }
 
@@ -4219,21 +4223,23 @@ igc_xpalloc_exact (void **pa_cell, ptrdiff_t *nitems,
   char *end = (char *) new_pa + nbytes;
   root_create (global_igc, new_pa, end, mps_rank_exact (),
 	       scan_area, closure, false, "xpalloc-exact");
+  USE_SAFE_ALLOCA;
+  igc_assert (item_size < MAX_ALLOCA);
+  /* This is volatile so it's on the stack, where MPS sees it and it
+     pins its references.  Omitting the "volatile" would mean the
+     compiler might optimize it away, keeping only the heap copy.  */
+  volatile mps_word_t *area = SAFE_ALLOCA (item_size);
   for (ptrdiff_t i = 0; i < (old_nitems); i++)
     {
-      igc_assert (item_size < MAX_ALLOCA);
       ptrdiff_t count = (item_size + (sizeof (mps_word_t) - 1))
 	/ (sizeof (mps_word_t));
       eassume (count < 128);
-      /* This is volatile so it's on the stack, where MPS sees it and it
-	 pins its references.  Omitting the "volatile" would mean the
-	 compiler might optimize it away, keeping only the heap copy.  */
-      volatile mps_word_t area[count];
       memcpy ((void *) area, (char *) old_pa + item_size * i, item_size);
       eassert (memcmp ((void *) area, (char *) old_pa + item_size * i,
 		       item_size) == 0);
       memcpy ((char *) new_pa + item_size * i, (void *) area, item_size);
     }
+  SAFE_FREE ();
   if (old_pa != NULL)
     eassert (memcmp (old_pa, new_pa, old_nitems * item_size) == 0);
   eassert ((item_size) % sizeof (mps_word_t) == 0);
@@ -5787,7 +5793,7 @@ parse_error (const char *key)
    512 MB and a mortality of 0.2. */
 
 static bool
-read_gens (size_t *ngens, mps_gen_param_s parms[*ngens])
+read_gens (size_t *ngens, mps_gen_param_s parms[/* *ngens */])
 {
   const char *key = "EMACS_IGC_GENS";
   const char *env = getenv (key);
@@ -5855,8 +5861,8 @@ make_arena (struct igc *gc)
   MPS_ARGS_END (args);
   IGC_CHECK_RES (res);
 
-  size_t ngens = 10;
-  mps_gen_param_s gens[ngens];
+  mps_gen_param_s gens[10];
+  size_t ngens = countof (gens);
   if (!read_gens (&ngens, gens))
     {
       static const mps_gen_param_s default_gens[] = { { 16000, 0.5 } };

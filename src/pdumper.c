@@ -2882,17 +2882,17 @@ dump_hash_table_kv_part (struct dump_context *ctx,
     {
       dump_off k = dump_hash_vec (ctx, h->kv.keys, h->count);
       dump_off v = dump_hash_vec (ctx, h->kv.values, h->count);
-      dump_remember_fixup_ptr_raw
-	(ctx, h_start, offsetof (struct Lisp_Hash_Table, kv.keys), k);
-      dump_remember_fixup_ptr_raw
-	(ctx, h_start, offsetof (struct Lisp_Hash_Table, kv.values), v);
+      dump_off k_off = offsetof (struct Lisp_Hash_Table, kv.keys);
+      dump_off v_off = offsetof (struct Lisp_Hash_Table, kv.values);
+      dump_remember_fixup_ptr_raw (ctx, h_start, k_off, k);
+      dump_remember_fixup_ptr_raw (ctx, h_start, v_off, v);
     }
 #else
   if (h->kv)
     {
       dump_off kv = dump_hash_table_kv (ctx, h->kv, h->count);
-      dump_remember_fixup_ptr_raw
-	(ctx, h_start, offsetof (struct Lisp_Hash_Table, kv), kv);
+      dump_off kv_off = offsetof (struct Lisp_Hash_Table, kv);
+      dump_remember_fixup_ptr_raw (ctx, h_start, kv_off, kv);
     }
 #endif
 }
@@ -2982,7 +2982,7 @@ dump_buffer (struct dump_context *ctx, const struct buffer *in_buffer)
 #if CHECK_STRUCTS && !defined HASH_buffer_8F5C5BAA16
 # error "buffer changed. See CHECK_STRUCTS comment in config.h."
 #endif
-#if CHECK_STRUCTS && !defined HASH_buffer_text_43E82F3212
+#if CHECK_STRUCTS && !defined HASH_buffer_text_788F5E5652
 # error "buffer_text changed. See CHECK_STRUCTS comment in config.h."
 #endif
 
@@ -3694,15 +3694,12 @@ dump_cold_charset (struct dump_context *ctx, Lisp_Object data)
   /* Dump charset lookup tables.  */
   int cs_i = XFIXNUM (XCAR (data));
   dump_off cs_dump_offset = dump_off_from_lisp (XCDR (data));
-#ifndef HAVE_MPS
-  dump_remember_fixup_ptr_raw
-    (ctx, cs_dump_offset, offsetof (struct charset, code_space_mask),
-     ctx->offset);
-#else
   dump_off foff = offsetof (struct charset, code_space_mask);
-  eassert (0 <= cs_dump_offset && cs_dump_offset <= DUMP_OFF_MAX - foff);
-  dump_off code_space_mask_offset = cs_dump_offset + foff;
   dump_off here = ctx->offset;
+#ifndef HAVE_MPS
+  dump_remember_fixup_ptr_raw (ctx, cs_dump_offset, foff, here);
+#else
+  dump_off code_space_mask_offset = cs_dump_offset + foff;
   dump_push (&ctx->fixups,
 	     list3 (make_fixnum (DUMP_FIXUP_CHARSET_CODE_SPACE_MASK),
 		    dump_off_to_lisp (code_space_mask_offset),

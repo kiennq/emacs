@@ -1429,7 +1429,9 @@ android_emacs_init (int argc, char **argv, char *dump_file)
   ns_init_pool ();
 #endif
 
+#ifdef HAVE_MPS
   init_signals ();
+#endif
 
 #ifdef HAVE_MPS
   init_igc ();
@@ -1950,6 +1952,10 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
       if (dname_arg)
 	daemon_name = xstrdup (dname_arg);
     }
+
+#ifndef HAVE_MPS
+  init_signals ();
+#endif
 
   noninteractive1 = noninteractive;
 

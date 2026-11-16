@@ -178,7 +178,14 @@ static bool
 trace_equal (Lisp_Object *bt1, Lisp_Object *bt2, int depth)
 {
   for (int i = 0; i < depth; i++)
-    if (!BASE_EQ (bt1[i], bt2[i]) && NILP (Ffunction_equal (bt1[i], bt2[i])))
+    if (!BASE_EQ (bt1[i], bt2[i])
+#ifdef HAVE_MPS
+       /* Avoid accessing protected memory at the cost of creating more
+	  entries.  Post-processing can aggregate the extra entries.  */
+#else
+	&& NILP (Ffunction_equal (bt1[i], bt2[i]))
+#endif
+       )
       return false;
   return true;
 }
@@ -192,7 +199,9 @@ trace_hash (Lisp_Object *trace, int depth)
       Lisp_Object f = trace[i];
       EMACS_UINT hash1;
 #ifdef HAVE_MPS
-      hash1 = (CLOSUREP (f) ? igc_hash (AREF (f, CLOSURE_CODE)) : igc_hash (f));
+      /* log_t.trace and log_t.keys are ambiguous roots, so f is pinned
+	 as long as it is present in one of those two roots.  */
+      hash1 = (EMACS_UINT) XLI (f);
 #else
       hash1 = (CLOSUREP (f) ? XHASH (AREF (f, CLOSURE_CODE)) : XHASH (f));
 #endif
@@ -393,9 +402,6 @@ static enum profiler_cpu_running
 /* Hash-table log of CPU profiler.  */
 static struct profiler_log cpu;
 
-/* Number of unprocessed profiler signals. */
-static uintptr_t pending_profiler_signals;
-
 /* The current sampling interval in nanoseconds.  */
 static EMACS_INT current_sampling_interval;
 
@@ -411,19 +417,7 @@ handle_profiler_signal (int signal)
       count += overruns;
     }
 #endif
-  pending_signals = true;
-  pending_profiler_signals += count;
-}
-
-void
-process_pending_profiler_signals (void)
-{
-  uintptr_t count = pending_profiler_signals;
-  if (count)
-    {
-      pending_profiler_signals = 0;
-      add_sample (&cpu, count);
-    }
+  add_sample (&cpu, count);
 }
 
 static void
@@ -560,6 +554,7 @@ Return non-nil if the profiler was running.  */)
     }
 
   signal (SIGPROF, SIG_IGN);
+
   profiler_cpu_running = NOT_RUNNING;
   return Qt;
 }

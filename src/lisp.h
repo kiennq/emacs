@@ -6064,8 +6064,6 @@ extern bool profiler_memory_running;
 extern void malloc_probe (size_t);
 extern void syms_of_profiler (void);
 extern void mark_profiler (void);
-extern void process_pending_profiler_signals (void);
-
 
 #ifdef DOS_NT
 /* Defined in msdos.c, w32.c.  */
