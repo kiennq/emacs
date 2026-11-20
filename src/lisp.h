@@ -93,6 +93,15 @@ DEFINE_GDB_SYMBOL_BEGIN (int, GCTYPEBITS)
 #define GCTYPEBITS 3
 DEFINE_GDB_SYMBOL_END (GCTYPEBITS)
 
+/* A count of the number of bits in a C integer.  */
+typedef unsigned char c_bit_width_t;
+#define C_BIT_WIDTH_MAX UCHAR_MAX
+/* Check that c_bit_width_t promotes to int, to avoid comparison confusion.  */
+static_assert (C_BIT_WIDTH_MAX <= INT_MAX);
+/* Check that no C integer is too wide.  */
+static_assert (INTMAX_WIDTH <= C_BIT_WIDTH_MAX
+	       && UINTMAX_WIDTH <= C_BIT_WIDTH_MAX);
+
 /* EMACS_INT - signed integer wide enough to hold an Emacs value
    EMACS_INT_WIDTH - width in bits of EMACS_INT
    EMACS_INT_MAX - maximum value of EMACS_INT; can be used in #if
@@ -2495,8 +2504,11 @@ struct Lisp_Obarray
      their s.next field.  */
   Lisp_KV_Vector buckets;
 
-  unsigned size_bits;  /* log2(size of buckets vector) */
-  unsigned count;      /* number of symbols in obarray */
+  /* Number of symbols in obarray.  */
+  ptrdiff_t count;
+
+  /* log2 (size of buckets vector).  */
+  c_bit_width_t size_bits;
 } GCALIGNED_STRUCT;
 
 INLINE bool
@@ -2672,7 +2684,6 @@ typedef enum hash_table_weakness_t {
    (hash) indices.  It's signed and a subtype of ptrdiff_t.  */
 typedef int_least32_t hash_idx_t;
 #define HASH_IDX_MAX INT_LEAST32_MAX
-#define PRIdHASH_IDX PRIdLEAST32
 
 #ifndef USE_EPHEMERON_POOL
 struct Lisp_Weak_Hash_Table_Strong_Part;
@@ -2830,14 +2841,16 @@ struct Lisp_Hash_Table
   hash_idx_t *next;
 
   /* Number of key/value entries in the table.  */
-  hash_idx_t count;
+  ptrdiff_t count;
+
+  /* Number of entries in the next and hash vectors.  */
+  ptrdiff_t table_size;
 
   /* Index of first free entry in free list, or -1 if none.  */
   hash_idx_t next_free;
 
-  hash_idx_t table_size;   /* Size of the next and hash vectors.  */
-
-  unsigned char index_bits;	/* log2 (size of the index vector).  */
+  /* log2 (size of index vector).  */
+  c_bit_width_t index_bits;
 
   /* Weakness of the table.  */
   ENUM_BF (hash_table_weakness_t) weakness : 4;
@@ -2864,10 +2877,6 @@ struct Lisp_Weak_Hash_Table_Strong_Part
   struct Lisp_Weak_Hash_Table_Weak_Part *weak;
 };
 #endif
-
-/* struct Lisp_Hash_Table.index_bits is of type unsigned char;
-   make sure that's wide enough to store any bit width.  */
-static_assert (UINTMAX_WIDTH - 1 <= UCHAR_MAX);
 
 /* A specific Lisp_Object that is not a valid Lisp value.
    We need to be careful not to leak this value into machinery
@@ -4534,14 +4543,6 @@ integer_to_uintmax (Lisp_Object num, uintmax_t *n)
     }
 }
 
-/* Return floor (log2 (N)) as an int.  If N is zero, return -1.  */
-INLINE int
-elogb (unsigned long long int n)
-{
-  int width = stdc_bit_width (n);
-  return width - 1;
-}
-
 /* A modification count.  These are wide enough, and incremented
    rarely enough, so that they should never overflow a 60-bit counter
    in practice, and the code below assumes this so a compiler can
@@ -4555,8 +4556,8 @@ modiff_incr (modiff_count *a, ptrdiff_t len)
   /* Increase the counter more for a large modification and less for a
      small modification.  Increase it logarithmically to avoid
      increasing it too much.  */
-  static_assert (PTRDIFF_MAX <= ULLONG_MAX);
-  int incr = len == 0 ? 1 : elogb (len) + 1;
+  static_assert (PTRDIFF_MAX <= SIZE_MAX);
+  c_bit_width_t incr = len == 0 ? 1 : stdc_bit_width ((size_t) {len});
   bool modiff_overflow = ckd_add (a, a0, incr);
   eassert (!modiff_overflow && *a >> 30 >> 30 == 0);
   return a0;

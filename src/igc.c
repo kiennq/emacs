@@ -157,7 +157,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 # ifndef HASH_vectorlike_header_AF1B22D957
 #  error "struct vectorlike_header changed"
 # endif
-# ifndef HASH_Lisp_Hash_Table_D082C20BC0
+# ifndef HASH_Lisp_Hash_Table_6E179645B8
 #  error "struct Lisp_Hash_Table changed"
 # endif
 # ifndef HASH_Lisp_Weak_Hash_Table_7C5D3EDAD7
@@ -235,7 +235,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 # ifndef HASH_face_cache_C289FB8D72
 #  error "struct face_cache changed"
 # endif
-# ifndef HASH_Lisp_Obarray_E27FFF73AC
+# ifndef HASH_Lisp_Obarray_BC04BF3985
 #  error "struct Lisp_Obarray changed"
 # endif
 # ifndef HASH_module_global_reference_6429591EC9
