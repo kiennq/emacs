@@ -537,16 +537,23 @@ union buffered_input_event *prev_kbd_event (union buffered_input_event *);
 
 INLINE_HEADER_END
 
+#ifdef HAVE_MPS
 enum pending_signal
 {
   PENDING_SIGCHLD,
   PENDING_SIGWINCH,
   PENDING_SIGINT,
+  PENDING_SIGUSR1,
+  PENDING_SIGUSR2,
+  PENDING_SIGNAL_MAX = PENDING_SIGUSR2
 };
 
 extern void set_pending_signal (enum pending_signal);
 extern void process_pending_sigchld (void);
 extern void process_pending_sigwinch (void);
 extern void process_pending_sigint (void);
+extern void process_pending_sigusr1 (void);
+extern void process_pending_sigusr2 (void);
+#endif
 
 #endif /* EMACS_KEYBOARD_H */

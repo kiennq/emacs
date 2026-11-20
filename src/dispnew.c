@@ -6724,8 +6724,8 @@ marginal_area_string (struct window *w, enum window_part part, int *x,
 
 static void deliver_window_change_signal (int);
 
-void
-process_pending_sigwinch (void)
+static void
+handle_window_change_signal_2 (void)
 {
   int width, height;
   struct tty_display_info *tty;
@@ -6769,8 +6769,20 @@ process_pending_sigwinch (void)
 static void
 handle_window_change_signal (int sig)
 {
+#ifdef HAVE_MPS
   set_pending_signal (PENDING_SIGWINCH);
+#else
+  handle_window_change_signal_2 ();
+#endif
 }
+
+#ifdef HAVE_MPS
+void
+process_pending_sigwinch (void)
+{
+  handle_window_change_signal_2 ();
+}
+#endif
 
 static void
 deliver_window_change_signal (int sig)
@@ -6778,11 +6790,15 @@ deliver_window_change_signal (int sig)
   deliver_process_signal (sig, handle_window_change_signal);
 }
 #else  /* SIGWINCH */
+
+#ifdef HAVE_MPS
 AVOID
 process_pending_sigwinch (void)
 {
   emacs_abort ();
 }
+#endif
+
 #endif /* SIGWINCH */
 
 /* Do any change in frame size that was requested by a signal.
