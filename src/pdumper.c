@@ -2982,7 +2982,7 @@ dump_buffer (struct dump_context *ctx, const struct buffer *in_buffer)
 #if CHECK_STRUCTS && !defined HASH_buffer_8F5C5BAA16
 # error "buffer changed. See CHECK_STRUCTS comment in config.h."
 #endif
-#if CHECK_STRUCTS && !defined HASH_buffer_text_788F5E5652
+#if CHECK_STRUCTS && !defined HASH_buffer_text_375ED3DB94
 # error "buffer_text changed. See CHECK_STRUCTS comment in config.h."
 #endif
 
