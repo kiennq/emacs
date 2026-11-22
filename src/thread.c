@@ -905,7 +905,11 @@ run_thread (void *state)
 
   update_processes_for_thread_death (Fcurrent_thread ());
 
+#ifdef HAVE_MPS
+  igc_xfree (self->m_specpdl - 1);
+#else
   xfree (self->m_specpdl - 1);
+#endif
   self->m_specpdl = NULL;
   self->m_specpdl_ptr = NULL;
   self->m_specpdl_end = NULL;
@@ -1015,7 +1019,11 @@ will be signaled.  */)
   new_thread->m_current_buffer = current_thread->m_current_buffer;
 
   ptrdiff_t size = 50;
+#ifdef HAVE_MPS
+  union specbinding *pdlvec = igc_alloc_specpdl (1 + size);
+#else
   union specbinding *pdlvec = xzalloc ((1 + size) * sizeof (union specbinding));
+#endif
   new_thread->m_specpdl = pdlvec + 1;  /* Skip the dummy entry.  */
   new_thread->m_specpdl_end = new_thread->m_specpdl + size;
   new_thread->m_specpdl_ptr = new_thread->m_specpdl;
